@@ -297,7 +297,7 @@ func RenderService(cfg Config) error {
 	// --- 1. RENDER RUNTIME ---
 	if cfg.Runtime != "" {
 		runtimeSrc := filepath.Join("..", "1-idp-scaffolder-templates", "components", "runtimes", cfg.Runtime)
-		runtimeTarget := filepath.Join("..", "3-tenant-workloads", cfg.TeamName, "apps-source", cfg.AppName)
+		runtimeTarget := filepath.Join("..", "3-tenant-workloads", cfg.TeamName, "apps-source", "systems", cfg.SystemName, cfg.AppName)
 		if err := walkAndRender(runtimeSrc, runtimeTarget, cfg); err != nil {
 			return err
 		}
@@ -305,13 +305,13 @@ func RenderService(cfg Config) error {
 
 	// --- 2. RENDER DELIVERY (dev/ only) ---
 	deliverySrc := filepath.Join("..", "1-idp-scaffolder-templates", "components", "delivery")
-	deliveryTarget := filepath.Join("..", "3-tenant-workloads", cfg.TeamName, "gitops-repo", "apps", cfg.SystemName, cfg.AppName, "dev")
+	deliveryTarget := filepath.Join("..", "3-tenant-workloads", cfg.TeamName, "gitops-repo", "systems", cfg.SystemName, cfg.AppName, "dev")
 	if err := walkAndRender(deliverySrc, deliveryTarget, cfg); err != nil {
 		return err
 	}
 
 	// --- 3. RENDER INFRA CAPABILITIES (dev/ only) ---
-	infraTargetDir := filepath.Join("..", "3-tenant-workloads", cfg.TeamName, "infra-repo", "dev", cfg.AppName)
+	infraTargetDir := filepath.Join("..", "3-tenant-workloads", cfg.TeamName, "infra-repo", "systems", cfg.SystemName, cfg.AppName, "dev")
 	
 	// Create the infra target directory first
 	os.MkdirAll(infraTargetDir, 0755)
