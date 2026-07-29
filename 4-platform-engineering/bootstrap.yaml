@@ -9,7 +9,7 @@ spec:
   source:
     repoURL: "https://github.com/ok-karthik/platform-engineering-idp-gitops-reference-architecture.git"
     targetRevision: HEAD
-    path: 3-platform-argocd-apps # This tells Argo to apply everything inside the bootstrap folder!
+    path: 4-platform-engineering/cluster-gitops-argocd-apps # This tells Argo to apply everything inside the bootstrap folder!
     directory:
       recurse: true
   destination:

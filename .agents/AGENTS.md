@@ -14,12 +14,13 @@ platform-engineering-idp-gitops-reference-architecture/
 │   ├── components/                     # Microservice capabilities (runtimes, infra, delivery)
 │   ├── golden-paths.yaml               # Paved-road definitions mapping runtimes & capabilities
 │   └── copier.yml                      # Copier configuration (skipped by Go scaffolder)
-├── 2-idp-scaffolder-golang/            # Go implementation of the IDP Scaffolder CLI (Cobra)
-│   ├── cmd/cli/                        # Cobra commands (`root.go`, `create.go`)
-│   └── internal/templater/             # Template rendering engine (`render.go`)
-├── 2-idp-scaffolder-python/            # Python implementation of the IDP Scaffolder CLI & REST API
-│   ├── cli.py / api.py                 # Typer CLI and FastAPI REST endpoints
-│   └── utils.py                        # IPAM CIDR allocation & helper functions
+├── 2-idp-scaffolder/                   # IDP Scaffolder Implementations
+│   ├── golang/                         # Go implementation of the IDP Scaffolder CLI (Cobra)
+│   │   ├── cmd/cli/                    # Cobra commands (`root.go`, `onboard_team.go`, etc)
+│   │   └── internal/templater/         # Template rendering engine (`render.go`)
+│   └── python/                         # Python implementation of the IDP Scaffolder CLI & REST API
+│       ├── cli.py / api.py             # Typer CLI and FastAPI REST endpoints
+│       └── utils.py                    # IPAM CIDR allocation & helper functions
 ├── 3-tenant-workloads/                 # Simulated tenant monorepo target directory (Monitored by ArgoCD)
 │   └── <team_name>/                    # Per-team workloads (GitOps helm charts & Terraform infra)
 └── 4-platform-engineering/             # Platform Control Plane Infrastructure
@@ -44,7 +45,7 @@ The scaffolder templates are organised around **platform lifecycle verbs**, not 
 **Golden paths** (`golden-paths.yaml`) compose three pieces: a runtime (`components/runtimes/<lang>`), infra **capabilities** (`components/infra/<cap>.tf.tmpl`), and delivery (`components/delivery/`). Capabilities are declarative claims mapped to blessed Terraform modules — e.g. `postgres → aws-postgres`, `s3 → aws-s3`, `iam → aws-iam`.
 
 Key decisions:
-- **Go is the definitive scaffolder.** The three verbs are implemented in `2-idp-scaffolder-golang/`; the Python scaffolder stays as a legacy/reference implementation.
+- **Go is the definitive scaffolder.** The three verbs are implemented in `2-idp-scaffolder/golang/`; the Python scaffolder stays as a legacy/reference implementation in `2-idp-scaffolder/python/`.
 - **git-as-PR.** `add-service` writes into the git-tracked `3-tenant-workloads/` tree; the resulting `git diff` simulates the PR that would be opened against a real tenant repo.
 - **Monorepo output, polyrepo mapping.** Everything lands under `3-tenant-workloads/<team>/{apps-source,infra-repo,gitops-repo}/`; in production each maps to a standalone repo under a department subgroup.
 - **Helm only** for delivery (no Kustomize); **`golden-paths.yaml`** is the source of truth for the capability → module mapping.
@@ -65,13 +66,13 @@ Key decisions:
   - `[[ .AppName ]]` for app folders / files.
 - **Ignored Files**: `copier.yml` / `copier.yaml` are exclusively for Python Copier execution; the Go scaffolder explicitly skips them during `filepath.WalkDir`.
 
-### 2. Go Scaffolder Conventions (`2-idp-scaffolder-golang/`)
+### 2. Go Scaffolder Conventions (`2-idp-scaffolder/golang/`)
 - **CLI Framework**: [Cobra](https://github.com/spf13/cobra) (`cmd/cli/`).
 - **Templating Package**: `text/template` (not `html/template`).
 - **Path Handling**: Always compute relative paths using `filepath.Rel(sourceDir, srcPath)` before running `renderPath` on variable directory/file names.
 - **Error Handling**: Use explicit `if err != nil` return guards inside `filepath.WalkDir` callbacks to avoid `nil` pointer dereferences on `d.IsDir()`.
 
-### 3. Python Scaffolder Conventions (`2-idp-scaffolder-python/`)
+### 3. Python Scaffolder Conventions (`2-idp-scaffolder/python/`)
 - **CLI Framework**: [Typer](https://typer.tiangolo.com/).
 - **REST API**: [FastAPI](https://fastapi.tiangolo.com/).
 - **IPAM Engine**: `utils.py` handles deterministic `/16` VPC CIDR allocations saved in `3-tenant-workloads/cloud_vpcs_allocated.yaml`.
@@ -85,14 +86,26 @@ Key decisions:
 
 ## 🚀 Execution & Verification Commands
 
-### Go Scaffolder (`2-idp-scaffolder-golang/`)
+### Go Scaffolder (`2-idp-scaffolder/golang/`)
 ```bash
-# Run CLI create command without building binary
-go run . create --app-name my-app --team-name payments --cloud-services s3,rds
+# Run CLI onboard-team command
+go run . onboard-team --team-name payments
 ```
 
-### Python Scaffolder (`2-idp-scaffolder-python/`)
+### Python Scaffolder (`2-idp-scaffolder/python/`)
 ```bash
 # Run Python CLI
 python main.py create --app-name my-app --team-name payments
 ```
+
+
+## ✅ Resolved CLI Design Decisions & Refinements
+
+1. **Golden-Path as Seed, Capabilities as Override:** The CLI uses a single unified pipeline rather than two competing modes. 
+   - A golden path (`--golden-path`) seeds a default array of capabilities from `golden-paths.yaml`.
+   - Explicit flags (`--capabilities`) can override or extend that seed array. 
+   - This provides the "paved road" defaults while retaining the à la carte "menu" flexibility as an escape hatch.
+2. **Unified Vocabulary:** The CLI and templates will standardize on the term **capabilities** (e.g., the `--capabilities` flag) rather than mixing in legacy terms like `--cloud-services`, keeping the CLI perfectly aligned with `golden-paths.yaml`.
+3. **Dev-Only Scaffolding & Gated Promotion:** When scaffolding infrastructure (e.g., `postgres.tf`), the CLI writes **only** to the `dev/` directory. Production infrastructure never appears automatically; it requires a deliberate, gated promotion step (such as a PR that copies `dev/` to `prod/`).
+
+4. **GitOps Environment Boundary (Dev/Prod):** The GitOps layer will strictly mirror the Terraform infrastructure layer by adopting an "Environment-as-Folders" promotion model. The CLI will scaffold GitOps manifests exclusively into a `dev/` directory (e.g., `apps/<system>/<app>/dev/`). Production manifests never appear automatically; they require a deliberate PR to promote from `dev/` to `prod/`. This physical separation prevents a single shared `Chart.yaml` from triggering premature deployments and perfectly aligns the deployment promotion gate with the infrastructure promotion gate.
