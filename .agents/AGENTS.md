@@ -31,6 +31,29 @@ platform-engineering-idp-gitops-reference-architecture/
 
 ---
 
+## 🧭 Platform Model & Key Decisions
+
+The scaffolder templates are organised around **platform lifecycle verbs**, not file type. Each verb maps to a `1-idp-scaffolder-templates/` domain:
+
+| Verb | Template domain | Idempotency | Produces |
+|---|---|---|---|
+| `onboard-team` | `tenant-foundation/` | once per team | tenancy boundary — AppProject, Namespace + ResourceQuota + LimitRange, default-deny NetworkPolicy, CODEOWNERS, Kyverno PolicyException |
+| `create-system` | `systems/` | once per system | per-team ArgoCD ApplicationSet (Git-generator auto-discovery) |
+| `add-service` | `components/` | repeatable | a golden path — runtime + capabilities + delivery — plus a Backstage `catalog-info` |
+
+**Golden paths** (`golden-paths.yaml`) compose three pieces: a runtime (`components/runtimes/<lang>`), infra **capabilities** (`components/infra/<cap>.tf.tmpl`), and delivery (`components/delivery/`). Capabilities are declarative claims mapped to blessed Terraform modules — e.g. `postgres → aws-postgres`, `s3 → aws-s3`, `iam → aws-iam`.
+
+Key decisions:
+- **Go is the definitive scaffolder.** The three verbs are implemented in `2-idp-scaffolder-golang/`; the Python scaffolder stays as a legacy/reference implementation.
+- **git-as-PR.** `add-service` writes into the git-tracked `3-tenant-workloads/` tree; the resulting `git diff` simulates the PR that would be opened against a real tenant repo.
+- **Monorepo output, polyrepo mapping.** Everything lands under `3-tenant-workloads/<team>/{apps-source,infra-repo,gitops-repo}/`; in production each maps to a standalone repo under a department subgroup.
+- **Helm only** for delivery (no Kustomize); **`golden-paths.yaml`** is the source of truth for the capability → module mapping.
+- **ArgoCD discovery is convention-based:** a per-team ApplicationSet globs `apps/<system>/*`, and a cluster-wide app-of-appsets bootstrap globs `3-tenant-workloads/*/gitops-repo/systems/*`. `add-service` never edits a root app-of-apps file.
+
+> **CLI status (mid-migration):** the current Go `create` command still targets the pre-restructure template layout. The `onboard-team` / `create-system` / `add-service` verbs above are the planned CLI surface, not yet implemented.
+
+---
+
 ## 🛠️ Code Conventions & Scaffolder Standards
 
 ### 1. Templating Engine Rules
@@ -38,6 +61,7 @@ platform-engineering-idp-gitops-reference-architecture/
 - **File Extensions**: Use `.tmpl` for template files (do not use `.jinja` or `.jinja2`).
 - **File Names**:
   - `[[ .TeamName ]]` for team folders.
+  - `[[ .SystemName ]]` for logical-system folders.
   - `[[ .AppName ]]` for app folders / files.
 - **Ignored Files**: `copier.yml` / `copier.yaml` are exclusively for Python Copier execution; the Go scaffolder explicitly skips them during `filepath.WalkDir`.
 
