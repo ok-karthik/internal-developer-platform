@@ -1,25 +1,27 @@
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: opentelemetry
+  name: traefik
   namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
 spec:
   project: default
   source:
-    repoURL: 'https://open-telemetry.github.io/opentelemetry-helm-charts'
-    targetRevision: '0.65.0'
-    chart: opentelemetry-operator
+    repoURL: 'https://traefik.github.io/charts'
+    targetRevision: '26.0.0'
+    chart: traefik
     helm:
-      values: |
-        admissionWebhooks:
-          certManager:
-            enabled: true
-        manager:
-          collectorImage:
-            repository: otel/opentelemetry-collector-k8s
+      parameters:
+        - name: "providers.kubernetesIngress.publishedService.enabled"
+          value: "true"
+        - name: "providers.kubernetesCRD.allowCrossNamespace"
+          value: "true"
+        - name: "ports.traefik.expose"
+          value: "true"
   destination:
     server: 'https://kubernetes.default.svc'
-    namespace: opentelemetry
+    namespace: traefik
   syncPolicy:
     automated:
       prune: true
@@ -30,7 +32,7 @@ spec:
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: otel-resources
+  name: traefik-resources
   namespace: argocd
   annotations:
     argocd.argoproj.io/sync-wave: "2"
@@ -39,10 +41,10 @@ spec:
   source:
     repoURL: 'https://github.com/ok-karthik/platform-engineering-idp-gitops-reference-architecture.git'
     targetRevision: HEAD
-    path: 4-platform-infrastructure/otel-setup
+    path: 4-platform-engineering/cluster-addons/traefik
   destination:
     server: 'https://kubernetes.default.svc'
-    namespace: monitoring
+    namespace: traefik
   syncPolicy:
     automated:
       prune: true

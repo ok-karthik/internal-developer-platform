@@ -24,14 +24,14 @@ To make it easier to understand how this platform operates from end-to-end, the 
 
 1. **`1-idp-scaffolder-templates/` (Shared Template Assets)**  
    Centralized boilerplate code and application/infrastructure templates (`[[ .Var ]]` syntax) shared by both Go and Python scaffolder implementations.
-2. **`2-idp-scaffolder-golang/` (Go Scaffolder Engine)**  
+2. **`2-idp-scaffolder/golang/` (Go Scaffolder Engine)**  
    Go CLI implementation using **Cobra** and native `text/template` engine to render microservice workloads.
-3. **`2-idp-scaffolder-python/` (Python Scaffolder Engine & REST API)**  
+3. **`2-idp-scaffolder/python/` (Python Scaffolder Engine & REST API)**  
    Python CLI and FastAPI REST service utilizing **Typer** and **Copier** with deterministic IP Address Management (IPAM) for tenant VPCs.
 4. **`3-tenant-workloads/` (Simulated Monorepo)**  
    The target tenant GitOps repository where generated applications, Helm charts, and Terraform infrastructure reside. ArgoCD monitors this directory for automatic deployment.
 5. **`4-platform-engineering/` (Platform Infrastructure & Control Plane)**  
-   Contains reusable AWS Terraform modules (`cloud-services-terraform-modules/`), ArgoCD App-of-Apps declarations (`cluster-gitops-argocd-apps/`), Traefik ingress controller setup, and OpenTelemetry observability configurations.
+   Contains reusable AWS Terraform modules (`cloud-services-terraform-modules/`), ArgoCD App-of-Apps declarations (`argocd-apps/`), Traefik ingress controller setup, and OpenTelemetry observability configurations.
 
 ---
 
@@ -102,7 +102,7 @@ make install-argocd
 ```
 
 ### 3. Bootstrap the Platform
-The `bootstrap.yaml` file acts as the root of the "App of Apps" pattern. It points Argo CD to the `4-platform-engineering/cluster-gitops-argocd-apps/` directory to deploy all cluster add-ons simultaneously.
+The `bootstrap.yaml` file acts as the root of the "App of Apps" pattern. It points Argo CD to the `4-platform-engineering/argocd-apps/` directory to deploy all cluster add-ons simultaneously.
 ```bash
 make bootstrap
 ```
@@ -113,11 +113,11 @@ make bootstrap
 Emulate a developer onboarding a new service. The generator builds the source code, pipelines, and GitOps configurations.
 ```bash
 # Option A: Using Go CLI
-cd 2-idp-scaffolder-golang
+cd 2-idp-scaffolder/golang
 go run . create --app-name my-payment-service --team-name team-a --app-type springboot --app-port 8080
 
 # Option B: Using Python CLI
-python 2-idp-scaffolder-python/main.py create \
+python 2-idp-scaffolder/python/main.py create \
   -a my-payment-service \
   -t springboot \
   -p 8080 \

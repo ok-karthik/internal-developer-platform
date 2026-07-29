@@ -25,9 +25,9 @@ platform-engineering-idp-gitops-reference-architecture/
 │   └── <team_name>/                    # Per-team workloads (GitOps helm charts & Terraform infra)
 └── 4-platform-engineering/             # Platform Control Plane Infrastructure
     ├── cloud-services-terraform-modules/ # Reusable AWS Terraform modules (networking, iam, s3, postgres)
-    ├── cluster-gitops-argocd-apps/     # ArgoCD App-of-Apps declarations
-    ├── otel-setup/                     # OpenTelemetry collector setup
-    └── traefik-setup/                  # Traefik ingress controller setup
+    ├── argocd-apps/     # ArgoCD App-of-Apps declarations
+    ├── otel/                     # OpenTelemetry collector setup
+    └── traefik/                  # Traefik ingress controller setup
 ```
 
 ---
