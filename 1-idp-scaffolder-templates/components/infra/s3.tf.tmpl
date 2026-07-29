@@ -1,0 +1,14 @@
+locals {
+  resource_name_prefix = "[[ .TeamName ]]-[[ .AppName ]]"
+  tags = {
+    Team      = "[[ .TeamName ]]"
+    Service   = "[[ .AppName ]]"
+    ManagedBy = "terraform"
+  }
+}
+
+module "s3" {
+  source    = "git::https://github.com/ok-karthik/platform-engineering-idp-gitops-reference-architecture.git//4-platform-engineering/cloud-services-terraform-modules/aws-s3?ref=v1.0.2"
+  team_name = "[[ .TeamName ]]"
+  app_name  = "[[ .AppName ]]"
+}

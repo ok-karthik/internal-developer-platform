@@ -1,0 +1,30 @@
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: tenant-systems-bootstrap
+  namespace: argocd
+  annotations:
+    description: "Cluster-wide bootstrap: Discovers per-team/per-system AppSets and applies them."
+spec:
+  generators:
+    - git:
+        repoURL: 'https://github.com/ok-karthik/platform-engineering-idp-gitops-reference-architecture.git'
+        revision: HEAD
+        directories:
+          - path: 3-tenant-workloads/*/gitops-repo/systems/*
+  template:
+    metadata:
+      name: '{{path[1]}}-{{path.basename}}-system'
+    spec:
+      project: default
+      source:
+        repoURL: 'https://github.com/ok-karthik/platform-engineering-idp-gitops-reference-architecture.git'
+        targetRevision: HEAD
+        path: '{{path}}'
+      destination:
+        server: 'https://kubernetes.default.svc'
+        namespace: argocd
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true

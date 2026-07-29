@@ -1,0 +1,57 @@
+replicaCount: 1
+
+image:
+  repository: "ghcr.io/{{ github_owner }}/{{ github_repo }}/{{ team_name }}/{{ app_name }}"
+  pullPolicy: IfNotPresent
+  tag: "latest"
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+cloud_services: {{cloud_services}}
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations:
+  {% if app_type == 'springboot' -%}
+  instrumentation.opentelemetry.io/inject-java: "{{ app_name }}-autoinstrumentation"
+  {%- elif app_type == 'golang' -%}
+  instrumentation.opentelemetry.io/inject-sdk: "{{ app_name }}-autoinstrumentation"
+  {%- else -%}
+  instrumentation.opentelemetry.io/inject-{{ app_type }}: "{{ app_name }}-autoinstrumentation"
+  {%- endif %}
+
+podLabels: 
+  team: "{{ team_name }}"
+
+podSecurityContext: {}
+securityContext: {}
+
+service:
+  type: ClusterIP
+  port: {{ app_port }}
+
+resources: {}
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 20
+  targetCPUUtilizationPercentage: 80
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+ingress:
+  enabled: true
+  annotations: {}
+  hosts:
+    - host: "{{ app_name }}.{{ team_name }}.localhost"
+      paths:
+        - path: /
+          pathType: Prefix

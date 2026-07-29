@@ -1,0 +1,39 @@
+# Configure Copier to use standard Jinja2 curly braces
+_envops:
+  block_start_string: "{%"
+  block_end_string: "%}"
+  variable_start_string: "{{"
+  variable_end_string: "}}"
+  comment_start_string: "{#"
+  comment_end_string: "#}"
+
+tenant_name:
+  type: str
+  default: ""
+
+team_name:
+  type: str
+  default: ""
+
+app_name:
+  type: str
+  default: ""
+
+app_type:
+  type: str
+  default: ""
+
+app_port:
+  type: int
+  default: 8080
+
+cloud_services:
+  type: json
+  default: []
+
+vpc_cidr:
+  type: str
+  default: ""
+
+_exclude:
+  - "copier.yml"

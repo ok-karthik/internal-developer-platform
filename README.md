@@ -20,16 +20,18 @@ By abstracting infrastructure and deployment patterns into declarative APIs and 
 
 ## 📂 Project Structure & Reading Guide (Start Here)
 
-To make it easier to understand how this platform operates from end-to-end, the repository is logically divided into 4 chronological layers. If you are new to the platform, we recommend exploring the directories in this order:
+To make it easier to understand how this platform operates from end-to-end, the repository is logically divided into chronological layers:
 
-1. **[`1-idp-scaffolder/`](file:///Users/karthik.orugonda/github/platform-engineering-idp-gitops-reference-architecture/1-idp-scaffolder/README.md) (Developer Experience & IDP Control Plane)**  
-   The core engine of the platform's developer portal. A Python CLI and REST API utilizing **Typer**, **Copier**, and **Pydantic** to handle zero-touch microservice onboarding. Features deterministic IP Address Management (IPAM) for tenant VPCs, strict API contracts, and dual-pass template orchestration rendering parameterized Helm charts (`helm-charts/`) and flat ArgoCD manifests (`rendered-manifests/`). For more details, see the [Scaffolder README](file:///Users/karthik.orugonda/github/platform-engineering-idp-gitops-reference-architecture/1-idp-scaffolder/README.md).
-2. **`2-tenant-workloads/` (Simulated Monorepo)**  
-   *Note: Previously `generated-apps/`.* This acts as the simulated tenant source and GitOps monorepo where the scaffolded workloads reside. This directory is what ArgoCD monitors for new applications.
-3. **`3-platform-argocd-apps/` (Control Plane Orchestration)**  
-   Contains the ArgoCD "App of Apps" declarations. These are the high-level wrappers that orchestrate the deployment of the underlying platform infrastructure and GitOps synchronization.
-4. **`4-platform-infrastructure/` (Control Plane Manifests)**  
-   Contains the raw Kubernetes manifests and configurations for the core platform components (e.g., Traefik, OpenTelemetry, Gateway API) deployed by the layer above.
+1. **`1-idp-scaffolder-templates/` (Shared Template Assets)**  
+   Centralized boilerplate code and application/infrastructure templates (`[[ .Var ]]` syntax) shared by both Go and Python scaffolder implementations.
+2. **`2-idp-scaffolder-golang/` (Go Scaffolder Engine)**  
+   Go CLI implementation using **Cobra** and native `text/template` engine to render microservice workloads.
+3. **`2-idp-scaffolder-python/` (Python Scaffolder Engine & REST API)**  
+   Python CLI and FastAPI REST service utilizing **Typer** and **Copier** with deterministic IP Address Management (IPAM) for tenant VPCs.
+4. **`3-tenant-workloads/` (Simulated Monorepo)**  
+   The target tenant GitOps repository where generated applications, Helm charts, and Terraform infrastructure reside. ArgoCD monitors this directory for automatic deployment.
+5. **`4-platform-engineering/` (Platform Infrastructure & Control Plane)**  
+   Contains reusable AWS Terraform modules (`cloud-services-terraform-modules/`), ArgoCD App-of-Apps declarations (`cluster-gitops-argocd-apps/`), Traefik ingress controller setup, and OpenTelemetry observability configurations.
 
 ---
 
@@ -63,7 +65,7 @@ graph TD
 ```
 
 ### 2. Zero-Touch Multi-Tenant Auto-Discovery
-To scale across hundreds of microservices, we utilize **Argo CD ApplicationSets**. Instead of manually mapping each microservice to an Argo CD `Application` resource, our ApplicationSet uses a multi-level Git directory generator (`apps/*/*-gitops-repo/apps/*`) to dynamically provision and isolate tenant applications on the fly from the `2-tenant-workloads/` directory.
+To scale across hundreds of microservices, we utilize **Argo CD ApplicationSets**. Instead of manually mapping each microservice to an Argo CD `Application` resource, our ApplicationSet uses a multi-level Git directory generator (`apps/*/*-gitops-repo/apps/*`) to dynamically provision and isolate tenant applications on the fly from the `3-tenant-workloads/` directory.
 
 ---
 
@@ -100,7 +102,7 @@ make install-argocd
 ```
 
 ### 3. Bootstrap the Platform
-The `bootstrap.yaml` file acts as the root of the "App of Apps" pattern. It points Argo CD to the `3-platform-argocd-apps/` directory to deploy all cluster add-ons simultaneously.
+The `bootstrap.yaml` file acts as the root of the "App of Apps" pattern. It points Argo CD to the `4-platform-engineering/cluster-gitops-argocd-apps/` directory to deploy all cluster add-ons simultaneously.
 ```bash
 make bootstrap
 ```
@@ -110,8 +112,12 @@ make bootstrap
 ### 4. Scaffold a New Microservice
 Emulate a developer onboarding a new service. The generator builds the source code, pipelines, and GitOps configurations.
 ```bash
-# Using python directly to run the entrypoint CLI subcommand 'create'
-python 1-idp-scaffolder/main.py create \
+# Option A: Using Go CLI
+cd 2-idp-scaffolder-golang
+go run . create --app-name my-payment-service --team-name team-a --app-type springboot --app-port 8080
+
+# Option B: Using Python CLI
+python 2-idp-scaffolder-python/main.py create \
   -a my-payment-service \
   -t springboot \
   -p 8080 \
@@ -123,7 +129,7 @@ python 1-idp-scaffolder/main.py create \
 ## 🛠️ Operations Guide
 
 ### Updating ArgoCD Applications
-If you make changes to the YAML files inside the `3-platform-argocd-apps/` or `4-platform-infrastructure/` directories, ArgoCD is configured to automatically sync the changes from the `main` branch. 
+If you make changes to the YAML files inside the `4-platform-engineering/` directory, ArgoCD is configured to automatically sync the changes from the `main` branch. 
 To manually trigger a sync or force an update without waiting for Git polling, you can apply the bootstrap file again:
 ```bash
 make bootstrap

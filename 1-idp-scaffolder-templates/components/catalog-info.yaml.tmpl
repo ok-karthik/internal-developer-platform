@@ -1,0 +1,11 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: [[ .AppName ]]
+  annotations:
+    github.com/project-slug: acme-corp/[[ .TeamName ]]-[[ .AppName ]]
+spec:
+  type: service
+  lifecycle: production
+  owner: team-[[ .TeamName ]]
+  system: [[ .SystemName ]]

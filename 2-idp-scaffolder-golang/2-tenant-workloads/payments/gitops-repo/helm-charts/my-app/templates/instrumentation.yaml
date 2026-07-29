@@ -1,0 +1,27 @@
+apiVersion: opentelemetry.io/v1alpha1
+kind: Instrumentation
+metadata:
+  name: {{ include "app.fullname" . }}-autoinstrumentation
+  labels:
+    {{- include "app.labels" . | nindent 4 }}
+spec:
+  exporter:
+    # Point traces to the centralized Tempo service running in the monitoring namespace
+    endpoint: http://tempo.monitoring.svc.cluster.local:4317
+  propagators:
+    - tracecontext
+    - baggage
+    - b3
+  sampler:
+    type: parentbased_always_on
+  python:
+    image: ghcr.io/open-telemetry/opentelemetry-operator/autoinstrumentation-python:latest
+    env:
+      - name: OTEL_PYTHON_DISABLED_INSTRUMENTATIONS
+        value: "system_metrics"
+      - name: OTEL_LOGS_EXPORTER
+        value: "none"
+  java:
+    image: ghcr.io/open-telemetry/opentelemetry-operator/autoinstrumentation-java:latest
+  nodejs:
+    image: ghcr.io/open-telemetry/opentelemetry-operator/autoinstrumentation-nodejs:latest

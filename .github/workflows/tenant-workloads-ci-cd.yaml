@@ -5,7 +5,7 @@ on:
     branches:
       - main
     paths:
-      - '2-tenant-workloads/**'
+      - '3-tenant-workloads/**'
       - '.github/workflows/tenant-workloads-ci-cd.yaml'
 
 # Grants write permission to push the rendered manifests back to the repo and publish images to GHCR
@@ -43,11 +43,11 @@ jobs:
       - name: Run CI/CD Pipelines for Generated Apps
         run: |
           # Find all generated applications that have a templated-manifests directory
-          for dir in 2-tenant-workloads/*/gitops-repo/helm-charts/*; do
+          for dir in 3-tenant-workloads/*/gitops-repo/helm-charts/*; do
             if [ -d "$dir" ]; then
               TENANT_NAME=$(echo "$dir" | awk -F'/' '{print $2}')
               APP_NAME=$(basename "$dir")
-              SRC_DIR="2-tenant-workloads/$TENANT_NAME/apps-source/$APP_NAME"
+              SRC_DIR="3-tenant-workloads/$TENANT_NAME/apps-source/$APP_NAME"
               
               echo "==================================================="
               echo "🚀 Running Pipelines for App: $APP_NAME ($TENANT_NAME)"
@@ -80,7 +80,7 @@ jobs:
               echo "---------------------------------------------------"
               echo "☸️ Rendering Helm Manifests"
               echo "---------------------------------------------------"
-              cd "2-tenant-workloads/$TENANT_NAME/gitops-repo/"
+              cd "3-tenant-workloads/$TENANT_NAME/gitops-repo/"
               rm -rf rendered-manifests/$APP_NAME || true
               mkdir -p rendered-manifests/$APP_NAME
               helm template "$APP_NAME" helm-charts/$APP_NAME \
@@ -94,7 +94,7 @@ jobs:
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add 2-tenant-workloads/
+          git add 3-tenant-workloads/
           
           # Check if there are changes to commit
           if git diff --staged --quiet; then
