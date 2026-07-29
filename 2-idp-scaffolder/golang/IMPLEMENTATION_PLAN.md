@@ -359,3 +359,49 @@ func processSingleTemplate(srcPath string, targetPath string, cfg Config) error 
 
 ### Pro-Tip for Go Beginners
 If you want to implement the `walkAndRender(sourceDir, targetDir, cfg)` function yourself, use `filepath.WalkDir`. It allows you to recurse through a directory. For every file it finds, compute the relative path from the `sourceDir`, append it to the `targetDir`, and call `processSingleTemplate`!
+
+---
+
+## 🌟 Extra Credit: Interactive UI (Charmbracelet)
+
+Once you have the core Cobra flags and templating engine working, you can make the CLI feel like a premium, Principal-level tool by adding **Interactive Prompts**. 
+
+Instead of forcing users to type long flags like `--golden-path go-service-postgres`, you can use [Charmbracelet's Huh](https://github.com/charmbracelet/huh) to create a beautiful terminal form, and [Lip Gloss](https://github.com/charmbracelet/lipgloss) to style the success output.
+
+### Example: Adding an Interactive Form to `add-service`
+
+**File:** `cmd/cli/add_service.go`
+
+```bash
+go get github.com/charmbracelet/huh
+go get github.com/charmbracelet/lipgloss
+```
+
+```go
+// Inside your RunE function, check if the user omitted the flags:
+if cfg.AppName == "" {
+	// Create a beautiful interactive form
+	form := huh.NewForm(
+		huh.NewGroup(
+			huh.NewInput().
+				Title("What is the application name?").
+				Value(&cfg.AppName),
+				
+			huh.NewSelect[string]().
+				Title("Choose a Golden Path").
+				Options(
+					huh.NewOption("Go API with Postgres", "go-service-postgres"),
+					huh.NewOption("Python API", "python-api"),
+				).
+				Value(&goldenPathFlag),
+		),
+	)
+
+	// Run the interactive form
+	if err := form.Run(); err != nil {
+		return err
+	}
+}
+```
+
+**Recommendation:** Do not try to build the interactive UI at the same time as the templating logic! Build the CLI using standard Cobra flags first (Steps 1-8). Once it successfully writes files to disk, come back and replace the missing flags with a `huh` form for a massive UX upgrade!
