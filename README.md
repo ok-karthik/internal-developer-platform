@@ -6,15 +6,15 @@ This repository serves as a reference architecture for platform teams looking to
 
 ---
 
-## 🏗️ Architecture Summary
+## 🏗️ Platform as a Product (Architecture Summary)
 
-As cloud-native architectures scale, cognitive load on product engineering teams becomes a critical bottleneck. This reference architecture implements a **Platform-as-a-Product** model using a "Control Plane" approach. 
+As cloud-native architectures scale, cognitive load on product engineering teams becomes a critical bottleneck. This reference architecture is built on the philosophy of **Platform-as-a-Product**. The platform itself is the product, and the application teams are its customers.
 
-By abstracting infrastructure and deployment patterns into declarative APIs and standardized templates, we enable:
-* **Zero-Touch Provisioning:** Microservices are scaffolded and instantly deployed without platform team intervention.
-* **Soft Multi-Tenancy:** Automated isolation of namespaces, network policies, and progressive delivery pipelines per product team.
-* **Idempotent Infrastructure:** Splitting shared team infrastructure from app-specific infrastructure ensures manual Terraform modifications are safely preserved during subsequent app onboarding.
-* **Guardrails over Gates:** Pre-flight compliance and security enforcement through admission controllers (Kyverno) rather than manual ticket reviews.
+We deliver this product experience through four core pillars:
+* **The UX (Golden Paths):** Curated, paved-road templates that provide secure-by-default microservice runtimes and delivery pipelines.
+* **The Self-Service Portal (Go CLI):** A custom Golang CLI that allows developers to instantly scaffold applications, GitOps manifests, and infrastructure without platform team intervention.
+* **The Stable API (Versioned IaC):** Infrastructure-as-Code is abstracted into reusable, version-pinned AWS Terraform modules (`?ref=vX`), ensuring we never break our customers.
+* **The Reconciliation Engine (GitOps):** Strict unidirectional state flow. ArgoCD auto-discovers workloads via ApplicationSets, while Terraform state is strictly isolated per-service-per-environment to minimize blast radius.
 
 ---
 
