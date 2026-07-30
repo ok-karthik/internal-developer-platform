@@ -10,11 +10,11 @@ import (
 )
 
 type Config struct {
-	AppName       string
-	AppType       string
-	AppPort       int
-	TeamName      string
-	CloudServices string
+	TeamName     string   // e.g., "payments"
+	SystemName   string   // e.g., "checkout"
+	AppName      string   // e.g., "checkout-api"
+	Runtime      string   // e.g., "go" (From golden-path)
+	Capabilities []string // e.g., ["postgres", "s3"] (From flags or golden-path)
 }
 
 func RenderTemplates(cfg Config) {
