@@ -1,0 +1,30 @@
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: team-a-product-system
+  namespace: argocd
+spec:
+  generators:
+    - git:
+        repoURL: 'https://github.com/ok-karthik/platform-engineering-idp-gitops-reference-architecture.git'
+        revision: HEAD
+        directories:
+          - path: 3-tenant-workloads/team-a/gitops-repo/apps/product-system/*
+  template:
+    metadata:
+      name: 'team-a-{{path.basename}}'
+    spec:
+      project: team-a
+      source:
+        repoURL: 'https://github.com/ok-karthik/platform-engineering-idp-gitops-reference-architecture.git'
+        targetRevision: HEAD
+        path: '{{path}}/rendered-manifests'
+      destination:
+        server: 'https://kubernetes.default.svc'
+        namespace: 'team-a'
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true

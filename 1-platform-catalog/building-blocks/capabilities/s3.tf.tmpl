@@ -1,0 +1,14 @@
+locals {
+  resource_name_prefix = "[[ .TeamName ]]-[[ .AppName ]]"
+  tags = {
+    Team      = "[[ .TeamName ]]"
+    Service   = "[[ .AppName ]]"
+    ManagedBy = "terraform"
+  }
+}
+
+module "s3" {
+  source    = "[[ .CapabilitiesSourceBase ]]/[[ (index .Capabilities \"s3\").Module ]]?ref=[[ (index .Capabilities \"s3\").Version ]]"
+  team_name = "[[ .TeamName ]]"
+  app_name  = "[[ .AppName ]]"
+}

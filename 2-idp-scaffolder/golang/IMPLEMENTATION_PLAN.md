@@ -1,407 +1,141 @@
-# 🚀 Complete Golang CLI Implementation Tutorial
+# Go Implementation Plan: Plan-then-Write Refactoring
 
-This guide is designed for a Go beginner to incrementally build a production-grade Platform Engineering CLI. It covers how to replace a single rigid command with a multi-verb architecture (Cobra), how to parse YAML, and how to safely render `text/template` files to the correct output directories.
+Claude suggested a brilliant architectural refactor for the Scaffolder CLI: separating the "Planning" of the templates from the actual "Writing" to disk. 
 
-You can use this as your definitive blueprint when coding along!
+This enables:
+1. **Atomicity:** If a template fails halfway through, nothing is written to disk.
+2. **Testing:** You can write Go tests entirely in memory without creating temp directories.
+3. **Dry Runs:** `--dry-run` simply skips the final `WriteTo` call.
 
----
-
-## Step 1: Install Required Dependencies
-
-Before writing code, we need a YAML parser to read `golden-paths.yaml`. Go doesn't have a built-in YAML parser in the standard library.
-
-Run this in your terminal from the `2-idp-scaffolder-golang/` directory:
-```bash
-go get gopkg.in/yaml.v3
-```
+I have updated the templates in `1-platform-catalog` for you. Now, here is your step-by-step guide to implement the Go code.
 
 ---
 
-## Step 2: Update the Global Configuration Struct
+## 1. Update the Catalog (`internal/catalog/catalog.go`)
 
-**File:** `internal/templater/render.go`
-
-In Go, templates use a struct to fill in variables (e.g., `[[ .TeamName ]]` maps to the `TeamName` field). We need to update this struct to support our new design decisions.
+Update your `Catalog` struct so we can parse the Terraform modules dynamically from the YAML.
 
 ```go
-package templater
-
-// Config holds all the data that our templates might need to render.
-// Note: Fields MUST be capitalized so they are exported and accessible by the text/template engine!
-type Config struct {
-	TeamName     string   // e.g., "payments"
-	SystemName   string   // e.g., "checkout"
-	AppName      string   // e.g., "checkout-api"
-	Runtime      string   // e.g., "go" (From golden-path)
-	Capabilities []string // e.g., ["postgres", "s3"] (From flags or golden-path)
-}
-```
-
----
-
-## Step 3: Parse the Golden Paths (Seed Model)
-
-**File:** `internal/catalog/goldenpath.go`
-
-We want a robust way to read `1-idp-scaffolder-templates/golden-paths.yaml`. 
-Create a new package `internal/catalog` and add the following code:
-
-```go
-package catalog
-
-import (
-	"os"
-	"gopkg.in/yaml.v3"
-)
-
-// GoldenPath represents a single paved-road configuration.
-// The `yaml:"..."` tags tell the parser which YAML key maps to which field.
-type GoldenPath struct {
-	Name         string   `yaml:"name"`
-	Runtime      string   `yaml:"runtime"`
-	Capabilities []string `yaml:"capabilities"`
+type Capability struct {
+	Module  string `yaml:"module"`
+	Version string `yaml:"version"`
 }
 
-// Catalog represents the top-level structure of the YAML file.
 type Catalog struct {
-	GoldenPaths []GoldenPath `yaml:"golden-paths"`
-}
-
-// LoadCatalog reads the YAML file from disk and parses it into our Structs.
-func LoadCatalog(filePath string) (*Catalog, error) {
-	// 1. Read the raw bytes from the file
-	data, err := os.ReadFile(filePath)
-	if err != nil {
-		return nil, err // Return the error if file doesn't exist
-	}
-
-	var catalog Catalog
-	// 2. Unmarshal converts the raw YAML bytes into our Go struct
-	if err := yaml.Unmarshal(data, &catalog); err != nil {
-		return nil, err
-	}
-
-	return &catalog, nil
-}
-
-// FindPath is a helper method to easily look up a specific golden path by name.
-func (c *Catalog) FindPath(name string) (*GoldenPath, bool) {
-	for _, p := range c.GoldenPaths {
-		if p.Name == name {
-			return &p, true // Found it!
-		}
-	}
-	return nil, false // Not found
+	CapabilitiesSourceBase string                `yaml:"capabilities_source_base"`
+	GoldenPaths            []GoldenPath          `yaml:"golden-paths"`
+	Destinations           map[string]string     `yaml:"destinations"`
+	Capabilities           map[string]Capability `yaml:"capabilities"`
 }
 ```
 
 ---
 
-## Step 4: Delete the Old CLI Command
+## 2. Refactor the Templater (`internal/templater/render.go`)
 
-**Delete:** `cmd/cli/create.go`
-We are moving from a single `scaffolder create` command to a verb-driven architecture (`onboard-team`, `create-system`, `add-service`).
+This is the biggest change. We are replacing global `RenderX` functions with a `Renderer` struct that builds a `Plan`.
 
----
-
-## Step 5: Implement `onboard-team`
-
-**File:** `cmd/cli/onboard_team.go`
-
-This command runs exactly once per team and sets up their foundation.
+### Step 2a: Add the Plan and Renderer Structs
+At the top of the file, add:
 
 ```go
-package cli
-
-import (
-	"fmt"
-	"scaffolder/internal/templater"
-	"github.com/spf13/cobra"
-)
-
-// Define the global config specifically for CLI flags to write into.
-var cfg templater.Config
-
-var onboardTeamCmd = &cobra.Command{
-	Use:   "onboard-team",
-	Short: "Scaffolds the tenancy boundary for a new team",
-	RunE: func(cmd *cobra.Command, args []string) error {
-		// RunE is like Run, but allows us to return errors which Cobra will print nicely!
-		fmt.Printf("Onboarding new team: %s\n", cfg.TeamName)
-		
-		// Call our rendering logic (we will build this in Step 8)
-		return templater.RenderTenantFoundation(cfg)
-	},
+// Renderer is responsible for reading templates from a filesystem (CatalogFS) and planning them.
+type Renderer struct {
+	CatalogFS fs.FS
+	Spec      *catalog.Catalog
 }
 
-func init() {
-	// Attach this command to the root CLI
-	rootCmd.AddCommand(onboardTeamCmd)
-
-	// Define the flags (Long flag, short flag, default value, description)
-	onboardTeamCmd.Flags().StringVarP(&cfg.TeamName, "team-name", "t", "", "Name of the tenant/team (Required)")
-	
-	// Force the user to provide this flag, otherwise Cobra throws an error
-	onboardTeamCmd.MarkFlagRequired("team-name")
-}
-```
-
----
-
-## Step 6: Implement `create-system`
-
-**File:** `cmd/cli/create_system.go`
-
-This command runs once per logical system to set up ArgoCD ApplicationSets.
-
-```go
-package cli
-
-import (
-	"fmt"
-	"scaffolder/internal/templater"
-	"github.com/spf13/cobra"
-)
-
-var createSystemCmd = &cobra.Command{
-	Use:   "create-system",
-	Short: "Creates a new logical system grouping and ArgoCD ApplicationSet",
-	RunE: func(cmd *cobra.Command, args []string) error {
-		fmt.Printf("Creating system %s for team %s\n", cfg.SystemName, cfg.TeamName)
-		return templater.RenderSystem(cfg)
-	},
+// Plan holds all rendered files in memory before they are written to disk.
+type Plan struct {
+	Files map[string][]byte // Destination Path -> File Content Bytes
 }
 
-func init() {
-	rootCmd.AddCommand(createSystemCmd)
-
-	createSystemCmd.Flags().StringVarP(&cfg.TeamName, "team-name", "t", "", "Name of the tenant/team")
-	createSystemCmd.Flags().StringVarP(&cfg.SystemName, "system-name", "s", "", "Name of the logical system")
-	
-	createSystemCmd.MarkFlagRequired("team-name")
-	createSystemCmd.MarkFlagRequired("system-name")
-}
-```
-
----
-
-## Step 7: Implement `add-service` (The Complex One!)
-
-**File:** `cmd/cli/add_service.go`
-
-This command merges our Seed (Golden Path) and Override (Explicit flags) logic.
-
-```go
-package cli
-
-import (
-	"fmt"
-	"strings"
-	"scaffolder/internal/catalog"
-	"scaffolder/internal/templater"
-	"github.com/spf13/cobra"
-)
-
-// We need temporary variables to capture flags before merging them into `cfg`
-var (
-	goldenPathFlag     string
-	capabilitiesString string
-)
-
-var addServiceCmd = &cobra.Command{
-	Use:   "add-service",
-	Short: "Adds a microservice to a system (Runtime + Delivery + Infra)",
-	RunE: func(cmd *cobra.Command, args []string) error {
-		
-		// 1. If a golden path is provided, seed the configuration
-		if goldenPathFlag != "" {
-			cat, err := catalog.LoadCatalog("../1-idp-scaffolder-templates/golden-paths.yaml")
-			if err != nil {
-				return fmt.Errorf("failed to load catalog: %w", err)
-			}
-			
-			gp, found := cat.FindPath(goldenPathFlag)
-			if !found {
-				return fmt.Errorf("golden path '%s' not found in catalog", goldenPathFlag)
-			}
-			
-			// Seed the config
-			cfg.Runtime = gp.Runtime
-			cfg.Capabilities = gp.Capabilities
+// WriteTo atomically writes all planned files to the given root directory.
+func (p *Plan) WriteTo(root string) error {
+	for path, content := range p.Files {
+		fullPath := filepath.Join(root, path)
+		if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
+			return fmt.Errorf("failed to create dir for %s: %w", fullPath, err)
 		}
-
-		// 2. If the user passed explicit capabilities, override/extend the list
-		if capabilitiesString != "" {
-			// Split the comma-separated string into a slice: "postgres,s3" -> ["postgres", "s3"]
-			extraCaps := strings.Split(capabilitiesString, ",")
-			cfg.Capabilities = append(cfg.Capabilities, extraCaps...)
-		}
-
-		// (Optional for learning): You might want to deduplicate cfg.Capabilities here 
-		// so if a user asks for 'postgres' twice, it only renders once!
-
-		fmt.Printf("Generating app '%s' [Runtime: %s, Capabilities: %v]\n", cfg.AppName, cfg.Runtime, cfg.Capabilities)
-		return templater.RenderService(cfg)
-	},
-}
-
-func init() {
-	rootCmd.AddCommand(addServiceCmd)
-
-	addServiceCmd.Flags().StringVarP(&cfg.TeamName, "team-name", "t", "", "Name of the tenant/team")
-	addServiceCmd.Flags().StringVarP(&cfg.SystemName, "system-name", "s", "", "Name of the logical system")
-	addServiceCmd.Flags().StringVarP(&cfg.AppName, "app-name", "a", "", "Name of the application")
-	
-	// Flags for the Seed & Override logic
-	addServiceCmd.Flags().StringVar(&goldenPathFlag, "golden-path", "", "Seed configuration from a named golden path")
-	addServiceCmd.Flags().StringVar(&cfg.Runtime, "runtime", "", "Override the application runtime (e.g., go, python)")
-	addServiceCmd.Flags().StringVar(&capabilitiesString, "capabilities", "", "Comma-separated list of extra capabilities (e.g., postgres,s3)")
-
-	addServiceCmd.MarkFlagRequired("team-name")
-	addServiceCmd.MarkFlagRequired("system-name")
-	addServiceCmd.MarkFlagRequired("app-name")
-}
-```
-
----
-
-## Step 8: Writing the Rendering Engine Logic
-
-**File:** `internal/templater/render.go`
-
-Now we write the functions that do the actual file generation. Remember our rule: **GitOps and Infra both scaffold exclusively into `dev/`!**
-
-```go
-package templater
-
-import (
-	"fmt"
-	"os"
-	"path/filepath"
-	// ... (include strings, text/template, fs)
-)
-
-// RenderTenantFoundation scaffolds 1-idp-scaffolder-templates/tenant-foundation/
-func RenderTenantFoundation(cfg Config) error {
-	sourceDir := filepath.Join("..", "1-idp-scaffolder-templates", "tenant-foundation")
-	// Target: 3-tenant-workloads/<team>/gitops-repo/tenant-foundation/
-	targetDir := filepath.Join("..", "3-tenant-workloads", cfg.TeamName, "gitops-repo", "tenant-foundation")
-	
-	// walkAndRender is a helper function you'll write that uses filepath.WalkDir
-	return walkAndRender(sourceDir, targetDir, cfg)
-}
-
-// RenderService is the complex rendering logic for `add-service`
-func RenderService(cfg Config) error {
-	
-	// --- 1. RENDER RUNTIME ---
-	if cfg.Runtime != "" {
-		runtimeSrc := filepath.Join("..", "1-idp-scaffolder-templates", "components", "runtimes", cfg.Runtime)
-		runtimeTarget := filepath.Join("..", "3-tenant-workloads", cfg.TeamName, "apps-source", "systems", cfg.SystemName, cfg.AppName)
-		if err := walkAndRender(runtimeSrc, runtimeTarget, cfg); err != nil {
-			return err
+		if err := os.WriteFile(fullPath, content, 0644); err != nil {
+			return fmt.Errorf("failed to write file %s: %w", fullPath, err)
 		}
 	}
-
-	// --- 2. RENDER DELIVERY (dev/ only) ---
-	deliverySrc := filepath.Join("..", "1-idp-scaffolder-templates", "components", "delivery")
-	deliveryTarget := filepath.Join("..", "3-tenant-workloads", cfg.TeamName, "gitops-repo", "systems", cfg.SystemName, cfg.AppName, "dev")
-	if err := walkAndRender(deliverySrc, deliveryTarget, cfg); err != nil {
-		return err
-	}
-
-	// --- 3. RENDER INFRA CAPABILITIES (dev/ only) ---
-	infraTargetDir := filepath.Join("..", "3-tenant-workloads", cfg.TeamName, "infra-repo", "systems", cfg.SystemName, cfg.AppName, "dev")
-	
-	// Create the infra target directory first
-	os.MkdirAll(infraTargetDir, 0755)
-
-	// Loop through requested capabilities
-	for _, cap := range cfg.Capabilities {
-		srcFile := filepath.Join("..", "1-idp-scaffolder-templates", "components", "infra", cap+".tf.tmpl")
-		destFile := filepath.Join(infraTargetDir, cap+".tf")
-		
-		fmt.Printf("Adding infrastructure capability: %s\n", cap)
-		if err := processSingleTemplate(srcFile, destFile, cfg); err != nil {
-			return fmt.Errorf("failed rendering capability %s: %w", cap, err)
-		}
-	}
-	
 	return nil
 }
+```
 
-// processSingleTemplate reads a .tmpl file, evaluates variables, and writes it.
-func processSingleTemplate(srcPath string, targetPath string, cfg Config) error {
-	// Strip the .tmpl extension from the final file name
-	targetPath = strings.TrimSuffix(targetPath, ".tmpl")
+### Step 2b: Update Config struct
+Change the `Capabilities` field from a `[]string` to a `map[string]catalog.Capability`. Also add `CapabilitiesSourceBase string`. This allows your Terraform templates to resolve the dynamic URLs!
 
-	// Ensure the parent directory exists before creating the file
-	if err := os.MkdirAll(filepath.Dir(targetPath), 0755); err != nil {
-		return err
-	}
-
-	outFile, err := os.Create(targetPath)
-	if err != nil {
-		return err
-	}
-	defer outFile.Close()
-
-	// Parse the template and define our custom [[ ]] delimiters
-	tmpl, err := template.New(filepath.Base(srcPath)).Delims("[[", "]]").ParseFiles(srcPath)
-	if err != nil {
-		return err
-	}
-
-	// Execute it!
-	return tmpl.Execute(outFile, cfg)
+```go
+type Config struct {
+	TeamName               string
+	SystemName             string
+	AppName                string
+	Runtime                string
+	CapabilitiesSourceBase string
+	Capabilities           map[string]catalog.Capability
 }
 ```
 
-### Pro-Tip for Go Beginners
-If you want to implement the `walkAndRender(sourceDir, targetDir, cfg)` function yourself, use `filepath.WalkDir`. It allows you to recurse through a directory. For every file it finds, compute the relative path from the `sourceDir`, append it to the `targetDir`, and call `processSingleTemplate`!
+### Step 2c: Refactor `walkAndRender` to `walkAndPlan`
+Change your existing `walkAndRender` function signature to:
+`func (r *Renderer) walkAndPlan(sourceDir string, targetDir string, cfg Config, plan *Plan) error`
+
+**Important inner changes to `walkAndPlan`:**
+1. Remove the `d.Name() == "copier.yml"` check (it's dead weight).
+2. Use `fs.ReadFile(r.CatalogFS, srcPath)` instead of `os.ReadFile` (Make sure you adjust the `srcPath` appropriately since `fs.FS` uses `/` and doesn't like relative `../` roots).
+3. Instead of writing to disk (`os.Create`), store the result in the plan: `plan.Files[targetPath] = buf.Bytes()`.
+
+### Step 2d: Convert Render Functions to Plan Methods
+Convert `RenderService`, `RenderSystem`, and `RenderTenantFoundation` to methods on the `Renderer`:
+`func (r *Renderer) PlanService(cfg Config) (*Plan, error)`
+
+In `PlanService`, initialize a new plan:
+```go
+plan := &Plan{Files: make(map[string][]byte)}
+```
+Then replace your `walkAndRender` calls with `r.walkAndPlan(..., plan)`. 
+
+*(Don't forget to explicitly render `catalog-info.yaml.tmpl`! It sits at `blueprints`... wait no, it's at `building-blocks/runtimes/catalog-info.yaml.tmpl`, so you will need to add a line to explicitly read it and add it to `plan.Files[targetPath]`).*
 
 ---
 
-## 🌟 Extra Credit: Interactive UI (Charmbracelet)
+## 3. Update the CLI Commands (`cmd/cli/*.go`)
 
-Once you have the core Cobra flags and templating engine working, you can make the CLI feel like a premium, Principal-level tool by adding **Interactive Prompts**. 
+In `add_service.go`, `create_system.go`, and `onboard_team.go`, change how you trigger the scaffolding.
 
-Instead of forcing users to type long flags like `--golden-path go-service-postgres`, you can use [Charmbracelet's Huh](https://github.com/charmbracelet/huh) to create a beautiful terminal form, and [Lip Gloss](https://github.com/charmbracelet/lipgloss) to style the success output.
-
-### Example: Adding an Interactive Form to `add-service`
-
-**File:** `cmd/cli/add_service.go`
-
-```bash
-go get github.com/charmbracelet/huh
-go get github.com/charmbracelet/lipgloss
-```
-
+**For `add_service.go`:**
+When building the `Config`, you now need to populate the capabilities map:
 ```go
-// Inside your RunE function, check if the user omitted the flags:
-if cfg.AppName == "" {
-	// Create a beautiful interactive form
-	form := huh.NewForm(
-		huh.NewGroup(
-			huh.NewInput().
-				Title("What is the application name?").
-				Value(&cfg.AppName),
-				
-			huh.NewSelect[string]().
-				Title("Choose a Golden Path").
-				Options(
-					huh.NewOption("Go API with Postgres", "go-service-postgres"),
-					huh.NewOption("Python API", "python-api"),
-				).
-				Value(&goldenPathFlag),
-		),
-	)
-
-	// Run the interactive form
-	if err := form.Run(); err != nil {
-		return err
-	}
+cfg.Capabilities = make(map[string]catalog.Capability)
+for _, capName := range capabilitiesList { // Your parsed list from flags
+    if capData, ok := cat.Capabilities[capName]; ok {
+        cfg.Capabilities[capName] = capData
+    } else {
+        return fmt.Errorf("unknown capability: %s", capName)
+    }
 }
 ```
 
-**Recommendation:** Do not try to build the interactive UI at the same time as the templating logic! Build the CLI using standard Cobra flags first (Steps 1-8). Once it successfully writes files to disk, come back and replace the missing flags with a `huh` form for a massive UX upgrade!
+Then, execute the scaffolding using the new Renderer:
+```go
+renderer := &templater.Renderer{
+    CatalogFS: os.DirFS("../../1-platform-catalog"), // When running from golang/
+    Spec:      cat,
+}
+
+plan, err := renderer.PlanService(cfg)
+if err != nil {
+    return fmt.Errorf("failed to plan service: %w", err)
+}
+
+// TODO: Add an if !dryRun check here later!
+if err := plan.WriteTo("../../3-tenant-workloads"); err != nil {
+    return fmt.Errorf("failed to write plan: %w", err)
+}
+fmt.Println("Service successfully generated!")
+```
+
+Do the same for `create_system.go` and `onboard_team.go` (calling their respective `Plan...` methods).

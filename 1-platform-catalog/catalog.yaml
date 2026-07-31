@@ -1,0 +1,42 @@
+# 1-platform-catalog/catalog.yaml
+# This file defines the platform's offering (Golden Paths, Capabilities)
+# and its output contract (Destinations)
+
+# The base URL for all Terraform modules
+capabilities_source_base: \"git::https://github.com/ok-karthik/platform-engineering-idp-gitops-reference-architecture.git//4-platform-engineering/cloud-services-terraform-modules\"
+
+# Golden Paths define secure-by-default microservice scaffolds
+# Schema uses a list so it maps correctly to the Go struct `[]GoldenPath`
+golden-paths:
+  - name: go-service-postgres
+    description: Go microservice backed by AWS Postgres, shipped via ArgoCD
+    runtime: go
+    capabilities: [postgres]
+    delivery: standard-helm
+  - name: python-worker-s3
+    description: Python worker with an S3 bucket
+    runtime: python
+    capabilities: [s3]
+    delivery: standard-helm
+
+# Capabilities map a friendly name to a version-pinned Terraform module
+capabilities:
+  postgres:
+    module: aws-postgres
+    version: v1.0.2
+  s3:
+    module: aws-s3
+    version: v1.0.2
+  iam:
+    module: aws-iam
+    version: v1.0.2
+
+# The Output Contract: Where each component gets written.
+# This eliminates hardcoded paths in the Go CLI.
+destinations:
+  blueprints/team/gitops: "{team}-gitops/platform/team/"
+  blueprints/team/infra:  "{team}-infra/platform/"
+  blueprints/system/gitops: "{team}-gitops/platform/systems/{system}/"
+  runtimes: "{team}-services/{system}/{app}/"
+  capabilities: "{team}-infra/{system}/{app}/{env}/"
+  delivery/release: "{team}-gitops/systems/{system}/{app}/{env}/"
