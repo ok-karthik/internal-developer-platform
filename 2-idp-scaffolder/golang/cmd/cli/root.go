@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"scaffolder/internal/catalog"
@@ -45,13 +44,13 @@ Created using GoLang Cobra CLI library.`,
 		if err != nil {
 			return err
 		}
-		fmt.Println(catalogPath)
+
 		// 3. Load the spec (this assumes you will write catalog.Load later)
 		spec, err := catalog.LoadCatalog(filepath.Join(catalogPath, "catalog.yaml"))
 		if err != nil {
 			return err
 		}
-		fmt.Println(spec)
+
 		// 4. Initialize the Renderer
 		renderer = &templater.Renderer{
 			CatalogFS: os.DirFS(catalogPath),

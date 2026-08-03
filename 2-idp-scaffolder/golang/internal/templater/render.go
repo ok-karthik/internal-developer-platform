@@ -28,10 +28,10 @@ type Renderer struct {
 
 type CapabilityView struct {
 	Config
-	Name       string
-	Module     string
-	Version    string
-	SourceBase string
+	Name                   string
+	Module                 string
+	Version                string
+	CapabilitiesSourceBase string
 }
 
 // walkAndRender recursively traverses sourceDir and renders every template file into targetDir.
@@ -182,11 +182,11 @@ func (r *Renderer) RenderService(cfg Config) error {
 
 		// 2. Construct the focused view for this specific template
 		view := CapabilityView{
-			Config:     cfg,
-			Name:       capName,
-			Module:     spec.Module,
-			Version:    spec.Version,
-			SourceBase: r.Spec.CapabilitiesSourceBase,
+			Config:                 cfg,
+			Name:                   capName,
+			Module:                 spec.Module,
+			Version:                spec.Version,
+			CapabilitiesSourceBase: r.Spec.CapabilitiesSourceBase,
 		}
 
 		srcFile := path.Join("building-blocks", "capabilities", capName+".tf.tmpl")

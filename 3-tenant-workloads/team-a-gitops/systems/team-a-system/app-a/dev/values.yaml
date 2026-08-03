@@ -1,0 +1,21 @@
+replicaCount: 1
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+ingress:
+  enabled: true
+  className: "traefik"
+  hosts:
+    - host: app-a-dev.local
+      paths:
+        - path: /
+          pathType: ImplementationSpecific
+
+image:
+  tag: "latest"

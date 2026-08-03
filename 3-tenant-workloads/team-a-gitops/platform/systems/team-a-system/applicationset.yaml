@@ -1,0 +1,33 @@
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: team-a-team-a-system
+  namespace: argocd
+spec:
+  # https://argo-cd.readthedocs.io/en/stable/operator-manual/applicationset/Template/#go-templating
+  goTemplate: true
+  generators:
+    - git:
+        repoURL: 'https://github.com/ok-karthik/platform-engineering-idp-gitops-reference-architecture.git'
+        revision: HEAD
+        directories:
+          - path: 3-tenant-workloads/team-a-gitops/systems/team-a-system/*/*
+  template:
+    metadata:
+      name: 'team-a-{{ index .path.segments 4 }}-{{.path.basename}}'
+      # For path 3-tenant-workloads/team-a-gitops/systems/product-system/app-a/dev, segments are 0=3-tenant-workloads 1=team-a-gitops 2=systems 3=product-system 4=app-a 5=dev
+    spec:
+      project: team-a
+      source:
+        repoURL: 'https://github.com/ok-karthik/platform-engineering-idp-gitops-reference-architecture.git'
+        targetRevision: HEAD
+        path: '{{ .path.path }}/manifests'
+      destination:
+        server: 'https://kubernetes.default.svc'
+        namespace: 'team-a'
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true

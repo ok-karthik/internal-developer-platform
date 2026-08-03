@@ -8,7 +8,7 @@ locals {
 }
 
 module "postgres" {
-  source    = "[[ .CapabilitiesSourceBase ]]/[[ (index .Capabilities "postgres").Module ]]?ref=[[ (index .Capabilities "postgres").Version ]]"
+  source = "[[ .CapabilitiesSourceBase ]]/[[ .Module ]]?ref=[[ .Version ]]"
   team_name = "[[ .TeamName ]]"
   app_name  = "[[ .AppName ]]"
 }

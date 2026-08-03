@@ -1,0 +1,36 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: team-a
+  namespace: argocd
+spec:
+  description: "Project for team team-a"
+  sourceRepos:
+    - "https://github.com/ok-karthik/platform-engineering-idp-gitops-reference-architecture.git"
+  destinations:
+    - server: "https://kubernetes.default.svc"
+      namespace: "team-a"
+  clusterResourceWhitelist: []
+  namespaceResourceWhitelist:
+    - group: "apps"
+      kind: "Deployment"
+    - group: "apps"
+      kind: "StatefulSet"
+    - group: "apps"
+      kind: "DaemonSet"
+    - group: ""
+      kind: "Service"
+    - group: ""
+      kind: "ConfigMap"
+    - group: ""
+      kind: "Secret"
+    - group: "networking.k8s.io"
+      kind: "Ingress"
+    - group: ""
+      kind: "ServiceAccount"
+    - group: "autoscaling"
+      kind: "HorizontalPodAutoscaler"
+    - group: "batch"
+      kind: "Job"
+    - group: "batch"
+      kind: "CronJob"

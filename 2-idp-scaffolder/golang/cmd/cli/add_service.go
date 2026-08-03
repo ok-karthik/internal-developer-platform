@@ -39,7 +39,25 @@ var addServiceCmd = &cobra.Command{
 		if capabilitiesString != "" {
 			// Split the comma-separated string into a slice: "postgres,s3" -> ["postgres", "s3"]
 			extraCaps := strings.Split(capabilitiesString, ",")
-			cfg.Capabilities = append(cfg.Capabilities, extraCaps...)
+
+			// Deduplicate capabilities using a map
+			capMap := make(map[string]bool)
+
+			// Add existing capabilities to the map
+			for _, cap := range cfg.Capabilities {
+				capMap[cap] = true
+			}
+
+			// Add new capabilities, skipping duplicates
+			for _, cap := range extraCaps {
+				capMap[cap] = true
+			}
+
+			// Convert map back to slice
+			cfg.Capabilities = []string{}
+			for cap := range capMap {
+				cfg.Capabilities = append(cfg.Capabilities, cap)
+			}
 		}
 
 		// (Optional for learning): You might want to deduplicate cfg.Capabilities here
