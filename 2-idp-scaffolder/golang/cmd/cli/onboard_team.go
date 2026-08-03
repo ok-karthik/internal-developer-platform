@@ -2,13 +2,12 @@ package cli
 
 import (
 	"fmt"
-	"scaffolder/internal/templater"
 
 	"github.com/spf13/cobra"
 )
 
 // Define the global config specifically for CLI flags to write into.
-var cfg templater.Config
+//var cfg templater.Config
 
 var onboardTeamCmd = &cobra.Command{
 	Use:   "onboard-team",
@@ -18,7 +17,7 @@ var onboardTeamCmd = &cobra.Command{
 		fmt.Printf("Onboarding new team: %s\n", cfg.TeamName)
 
 		// Call our rendering logic
-		return templater.RenderTenantFoundation(cfg)
+		return renderer.RenderTenantFoundation(cfg)
 	},
 }
 

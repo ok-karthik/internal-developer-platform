@@ -4,6 +4,8 @@ metadata:
   name: [[ .TeamName ]]-[[ .SystemName ]]
   namespace: argocd
 spec:
+  # https://argo-cd.readthedocs.io/en/stable/operator-manual/applicationset/Template/#go-templating
+  goTemplate: true
   generators:
     - git:
         repoURL: 'https://github.com/ok-karthik/platform-engineering-idp-gitops-reference-architecture.git'
@@ -12,13 +14,14 @@ spec:
           - path: 3-tenant-workloads/[[ .TeamName ]]-gitops/systems/[[ .SystemName ]]/*/*
   template:
     metadata:
-      name: '[[ .TeamName ]]-{{path.basename}}'
+      name: '[[ .TeamName ]]-{{ index .path.segments 4 }}-{{.path.basename}}'
+      # For path 3-tenant-workloads/team-a-gitops/systems/product-system/app-a/dev, segments are 0=3-tenant-workloads 1=team-a-gitops 2=systems 3=product-system 4=app-a 5=dev
     spec:
       project: [[ .TeamName ]]
       source:
         repoURL: 'https://github.com/ok-karthik/platform-engineering-idp-gitops-reference-architecture.git'
         targetRevision: HEAD
-        path: '{{path}}/manifests'
+        path: '{{ .path.path }}/manifests'
       destination:
         server: 'https://kubernetes.default.svc'
         namespace: '[[ .TeamName ]]'

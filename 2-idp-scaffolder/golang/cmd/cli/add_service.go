@@ -2,8 +2,6 @@ package cli
 
 import (
 	"fmt"
-	"scaffolder/internal/catalog"
-	"scaffolder/internal/templater"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -22,12 +20,7 @@ var addServiceCmd = &cobra.Command{
 
 		// If a golden path is provided, seed the configuration
 		if goldenPathFlag != "" {
-			cat, err := catalog.LoadCatalog("../../1-platform-catalog/catalog.yaml")
-			if err != nil {
-				return fmt.Errorf("failed to load catalog: %w", err)
-			}
-
-			gp, found := cat.FindPath(goldenPathFlag)
+			gp, found := renderer.Spec.FindGoldenPath(goldenPathFlag)
 			if !found {
 				return fmt.Errorf("golden path '%s' not found in catalog", goldenPathFlag)
 			}
@@ -53,7 +46,7 @@ var addServiceCmd = &cobra.Command{
 		// so if a user asks for 'postgres' twice, it only renders once!
 
 		fmt.Printf("Generating app '%s' [Runtime: %s, Capabilities: %v]\n", cfg.AppName, cfg.Runtime, cfg.Capabilities)
-		return templater.RenderService(cfg)
+		return renderer.RenderService(cfg)
 	},
 }
 

@@ -1,9 +1,24 @@
 package cli
 
 import (
+	"fmt"
 	"os"
+	"path/filepath"
+	"scaffolder/internal/catalog"
+	"scaffolder/internal/templater"
 
+	getter "github.com/hashicorp/go-getter"
 	"github.com/spf13/cobra"
+)
+
+var (
+	outputRoot string
+	dryRun     bool
+
+	// cfg holds the CLI flags (--team-name, --app-name, etc)
+	cfg templater.Config
+	// renderer holds the loaded catalog and the filesystem logic
+	renderer *templater.Renderer
 )
 
 // rootCmd represents the base command when called without any subcommands
@@ -16,7 +31,35 @@ for IDPs
 Created using GoLang Cobra CLI library.`,
 	// Uncomment the following line if your bare application
 	// has an action associated with it:
-	// Run: func(cmd *cobra.Command, args []string) { },
+	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		// 1. Where do we save the output?
+		if outputRoot == "" {
+			wd, err := os.Getwd()
+			if err != nil {
+				return err
+			}
+			outputRoot = wd // Default to the folder the user is currently in
+		}
+		// 2. Download the templates
+		catalogPath, err := fetchRemoteCatalog("feature/go-cli")
+		if err != nil {
+			return err
+		}
+		fmt.Println(catalogPath)
+		// 3. Load the spec (this assumes you will write catalog.Load later)
+		spec, err := catalog.LoadCatalog(filepath.Join(catalogPath, "catalog.yaml"))
+		if err != nil {
+			return err
+		}
+		fmt.Println(spec)
+		// 4. Initialize the Renderer
+		renderer = &templater.Renderer{
+			CatalogFS: os.DirFS(catalogPath),
+			Spec:      spec,
+		}
+
+		return nil
+	},
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.
@@ -33,9 +76,22 @@ func init() {
 	// Cobra supports persistent flags, which, if defined here,
 	// will be global for your application.
 
-	// rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.scaffolder.yaml)")
+	rootCmd.PersistentFlags().StringVar(&outputRoot, "output-root", "", "path to 3-tenant-workloads (default: auto-discovered)")
+	rootCmd.PersistentFlags().BoolVar(&dryRun, "dry-run", false, "print what would be written without writing it")
+}
 
-	// Cobra also supports local flags, which will only run
-	// when this action is called directly.
-	rootCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
+// This downloads the catalog from GitHub into a temporary folder
+func fetchRemoteCatalog(version string) (string, error) {
+	// 1. Where to save it locally (e.g. ~/.scaffolder-cache/v1.0.0/)
+	home, _ := os.UserHomeDir()
+	cacheDir := filepath.Join(home, ".scaffolder-cache", version)
+	// 2. The remote Git URL (you can even specify branches or tags using ?ref=)
+	url := "git::https://github.com/ok-karthik/platform-engineering-idp-gitops-reference-architecture.git//1-platform-catalog?ref=" + version
+	// 3. HashiCorp's go-getter handles the actual download
+	err := getter.Get(cacheDir, url)
+	if err != nil {
+		return "", err
+	}
+
+	return cacheDir, nil
 }

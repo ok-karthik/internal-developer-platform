@@ -2,7 +2,6 @@ package cli
 
 import (
 	"fmt"
-	"scaffolder/internal/templater"
 
 	"github.com/spf13/cobra"
 )
@@ -12,7 +11,7 @@ var createSystemCmd = &cobra.Command{
 	Short: "Creates a new logical system grouping and ArgoCD ApplicationSet",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		fmt.Printf("Creating system %s for team %s\n", cfg.SystemName, cfg.TeamName)
-		return templater.RenderSystem(cfg)
+		return renderer.RenderSystem(cfg)
 	},
 }
 

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"scaffolder/internal/catalog"
 	"strings"
@@ -20,8 +21,21 @@ type Config struct {
 	Capabilities []string // e.g., ["postgres", "s3"] (From flags or golden-path)
 }
 
+type Renderer struct {
+	CatalogFS fs.FS
+	Spec      *catalog.Catalog
+}
+
+type CapabilityView struct {
+	Config
+	Name       string
+	Module     string
+	Version    string
+	SourceBase string
+}
+
 // walkAndRender recursively traverses sourceDir and renders every template file into targetDir.
-func walkAndRender(sourceDir string, targetDir string, cfg Config) error {
+func (r *Renderer) walkAndRender(sourceDir string, targetDir string, cfg Config) error {
 
 	// 1. Define an anonymous callback function (closure) for processing each file/directory.
 	// Because this function is declared INSIDE walkAndRender, it automatically captures
@@ -32,16 +46,9 @@ func walkAndRender(sourceDir string, targetDir string, cfg Config) error {
 			return err
 		}
 
-		// Skip Python Copier configuration files (these are not template files)
-		if d.Name() == "copier.yml" || d.Name() == "copier.yaml" {
-			return nil
-		}
-
 		// Calculate relative path inside template folder (e.g., "[[ .TeamName ]]/values.yaml.tmpl")
-		relPath, err := filepath.Rel(sourceDir, srcPath)
-		if err != nil {
-			return err
-		}
+		relPath := strings.TrimPrefix(srcPath, sourceDir)
+		relPath = strings.TrimPrefix(relPath, "/")
 
 		// Evaluate template variables embedded inside directory or file names (e.g. "[[ .TeamName ]]" -> "payments")
 		renderedRelPath, err := renderPath(relPath, cfg)
@@ -58,15 +65,15 @@ func walkAndRender(sourceDir string, targetDir string, cfg Config) error {
 		}
 
 		// If current item is a file, parse the template and write the rendered output to targetPath
-		return processSingleTemplate(srcPath, targetPath, cfg)
+		return r.processSingleTemplate(srcPath, targetPath, cfg)
 	}
 
 	// 2. Start walking the directory tree.
-	// filepath.WalkDir calls handleFile on every file and folder it finds under sourceDir.
-	return filepath.WalkDir(sourceDir, handleFile)
+	// fs.WalkDir calls handleFile on every file and folder it finds under sourceDir.
+	return fs.WalkDir(r.CatalogFS, sourceDir, handleFile)
 }
 
-func processSingleTemplate(srcPath string, targetPath string, cfg Config) error {
+func (r *Renderer) processSingleTemplate(srcPath string, targetPath string, data any) error {
 	// Strip .tmpl extension for the output file
 	targetPath = strings.TrimSuffix(targetPath, ".tmpl")
 
@@ -79,14 +86,15 @@ func processSingleTemplate(srcPath string, targetPath string, cfg Config) error 
 
 	// Parse and execute template from source path to outFile
 	// 1. Read & compile the template file at 'srcPath'
-	tmpl, err := template.New(filepath.Base(srcPath)).Delims("[[", "]]").ParseFiles(srcPath)
+	rawBytes, err := fs.ReadFile(r.CatalogFS, srcPath)
+	tmpl, err := template.New(filepath.Base(srcPath)).Delims("[[", "]]").Parse(string(rawBytes))
 	if err != nil {
-		return fmt.Errorf("failed to parse template: %w", err)
+		return err
 	}
 
 	// 2. Inject 'cfg' data into the compiled template and write to 'outFile'
-	if err := tmpl.Execute(outFile, cfg); err != nil {
-		return fmt.Errorf("failed to execute template: %w", err)
+	if err := tmpl.Execute(outFile, data); err != nil {
+		return err
 	}
 
 	fmt.Println(srcPath, "-->", targetPath)
@@ -116,78 +124,79 @@ func resolveDestination(destTemplate string, cfg Config) string {
 	dest = strings.ReplaceAll(dest, "{env}", "dev") // default to dev environment for scaffolding
 
 	// Prepend the root target directory
-	return filepath.Join("..", "..", "3-tenant-workloads", dest)
+	return filepath.Join("../../3-tenant-workloads", dest)
+	//return path.Clean(dest)
 }
 
 // RenderTenantFoundation scaffolds the gitops and infra base for a team
-func RenderTenantFoundation(cfg Config) error {
-	cat, err := catalog.LoadCatalog("../../1-platform-catalog/catalog.yaml")
-	if err != nil {
-		return err
-	}
-
+func (r *Renderer) RenderTenantFoundation(cfg Config) error {
 	// Render gitops-base
-	gitopsSource := filepath.Join("..", "..", "1-platform-catalog", "blueprints", "team", "gitops")
-	gitopsTarget := resolveDestination(cat.Destinations["blueprints/team/gitops"], cfg)
-	if err := walkAndRender(gitopsSource, gitopsTarget, cfg); err != nil {
+	gitopsSource := path.Join("blueprints", "team", "gitops")
+	gitopsTarget := resolveDestination(r.Spec.Destinations["blueprints/team/gitops"], cfg)
+	if err := r.walkAndRender(gitopsSource, gitopsTarget, cfg); err != nil {
 		return err
 	}
-
 	// Render infra-base
-	infraSource := filepath.Join("..", "..", "1-platform-catalog", "blueprints", "team", "infra")
-	infraTarget := resolveDestination(cat.Destinations["blueprints/team/infra"], cfg)
-	return walkAndRender(infraSource, infraTarget, cfg)
+	infraSource := path.Join("blueprints", "team", "infra")
+	infraTarget := resolveDestination(r.Spec.Destinations["blueprints/team/infra"], cfg)
+	return r.walkAndRender(infraSource, infraTarget, cfg)
 }
 
 // RenderSystem renders the ApplicationSet for a system grouping
-func RenderSystem(cfg Config) error {
-	cat, err := catalog.LoadCatalog("../../1-platform-catalog/catalog.yaml")
-	if err != nil {
-		return err
-	}
-
-	sourceDir := filepath.Join("..", "..", "1-platform-catalog", "blueprints", "system", "gitops")
-	targetDir := resolveDestination(cat.Destinations["blueprints/system/gitops"], cfg)
-
-	return walkAndRender(sourceDir, targetDir, cfg)
+func (r *Renderer) RenderSystem(cfg Config) error {
+	sourceDir := path.Join("blueprints", "system", "gitops")
+	targetDir := resolveDestination(r.Spec.Destinations["blueprints/system/gitops"], cfg)
+	return r.walkAndRender(sourceDir, targetDir, cfg)
 }
 
 // RenderService renders runtime, delivery, and capability templates for a service
-func RenderService(cfg Config) error {
-	cat, err := catalog.LoadCatalog("../../1-platform-catalog/catalog.yaml")
-	if err != nil {
-		return err
-	}
-
+func (r *Renderer) RenderService(cfg Config) error {
 	// 1. Render Runtime
 	if cfg.Runtime != "" {
-		runtimeSrc := filepath.Join("..", "..", "1-platform-catalog", "building-blocks", "runtimes", cfg.Runtime)
-		runtimeTarget := resolveDestination(cat.Destinations["runtimes"], cfg)
-		if err := walkAndRender(runtimeSrc, runtimeTarget, cfg); err != nil {
+		runtimeSrc := path.Join("building-blocks", "runtimes", cfg.Runtime)
+		runtimeTarget := resolveDestination(r.Spec.Destinations["runtimes"], cfg)
+		if err := r.walkAndRender(runtimeSrc, runtimeTarget, cfg); err != nil {
 			return err
 		}
 	}
 
 	// 2. Render Delivery (Release Values)
-	deliverySrc := filepath.Join("..", "..", "1-platform-catalog", "building-blocks", "delivery", "release")
-	deliveryTarget := resolveDestination(cat.Destinations["delivery/release"], cfg)
-	if err := walkAndRender(deliverySrc, deliveryTarget, cfg); err != nil {
+	deliverySrc := path.Join("building-blocks", "delivery", "release")
+	deliveryTarget := resolveDestination(r.Spec.Destinations["delivery/release"], cfg)
+	if err := r.walkAndRender(deliverySrc, deliveryTarget, cfg); err != nil {
 		return err
 	}
 
 	// 3. Render Infrastructure Capabilities
-	infraTargetDir := resolveDestination(cat.Destinations["capabilities"], cfg)
+	infraTargetDir := resolveDestination(r.Spec.Destinations["capabilities"], cfg)
 	if err := os.MkdirAll(infraTargetDir, 0755); err != nil {
 		return err
 	}
 
-	for _, cap := range cfg.Capabilities {
-		srcFile := filepath.Join("..", "..", "1-platform-catalog", "building-blocks", "capabilities", cap+".tf.tmpl")
-		destFile := filepath.Join(infraTargetDir, cap+".tf")
+	for _, capName := range cfg.Capabilities {
+		// 1. Look up the capability's details from the catalog
+		spec, ok := r.Spec.Capabilities[capName]
+		if !ok {
+			return fmt.Errorf("unknown capability: %s", capName)
+		}
 
-		fmt.Printf("Adding infrastructure capability: %s\n", cap)
-		if err := processSingleTemplate(srcFile, destFile, cfg); err != nil {
-			return fmt.Errorf("failed rendering capability %s: %w", cap, err)
+		// 2. Construct the focused view for this specific template
+		view := CapabilityView{
+			Config:     cfg,
+			Name:       capName,
+			Module:     spec.Module,
+			Version:    spec.Version,
+			SourceBase: r.Spec.CapabilitiesSourceBase,
+		}
+
+		srcFile := path.Join("building-blocks", "capabilities", capName+".tf.tmpl")
+		destFile := filepath.Join(infraTargetDir, capName+".tf")
+
+		fmt.Printf("Adding infrastructure capability: %s\n", capName)
+
+		// 3. Pass `view` instead of `cfg`
+		if err := r.processSingleTemplate(srcFile, destFile, view); err != nil {
+			return fmt.Errorf("failed rendering capability %s: %w", capName, err)
 		}
 	}
 
