@@ -1,11 +1,14 @@
 package cli
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"scaffolder/internal/catalog"
 	"scaffolder/internal/templater"
+	"time"
 
+	"github.com/briandowns/spinner"
 	getter "github.com/hashicorp/go-getter"
 	"github.com/spf13/cobra"
 )
@@ -40,10 +43,18 @@ Created using GoLang Cobra CLI library.`,
 			outputRoot = wd // Default to the folder the user is currently in
 		}
 		// 2. Download the templates
+		// 2. Download the templates with a beautiful spinner!
+		s := spinner.New(spinner.CharSets[14], 100*time.Millisecond)
+		s.Suffix = " Fetching templates from GitHub..."
+		s.Start()
 		catalogPath, err := fetchRemoteCatalog("feature/go-cli")
 		if err != nil {
+			s.Stop() // Make sure to stop it if there's an error!
 			return err
 		}
+
+		s.Stop()
+		fmt.Println("✅ Templates fetched!")
 
 		// 3. Load the spec (this assumes you will write catalog.Load later)
 		spec, err := catalog.LoadCatalog(filepath.Join(catalogPath, "catalog.yaml"))

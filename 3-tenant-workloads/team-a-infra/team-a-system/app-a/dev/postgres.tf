@@ -8,4 +8,7 @@ locals {
 }
 
 module "postgres" {
-  source    = "git::https://github.com/ok-karthik/platform-engineering-idp-gitops-reference-architecture.git//4-platform-engineering/cloud-services-terraform-modules/
+  source = "git::https://github.com/ok-karthik/platform-engineering-idp-gitops-reference-architecture.git//4-platform-engineering/cloud-services-terraform-modules/aws-postgres?ref=v1.0.2"
+  team_name = "team-a"
+  app_name  = "app-a"
+}
