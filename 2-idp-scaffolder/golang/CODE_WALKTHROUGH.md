@@ -7,11 +7,11 @@ Every trace, path, and output block below was captured by actually building and 
 The command traced throughout:
 
 ```bash
-scaffolder add-service --team-name payments --system-name checkout \
-                       --app-name checkout-api --golden-path go-service-postgres
+scaffolder add-service --team-name payments --app-name checkout-api \
+                       --golden-path go-service-postgres
 ```
 
-If you only read one thing, read **§10 (pointers and values)** and **§12 (bugs found while writing this)**.
+If you only read one thing, read **§10 (pointers and values)** and **§12 (open bugs)**.
 
 ---
 
@@ -22,15 +22,16 @@ If you only read one thing, read **§10 (pointers and values)** and **§12 (bugs
 | 1 | The 30-second mental model |
 | 2 | Program start — `main.go` and Cobra's real execution order |
 | 3 | `PersistentPreRunE` — the boot sequence |
-| 4 | `catalog.LoadCatalog` — YAML bytes → Go structs |
-| 5 | The command layer — `onboard-team`, `create-system`, `add-service` |
+| 4 | `catalog.LoadCatalog` — YAML bytes → Go structs → validation |
+| 5 | The command layer — `onboard-team`, `add-service` |
 | 6 | `resolveDestination` — the output contract |
 | 7 | `walkAndRender` — the closure and the walk |
 | 8 | `processSingleTemplate` — bytes → file |
 | 9 | `renderPath` — templating the *path*, not the content |
 | 10 | Pointers and values — why `*Catalog` but `cfg Config` |
 | 11 | Full end-to-end trace, all three verbs |
-| 12 | Bugs found while writing this walkthrough |
+| 12 | Open bugs |
+| 13 | Suggested reading order |
 
 ---
 
@@ -55,11 +56,67 @@ Three inputs meet in the middle:
 |---|---|---|
 | **Source tree** | `1-platform-catalog/` (downloaded from GitHub) | `building-blocks/runtimes/go/` |
 | **Data** | CLI flags + golden path from `catalog.yaml` | `TeamName: payments, Runtime: go` |
-| **Destination** | `destinations:` table in `catalog.yaml` | `{team}-services/{system}/{app}/` |
+| **Destination** | `destinations:` table in `catalog.yaml` | `{team}/apps/{app}/` |
 
 Source tree + data → rendered bytes. Destination table → where they land.
 The reason there's a `destinations:` table at all is so that **no Go file contains a hardcoded output
-path** — you can restructure `3-tenant-workloads/` by editing YAML.
+path** — you can restructure `3-tenant-workloads/` by editing YAML. (That is exactly what the
+`systems/` → `apps/` rename was: a one-line change per key, no Go touched.)
+
+### The output layout
+
+```
+3-tenant-workloads/<team>/
+├── apps/                             ← root of the would-be <team>-apps repo
+│   ├── CODEOWNERS
+│   └── <app>/                        go.mod, main.go, catalog-info.yaml
+├── infra/                            ← root of <team>-infra
+│   ├── CODEOWNERS
+│   ├── platform/                     providers.tf, team-iam.tf      ← platform-owned
+│   └── apps/<app>/<env>/             postgres.tf                    ← team-owned
+└── gitops/                           ← root of <team>-gitops
+    ├── CODEOWNERS
+    ├── platform/                                                    ← platform-owned
+    │   ├── team/                     appproject, namespace, networkpolicy
+    │   └── applicationsets/          <team>.yaml
+    └── apps/<app>/<env>/             values.yaml  +  manifests/     ← team-owned / CI
+```
+
+CODEOWNERS sits at each of those three roots, not inside `platform/`, because GitHub honours it
+only at a repo root, `.github/`, or `docs/`. Those three paths are also exactly the
+`git subtree split` prefixes, so splitting into real repos is a no-op.
+
+**The blueprints mirror this tree.** `blueprints/team/gitops/` is laid out exactly like
+`<team>/gitops/`, so the nesting inside the blueprint *is* the path logic — no file needs its own
+destination rule, and one key per repo kind replaces what would otherwise be one key per output
+directory.
+
+There is deliberately **no `<system>/` level**. An earlier revision had one, justified as an ArgoCD
+anchor and a Terraform blast-radius boundary — neither survived contact: Terraform blast radius is
+set by where `apply` runs (`<app>/<env>/`), and a team AppSet globbing `apps/*/*` discovers apps
+fine. Backstage models System as a *relation*, so it lives in `catalog-info.yaml` (`spec.system`)
+where it can't drift from a second encoding in the path. **Directories answer "who owns this";
+relations belong in metadata.**
+
+**Two naming axes.** This is the part that reads as confusing until you separate them:
+
+| Axis | Values | Question it answers |
+|---|---|---|
+| **Repo kind** (top level) | `apps` / `infra` / `gitops` | What sort of artifact? Each becomes a real repo. |
+| **Ownership** (inside `infra/`, `gitops/`) | `platform` / `apps` | Who is allowed to edit it? |
+
+`apps` appears on both axes on purpose: it always means *team-owned, per-service content*, and the
+enclosing repo kind tells you what that content is —
+
+```
+<team>/apps/<app>/              → application source code
+<team>/infra/apps/<app>/<env>/  → that app's Terraform
+<team>/gitops/apps/<app>/<env>/ → that app's Helm values
+```
+
+The payoff is that ownership collapses to two glob lines in CODEOWNERS
+(`*/gitops/platform/**` and `*/infra/platform/**` → platform team; everything else → the team)
+instead of an enumeration that drifts every time a system is added.
 
 ---
 
@@ -82,14 +139,13 @@ all real code lives in importable packages.
 
 ### The part that trips everyone up: `init()` runs before `main()`
 
-There are four `init()` functions — one per file in `cmd/cli/`. Go runs **all** of them, in file-name
+There are three `init()` functions — one per file in `cmd/cli/`. Go runs **all** of them, in file-name
 order within the package, **before** `main()` is entered. Nobody calls them.
 
 ```
 Go runtime starts
-  ├─ cmd/cli/add_service.go   init()  → rootCmd.AddCommand(addServiceCmd);   defines its flags
-  ├─ cmd/cli/create_system.go init()  → rootCmd.AddCommand(createSystemCmd); defines its flags
-  ├─ cmd/cli/onboard_team.go  init()  → rootCmd.AddCommand(onboardTeamCmd);  defines its flags
+  ├─ cmd/cli/add_service.go   init()  → rootCmd.AddCommand(addServiceCmd);  defines its flags
+  ├─ cmd/cli/onboard_team.go  init()  → rootCmd.AddCommand(onboardTeamCmd); defines its flags
   ├─ cmd/cli/root.go          init()  → rootCmd.PersistentFlags() (--output-root, --dry-run)
   └─ main()  →  cli.Execute()  →  rootCmd.Execute()
 ```
@@ -121,15 +177,15 @@ func Execute() {
 3. Checks `MarkFlagRequired` constraints.
 4. Runs `PersistentPreRunE` (root's, then any on the subcommand), then `RunE`.
 
-Note Cobra prints the error itself before returning it, so `Execute()` discards the message and just
-sets the exit code.
+Cobra prints the error itself before returning it, so `Execute()` discards the message and just sets
+the exit code. It also prints the full usage block on *any* returned error, which is noisy for
+runtime failures — `rootCmd.SilenceUsage = true` fixes that.
 
 ---
 
 ## 3. `PersistentPreRunE` — the boot sequence (`root.go:36-72`)
 
-"Persistent" = inherited by every subcommand. This runs for `add-service`, `create-system`, and
-`onboard-team` alike. It's the constructor for the whole program.
+"Persistent" = inherited by every subcommand. This runs for both `add-service` and `onboard-team`. It's the constructor for the whole program.
 
 **In:** the parsed flags (`outputRoot`). **Out:** package-level `renderer` is non-nil, or an error.
 
@@ -202,7 +258,7 @@ Real output of the whole step:
 ✅ Templates fetched!
 ```
 
-### Step 3.3 — parse the catalog
+### Step 3.3 — parse and validate the catalog
 
 ```go
 spec, err := catalog.LoadCatalog(filepath.Join(catalogPath, "catalog.yaml"))
@@ -210,7 +266,7 @@ spec, err := catalog.LoadCatalog(filepath.Join(catalogPath, "catalog.yaml"))
 
 | In | Out |
 |---|---|
-| `~/.scaffolder-cache/feature/go-cli/catalog.yaml` | `spec *catalog.Catalog` — see §4 |
+| `~/.scaffolder-cache/feature/go-cli/catalog.yaml` | `spec *catalog.Catalog`, or an error naming the bad key — see §4 |
 
 ### Step 3.4 — build the renderer
 
@@ -234,7 +290,7 @@ disk or network. **That single field is the entire testability seam of this prog
 
 ---
 
-## 4. `catalog.LoadCatalog` — YAML bytes → Go structs
+## 4. `catalog.LoadCatalog` — YAML bytes → Go structs → validation
 
 ```go
 func LoadCatalog(filePath string) (*Catalog, error) {
@@ -246,11 +302,14 @@ func LoadCatalog(filePath string) (*Catalog, error) {
 	if err := yaml.Unmarshal(data, &catalog); err != nil {
 		return nil, err
 	}
+	if err := catalog.validate(); err != nil {
+		return nil, fmt.Errorf("invalid catalog %s: %w", filePath, err)
+	}
 	return &catalog, nil
 }
 ```
 
-**In:** a file path. **Out:** `*Catalog`, or an error.
+**In:** a file path. **Out:** a validated `*Catalog`, or an error.
 
 `yaml.Unmarshal(data, &catalog)` needs `&catalog` (a pointer) because it *writes into* the struct.
 Passing `catalog` by value would hand it a copy, it would fill the copy, and the copy would be
@@ -276,7 +335,7 @@ capabilities:                       #  →  Catalog.Capabilities  (map[string]Ca
     version: v1.0.2                 #     .Version
 
 destinations:                       #  →  Catalog.Destinations  (map[string]string)
-  runtimes: "{team}-services/{system}/{app}/"
+  building-blocks/runtimes: "{team}/apps/{app}/"
 ```
 
 Why is `golden-paths` a **list** but `capabilities` a **map**? Because golden paths are *iterated*
@@ -314,16 +373,40 @@ temporary copy.
 The `(value, bool)` return is the idiomatic Go "found?" signature — same shape as `m[k]` on a map.
 Callers write `if gp, found := ...; !found { ... }`.
 
-### `validate()` — dead code, and wrong
+### `validate()` — the load-time guard
+
+Lowercase `v` = unexported, so only this package can call it, which is correct: validation is part of
+loading, not something a caller should have to remember.
+
+It checks three things:
+
+1. `capabilities_source_base` is non-empty.
+2. Every key in `requiredDestinations` exists in the `destinations:` map.
+3. Every golden path has a name and runtime, and references only capabilities that actually exist.
+
+`requiredDestinations` is the contract between the Go code and the YAML:
 
 ```go
-func (c *Catalog) validate() error { ... }
+var requiredDestinations = []string{
+	"blueprints/team/apps",     "blueprints/team/infra",   "blueprints/team/gitops",
+	"building-blocks/runtimes", "building-blocks/service-meta",
+	"building-blocks/capabilities", "building-blocks/delivery/release",
+}
 ```
 
-Lowercase `v` = unexported, so only this package could call it — and **nothing does**. `LoadCatalog`
-returns without calling it. Go does not warn about unused methods (only unused *locals* and
-*imports*), so it compiles silently. See §12, bug 2 — if you wire it up today it fails immediately,
-because its `requiredDestinations` list doesn't match the keys in `catalog.yaml`.
+Every key is the **literal source directory inside the catalog**, so the renderer could derive the
+source path from the key instead of hardcoding both sides. (It doesn't yet — `RenderService` still
+spells out `path.Join("building-blocks", "runtimes", cfg.Runtime)` separately. Deriving it is a
+worthwhile cleanup.)
+
+Verified behaviour — delete one key from `catalog.yaml` and run any verb:
+
+```
+Error: invalid catalog /.../catalog.yaml: missing destination key: building-blocks/service-meta
+```
+
+Nothing was written. That's the point of validating at the load boundary rather than discovering a
+missing key mid-render with half the tree already on disk.
 
 ---
 
@@ -356,25 +439,31 @@ does `*ptr = "payments"`. That's why `RunE` can just read `cfg.TeamName` with no
 ```
 ✅ Templates fetched!
 Onboarding new team: payments
-blueprints/team/gitops/CODEOWNERS.tmpl --> ../../3-tenant-workloads/payments-gitops/platform/team/CODEOWNERS
-blueprints/team/gitops/appproject.yaml.tmpl --> ../../3-tenant-workloads/payments-gitops/platform/team/appproject.yaml
-blueprints/team/gitops/namespace.yaml.tmpl --> ../../3-tenant-workloads/payments-gitops/platform/team/namespace.yaml
-blueprints/team/gitops/networkpolicy.yaml.tmpl --> ../../3-tenant-workloads/payments-gitops/platform/team/networkpolicy.yaml
-blueprints/team/gitops/policy-exceptions.yaml.tmpl --> ../../3-tenant-workloads/payments-gitops/platform/team/policy-exceptions.yaml
-blueprints/team/infra/providers.tf.tmpl --> ../../3-tenant-workloads/payments-infra/platform/providers.tf
-blueprints/team/infra/team-iam.tf.tmpl --> ../../3-tenant-workloads/payments-infra/platform/team-iam.tf
+blueprints/team/apps/CODEOWNERS.tmpl --> ../../3-tenant-workloads/payments/apps/CODEOWNERS
+blueprints/team/infra/CODEOWNERS.tmpl --> ../../3-tenant-workloads/payments/infra/CODEOWNERS
+blueprints/team/infra/platform/providers.tf.tmpl --> ../../3-tenant-workloads/payments/infra/platform/providers.tf
+blueprints/team/infra/platform/team-iam.tf.tmpl --> ../../3-tenant-workloads/payments/infra/platform/team-iam.tf
+blueprints/team/gitops/CODEOWNERS.tmpl --> ../../3-tenant-workloads/payments/gitops/CODEOWNERS
+blueprints/team/gitops/platform/applicationsets/[[ .TeamName ]].yaml.tmpl --> ../../3-tenant-workloads/payments/gitops/platform/applicationsets/payments.yaml
+blueprints/team/gitops/platform/team/appproject.yaml.tmpl --> ../../3-tenant-workloads/payments/gitops/platform/team/appproject.yaml
+blueprints/team/gitops/platform/team/namespace.yaml.tmpl --> ../../3-tenant-workloads/payments/gitops/platform/team/namespace.yaml
+blueprints/team/gitops/platform/team/networkpolicy.yaml.tmpl --> ../../3-tenant-workloads/payments/gitops/platform/team/networkpolicy.yaml
+blueprints/team/gitops/platform/team/policy-exceptions.yaml.tmpl --> ../../3-tenant-workloads/payments/gitops/platform/team/policy-exceptions.yaml
 ```
 
-### 5b. `create-system`
+Three walks, one per repo kind. Every nested output path above comes from the blueprint's own
+directory structure — `RenderTenantFoundation` contains no path logic at all, just a loop over
+`teamBlueprints`.
 
-Same shape, two flags, one tree. **Real output:**
+Two things worth noticing. The **ApplicationSet's source file name is itself a template** —
+`[[ .TeamName ]].yaml.tmpl` — which is how one team gets one flatly-named file inside a shared
+`applicationsets/` directory. And it is rendered *here*, by `onboard-team`, because it is
+platform-owned and written exactly once per team; its git generator then globs `apps/*/*` so every
+future service is discovered without this file ever being edited again. That is why there is no
+`create-system` verb: nothing was left for it to do that wasn't already once-per-team and
+platform-owned.
 
-```
-Creating system checkout for team payments
-blueprints/system/gitops/applicationset.yaml.tmpl --> ../../3-tenant-workloads/payments-gitops/platform/systems/checkout/applicationset.yaml
-```
-
-### 5c. `add-service` — the only one with real logic
+### 5b. `add-service` — the only one with real logic
 
 This is the "seed and override" pattern: a golden path *seeds* defaults, explicit flags *override*
 them.
@@ -398,7 +487,7 @@ if goldenPathFlag != "" {
 
 > ⚠️ Two problems here, both real: the assignment is unconditional so it **clobbers** an explicit
 > `--runtime`, and `cfg.Capabilities = gp.Capabilities` shares the catalog's slice backing array
-> rather than copying it. §12, bugs 3 and 4.
+> rather than copying it. §12, bugs 2 and 3.
 
 **Step 2 — require a runtime**
 
@@ -428,17 +517,19 @@ twice is a no-op, which is the dedup.
 
 > ⚠️ `for cap := range capMap` iterates in a **deliberately randomized** order — Go shuffles map
 > iteration on purpose to stop you depending on it. Harmless today (each capability writes its own
-> file) but it will make golden tests fail intermittently. §12, bug 5.
+> file) but it will make golden tests fail intermittently. §12, bug 4.
 
-**Real output:**
+**Real output** — note `catalog-info.yaml` now renders, because `service-meta` is its own
+building block rather than an orphan inside `runtimes/`:
 
 ```
 Generating app 'checkout-api' [Runtime: go, Capabilities: [postgres]]
-building-blocks/runtimes/go/go.mod.tmpl --> ../../3-tenant-workloads/payments-services/checkout/checkout-api/go.mod
-building-blocks/runtimes/go/main.go.tmpl --> ../../3-tenant-workloads/payments-services/checkout/checkout-api/main.go
-building-blocks/delivery/release/values.yaml.tmpl --> ../../3-tenant-workloads/payments-gitops/systems/checkout/checkout-api/dev/values.yaml
+building-blocks/runtimes/go/go.mod.tmpl --> ../../3-tenant-workloads/payments/apps/checkout-api/go.mod
+building-blocks/runtimes/go/main.go.tmpl --> ../../3-tenant-workloads/payments/apps/checkout-api/main.go
+building-blocks/service-meta/catalog-info.yaml.tmpl --> ../../3-tenant-workloads/payments/apps/checkout-api/catalog-info.yaml
+building-blocks/delivery/release/values.yaml.tmpl --> ../../3-tenant-workloads/payments/gitops/apps/checkout-api/dev/values.yaml
 Adding infrastructure capability: postgres
-building-blocks/capabilities/postgres.tf.tmpl --> ../../3-tenant-workloads/payments-infra/checkout/checkout-api/dev/postgres.tf
+building-blocks/capabilities/postgres.tf.tmpl --> ../../3-tenant-workloads/payments/infra/apps/checkout-api/dev/postgres.tf
 ```
 
 ---
@@ -449,7 +540,7 @@ building-blocks/capabilities/postgres.tf.tmpl --> ../../3-tenant-workloads/payme
 func resolveDestination(destTemplate string, cfg Config) string {
 	dest := destTemplate
 	dest = strings.ReplaceAll(dest, "{team}",   cfg.TeamName)
-	dest = strings.ReplaceAll(dest, "{system}", cfg.SystemName)
+	dest = strings.ReplaceAll(dest, "{system}", cfg.SystemName)   // no destination uses {system} today
 	dest = strings.ReplaceAll(dest, "{app}",    cfg.AppName)
 	dest = strings.ReplaceAll(dest, "{env}",    "dev")
 	return filepath.Join("../../3-tenant-workloads", dest)
@@ -458,22 +549,32 @@ func resolveDestination(destTemplate string, cfg Config) string {
 
 **In:** a template string from `catalog.yaml`, plus the config. **Out:** a filesystem path.
 
-| `destTemplate` | Result for `payments/checkout/checkout-api` |
-|---|---|
-| `{team}-gitops/platform/team/` | `../../3-tenant-workloads/payments-gitops/platform/team` |
-| `{team}-services/{system}/{app}/` | `../../3-tenant-workloads/payments-services/checkout/checkout-api` |
-| `{team}-infra/{system}/{app}/{env}/` | `../../3-tenant-workloads/payments-infra/checkout/checkout-api/dev` |
+| Catalog key | `destTemplate` | Result for team `payments`, app `checkout-api` |
+|---|---|---|
+| `blueprints/team/apps` | `{team}/apps/` | `.../payments/apps` |
+| `blueprints/team/infra` | `{team}/infra/` | `.../payments/infra` |
+| `blueprints/team/gitops` | `{team}/gitops/` | `.../payments/gitops` |
+| `building-blocks/runtimes` | `{team}/apps/{app}/` | `.../payments/apps/checkout-api` |
+| `building-blocks/service-meta` | `{team}/apps/{app}/` | `.../payments/apps/checkout-api` |
+| `building-blocks/capabilities` | `{team}/infra/apps/{app}/{env}/` | `.../payments/infra/apps/checkout-api/dev` |
+| `building-blocks/delivery/release` | `{team}/gitops/apps/{app}/{env}/` | `.../payments/gitops/apps/checkout-api/dev` |
+
+(all prefixed `../../3-tenant-workloads/`)
 
 Note `{...}` here is **not** `text/template` — it's plain string replacement. Deliberate: the
 destinations table is authored by platform engineers editing YAML, and `{team}` is friendlier than
 `[[ .TeamName ]]`. Two different substitution systems in one program is a bit confusing, but the
 audiences are different.
 
-Two things this function gets wrong today, both traced live:
+Two things this function still gets wrong, both traced live:
 
 - `../../3-tenant-workloads` is relative to **the process's CWD**, not to the repo. Running from
   `/tmp/run` writes to `/tmp/3-tenant-workloads`. Confirmed by experiment. §12, bug 1.
-- `{env}` is hardcoded to `"dev"`, so the dev→prod promotion model can't be expressed. §12, bug 6.
+- `{env}` is hardcoded to `"dev"`, so the dev→prod promotion model can't be expressed. §12, bug 5.
+
+Also worth noticing: there is no check that every placeholder got substituted. Add `{region}` to a
+destination and forget the `ReplaceAll`, and you get a directory literally named `{region}`. A
+`strings.IndexByte(dest, '{') >= 0` guard turns that into an error.
 
 ---
 
@@ -509,7 +610,7 @@ fields, which is strictly more code for the same effect.
 ### The body, step by step
 
 Input for this trace: `sourceDir = "building-blocks/runtimes/go"`,
-`targetDir = "../../3-tenant-workloads/payments-services/checkout/checkout-api"`.
+`targetDir = "../../3-tenant-workloads/payments/apps/checkout-api"`.
 
 `fs.WalkDir` calls `handleFile` **once per entry, root included**, depth-first, in lexical order:
 
@@ -552,9 +653,9 @@ Two `TrimPrefix` calls because the first leaves a leading slash on everything ex
 renderedRelPath, err := renderPath(relPath, cfg)
 ```
 
-Handles template variables *in directory and file names*, e.g. a template dir literally named
-`[[ .AppName ]]`. No such directory exists in the catalog today, so for every current input this is
-an identity function. It's here for the case where it isn't. See §9.
+Handles template variables *in directory and file names*. This is no longer a no-op: the team
+AppSet blueprint's only file is literally named `[[ .TeamName ]].yaml.tmpl`, and this is the line
+that turns it into `payments.yaml.tmpl`. See §9.
 
 **Line 60 — join**
 
@@ -564,8 +665,8 @@ targetPath := filepath.Join(targetDir, renderedRelPath)
 
 | `renderedRelPath` | `targetPath` |
 |---|---|
-| `""` | `../../3-tenant-workloads/payments-services/checkout/checkout-api` |
-| `go.mod.tmpl` | `../../3-tenant-workloads/payments-services/checkout/checkout-api/go.mod.tmpl` |
+| `""` | `../../3-tenant-workloads/payments/apps/checkout-api` |
+| `go.mod.tmpl` | `../../3-tenant-workloads/payments/apps/checkout-api/go.mod.tmpl` |
 
 **Lines 63-68 — the fork**
 
@@ -640,7 +741,7 @@ buffered write can hide a disk-full failure.
 
 **Two real defects in this function**: `err` from `fs.ReadFile` is never checked before being
 overwritten on the next line, and `os.Create` runs *before* parsing so a bad template leaves a
-zero-byte file behind. §12, bugs 7 and 8.
+zero-byte file behind. §12, bugs 6 and 7.
 
 ---
 
@@ -670,7 +771,12 @@ thrown away.
 | In | Out |
 |---|---|
 | `"go.mod.tmpl"` | `"go.mod.tmpl"` (no actions → identity) |
-| `"[[ .AppName ]]/config.yaml"` | `"checkout-api/config.yaml"` |
+| `"[[ .TeamName ]].yaml.tmpl"` | `"payments.yaml.tmpl"` → `.tmpl` stripped later → `payments.yaml` |
+
+The second row is the live case. The team blueprint uses a templated *filename* so that each team
+produces one flatly-named ApplicationSet in a shared `applicationsets/` directory, instead of a
+directory per team containing an identically-named file. That in turn is what lets the cluster
+bootstrap AppSet glob one directory per team.
 
 ---
 
@@ -733,17 +839,25 @@ main() → rootCmd.Execute()
   └─ PersistentPreRunE
        ├─ outputRoot = os.Getwd()                      (then never used)
        ├─ fetchRemoteCatalog("feature/go-cli")         → ~/.scaffolder-cache/feature/go-cli
-       ├─ LoadCatalog(.../catalog.yaml)                → *Catalog
+       ├─ LoadCatalog(.../catalog.yaml)                → *Catalog  (unmarshal + validate)
        └─ renderer = &Renderer{os.DirFS(...), spec}
   └─ RunE → RenderTenantFoundation(cfg)
-       ├─ walkAndRender("blueprints/team/gitops",
-       │                resolveDestination("{team}-gitops/platform/team/", cfg))
-       │     → ../../3-tenant-workloads/payments-gitops/platform/team/
-       │       {CODEOWNERS, appproject.yaml, namespace.yaml, networkpolicy.yaml, policy-exceptions.yaml}
-       └─ walkAndRender("blueprints/team/infra",
-                        resolveDestination("{team}-infra/platform/", cfg))
-             → ../../3-tenant-workloads/payments-infra/platform/{providers.tf, team-iam.tf}
+       └─ for each source in teamBlueprints:
+            walkAndRender(source, resolveDestination(Spec.Destinations[source], cfg))
+
+          blueprints/team/apps    → payments/apps/CODEOWNERS
+          blueprints/team/infra   → payments/infra/CODEOWNERS
+                                     payments/infra/platform/{providers.tf, team-iam.tf}
+          blueprints/team/gitops  → payments/gitops/CODEOWNERS
+                                     payments/gitops/platform/team/{appproject,namespace,
+                                       networkpolicy,policy-exceptions}.yaml
+                                     payments/gitops/platform/applicationsets/payments.yaml
+                                       └─ renderPath("[[ .TeamName ]].yaml.tmpl") → "payments.yaml.tmpl"
 ```
+
+The loop is possible because **each destinations key IS the source directory**. One string drives
+both halves of the walk, so adding a blueprint is a catalog key plus a line in `teamBlueprints` —
+no new path logic anywhere.
 
 ### `add-service ... --golden-path go-service-postgres`
 
@@ -752,18 +866,27 @@ RunE
   ├─ FindGoldenPath("go-service-postgres") → cfg.Runtime="go", cfg.Capabilities=["postgres"]
   └─ RenderService(cfg)
        ├─ 1. runtime      walkAndRender("building-blocks/runtimes/go",
-       │                                ".../payments-services/checkout/checkout-api")
+       │                                "payments/apps/checkout-api")
        │                    → go.mod, main.go
-       ├─ 2. delivery     walkAndRender("building-blocks/delivery/release",
-       │                                ".../payments-gitops/systems/checkout/checkout-api/dev")
+       ├─ 2. service-meta walkAndRender("building-blocks/service-meta",
+       │                                "payments/apps/checkout-api")
+       │                    → catalog-info.yaml   (spec.system omitted unless --system given)
+       ├─ 3. delivery     walkAndRender("building-blocks/delivery/release",
+       │                                "payments/gitops/apps/checkout-api/dev")
        │                    → values.yaml
-       └─ 3. capabilities MkdirAll(".../payments-infra/checkout/checkout-api/dev")
+       └─ 4. capabilities MkdirAll("payments/infra/apps/checkout-api/dev")
              for "postgres":
                spec = Spec.Capabilities["postgres"]        → {aws-postgres, v1.0.2}
                view = CapabilityView{cfg, "postgres", "aws-postgres", "v1.0.2", <sourceBase>}
                processSingleTemplate("building-blocks/capabilities/postgres.tf.tmpl",
                                      ".../dev/postgres.tf", view)
 ```
+
+Step 2 is why `service-meta` is a **sibling** of `runtimes/`, not a file inside it: a walk rooted at
+`building-blocks/runtimes/<runtime>/` can never reach a file one level up, so `catalog-info.yaml`
+silently never rendered. Making it its own building block with its own `destinations:` entry is a
+structural fix — as opposed to a one-off "also render this file" line in `RenderService` that you
+would have to remember forever.
 
 ### The `CapabilityView` idea (`render.go:29-35`)
 
@@ -803,7 +926,7 @@ module "postgres" {
 
 ---
 
-## 12. Bugs found while writing this walkthrough
+## 12. Open bugs
 
 All confirmed by running the binary, not by reading.
 
@@ -818,31 +941,7 @@ nowhere near the repo, with no warning.
 *Fix:* thread `outputRoot` into `Renderer` and join against it. Combined with `--catalog-root`
 (§3.2), this is Phase 1 of the plan.
 
-### Bug 2 — `validate()` is never called, and would fail if it were
-
-`catalog.go:36` requires these keys:
-
-```
-building-blocks/runtimes         building-blocks/service-meta
-building-blocks/capabilities     building-blocks/delivery/release
-```
-
-`catalog.yaml:36` provides these:
-
-```
-runtimes    capabilities    delivery/release      (and no service-meta at all)
-```
-
-`render.go` looks up the *short* form, so the program works — but the moment you add
-`if err := catalog.validate(); err != nil` to `LoadCatalog`, every run fails with
-`missing destination key: building-blocks/runtimes`.
-
-*Fix:* pick one convention. Recommend the **long** form (key = the literal source directory), because
-then the renderer can derive the source path from the key instead of hardcoding both sides. Update
-`catalog.yaml`'s four keys and `render.go`'s four lookups, add the `service-meta` entry (bug 9), then
-call `validate()` from `LoadCatalog`.
-
-### Bug 3 — `--runtime` is silently ignored when `--golden-path` is given
+### Bug 2 — `--runtime` is silently ignored when `--golden-path` is given
 
 `add_service.go:29` assigns unconditionally, so the golden path overwrites the flag Cobra already
 parsed.
@@ -861,21 +960,22 @@ contract.
 
 *Fix:* `if cfg.Runtime == "" { cfg.Runtime = gp.Runtime }`.
 
-### Bug 4 — `cfg.Capabilities = gp.Capabilities` shares the catalog's backing array
+### Bug 3 — `cfg.Capabilities = gp.Capabilities` shares the catalog's backing array
 
 See §10. Latent rather than live today, but one `append` away from mutating the loaded catalog.
 
-### Bug 5 — capability order is randomized
+### Bug 4 — capability order is randomized
 
 `for cap := range capMap` — Go randomizes map iteration. Harmless now; guaranteed to make golden
 tests flap. Sort before use: `sort.Strings(cfg.Capabilities)`.
 
-### Bug 6 — `{env}` is hardcoded to `"dev"`
+### Bug 5 — `{env}` is hardcoded to `"dev"`
 
 `render.go:124`. The dev→prod promotion model can't be expressed at all. Needs `Config.Env` with
-`"dev"` as the flag default.
+`"dev"` as the flag default. Note the destinations table already has `{env}` in two entries, so this
+is purely a Go-side gap.
 
-### Bug 7 — unchecked error from `fs.ReadFile`
+### Bug 6 — unchecked error from `fs.ReadFile`
 
 ```go
 rawBytes, err := fs.ReadFile(r.CatalogFS, srcPath)
@@ -887,32 +987,43 @@ If the read fails, `rawBytes` is `nil`, `string(nil)` is `""`, an empty template
 get a **silently empty output file**. Add the check between the two lines. (`go vet` won't catch
 this; `errcheck` or `staticcheck` will.)
 
-### Bug 8 — `os.Create` before `Parse` leaves zero-byte files on failure
+### Bug 7 — `os.Create` before `Parse` leaves zero-byte files on failure
 
 `os.Create` truncates immediately. A template that fails to parse leaves an empty file behind. This is
 exactly the case Plan-then-Write (Phase 2) removes: render everything into memory first, write only
 once all renders succeeded.
 
-### Bug 9 — `catalog-info.yaml.tmpl` is still orphaned
+### Bug 8 — usage is printed on runtime errors
 
-It sits at `building-blocks/runtimes/catalog-info.yaml.tmpl`, a **sibling** of `go/` and `python/`.
-`RenderService` walks `building-blocks/runtimes/<runtime>/`, so the walk never reaches it.
+Any error returned from `RunE` or `PersistentPreRunE` causes Cobra to dump the full usage block, so a
+catalog validation failure looks like a syntax mistake. `rootCmd.SilenceUsage = true` fixes it.
 
-Confirmed: `payments-services/checkout/checkout-api/` contains `go.mod` and `main.go` only. Every
-service generated so far is missing its Backstage catalog entry.
+### Fixed since the first draft of this document
 
-*Fix:* move it to `building-blocks/service-meta/` with its own destinations entry, rather than
-special-casing it in Go.
-
-### Bug 10 — nothing renders the Helm chart
-
-`building-blocks/delivery/chart/` contains `Chart.yaml.tmpl` and `values.yaml.tmpl`, and no code path
-touches them. That directory is meant to be consumed by CI (`helm template` against the generated
-`values.yaml`), which is the half of the GitOps loop that's still missing.
+- ~~`validate()` never called, and its `requiredDestinations` didn't match `catalog.yaml`~~ — the keys
+  are now the literal catalog source directories on both sides, and `LoadCatalog` calls `validate()`.
+- ~~`catalog-info.yaml.tmpl` orphaned inside `runtimes/`~~ — moved to `building-blocks/service-meta/`
+  with its own destination; now renders for every service.
+- ~~Application name collision (`{{path.basename}}` was the env, so every app in a system collided on
+  `team-a-dev`)~~ — the AppSet template now uses `{{ index .path.segments 5 }}` for the app plus
+  `{{ .path.basename }}` for the env.
+- ~~Bootstrap AppSet globbed the non-existent `*/gitops-repo/systems/*`~~ — now globs
+  `3-tenant-workloads/*/gitops/platform/applicationsets`, one Application per team.
+- ~~Two different `systems/` directories at different levels in the gitops tree, and `infra/platform/`
+  colliding with a system named `platform`~~ — replaced by the `platform/` vs `apps/` ownership split.
+- ~~A `<system>/` directory level that encoded a Backstage *relation* as a location~~ — removed. The
+  grouping now lives only in `catalog-info.yaml`; `create-system` folded into `onboard-team` because
+  everything it produced was already once-per-team and platform-owned.
+- ~~CODEOWNERS rendered to `gitops/platform/team/CODEOWNERS`, where GitHub does not read it~~ — now
+  written to all three would-be repo roots by `onboard-team`.
+- ~~Nothing rendered the Helm chart; CI globbed the long-dead `*/gitops-repo/helm-charts/*`~~ —
+  `Chart.yaml`/`values.yaml` are now plain files (one generic platform chart, not per-app templates)
+  and CI discovers work by globbing `*/gitops/apps/*/*/values.yaml`, rendering into a sibling
+  `manifests/` — exactly the path the AppSet syncs. The loop is closed.
 
 ---
 
-## Suggested reading order for the code itself
+## 13. Suggested reading order for the code itself
 
 1. `main.go`, then all four `init()` functions — understand that the command tree is built before `main`.
 2. `internal/catalog/catalog.go` top to bottom — it's the only pure-data file, no I/O beyond one `ReadFile`.

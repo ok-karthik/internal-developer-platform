@@ -1,97 +1,90 @@
-# Plan: Finish the Scaffolder Refactor (Plan-then-Write + Golden Tests)
+# Implementation Plan — what's left
 
-## Context
+Companion docs:
+- **`CODE_WALKTHROUGH.md`** — what the code does *today*, line by line, with real captured I/O.
+  Read that first; this file assumes it.
+- **`IMPLEMENTATION_PLAN_ANSWERS.md`** — full reference code for the phases below, if you get stuck.
 
-The catalog reorg (commit `6875cf9`) moved `1-idp-scaffolder-templates/` → `1-platform-catalog/`, introduced a
-`destinations:` ABI table, and renamed the output tree to `<team>-services` / `<team>-infra` / `<team>-gitops`.
-That was the right direction. But the commit shipped with:
-
-- **Four files corrupted by shell escaping** — the `python3 -c` / heredoc edits wrote literal `\"` into
-  `catalog.yaml` and all three capability templates. The CLI cannot render a single `.tf` file today.
-- **Two downstream consumers left pointing at the old layout** — the cluster bootstrap ApplicationSet and the
-  GitHub Actions CI both glob directories that no longer exist. The GitOps chain is dead end-to-end.
-- **An Application name collision** introduced by the AppSet glob fix.
-- **Incomplete committed output** — `3-tenant-workloads/` was regenerated from a run that produced no
-  capabilities and no `catalog-info.yaml`, then committed as if it were the reference example.
-- **A Go implementation guide with four design bugs in it**, which you are about to code from.
-
-Outcome: a scaffolder that runs from any directory, renders correctly, proves itself with golden-file tests,
-and whose output ArgoCD can actually discover and sync.
-
-**Working agreement:** you write all Go yourself. This plan gives signatures, design rationale, and the traps
-— not function bodies. `2-idp-scaffolder/golang/IMPLEMENTATION_PLAN.md` is superseded by this file; Phase 2
-below lists exactly where it is wrong so you don't code the bugs in.
+Working agreement: **you write the Go.** This file gives signatures, rationale, and traps — not
+bodies.
 
 ---
 
-## Phase 0 — Unbreak what's committed (no Go, ~15 min)
+## Already done (was Phases 0, 4, 5)
 
-**0.1 `1-platform-catalog/catalog.yaml:6`** — the value is a YAML *plain scalar* containing literal
-backslashes:
+Listed so the history stays legible; don't redo these.
 
-```yaml
-capabilities_source_base: \"git::https://...cloud-services-terraform-modules\"
-```
+| Was | Outcome |
+|---|---|
+| Phase 0 — shell-corrupted `catalog.yaml` + three `.tf.tmpl` | Fixed; capability templates now use `[[ .Module ]]` / `[[ .Version ]]` via `CapabilityView` |
+| Phase 0.5 — normalize destinations keys | Done. Every key is now the **literal catalog source directory**, and `LoadCatalog` calls `validate()` so a mismatch fails at load |
+| Phase 4.1 — bootstrap AppSet | Globs `3-tenant-workloads/*/gitops/platform/applicationsets`, one Application per team |
+| Phase 4.2 — CI rewrite | Discovers `*/gitops/apps/*/*/values.yaml`, builds one image per app, renders the single platform chart into a sibling `manifests/`. No `--set` overrides |
+| Phase 4.3 — regenerate `3-tenant-workloads/` | Regenerated from the local catalog; `manifests/` verified against the AppSet's sync path |
+| Phase 5 — docs | AGENTS.md, README.md, and this file rewritten against reality |
 
-YAML does not process escapes in plain scalars, so the parsed string starts with `\"` and ends with `\"`.
-Every generated Terraform `source` would be malformed. Replace with a proper double-quoted scalar (no
-backslashes).
+Structural decisions taken along the way, each recorded in AGENTS.md:
 
-**0.2 `building-blocks/capabilities/{postgres,s3,iam}.tf.tmpl`** — same artifact, worse consequence:
-
-```
-source = "[[ .CapabilitiesSourceBase ]]/[[ (index .Capabilities \"postgres\").Module ]]?ref=..."
-```
-
-Inside a `text/template` action a string literal is `"postgres"`. A backslash is not a valid token there, so
-this fails at **Parse** time, not render time. These three files will be rewritten anyway in Phase 2 (see 2.3)
-— when you do, they become `[[ .Module ]]` / `[[ .Version ]]` / `[[ .SourceBase ]]` with no `index` and no
-quoting at all.
-
-**0.3 `blueprints/system/gitops/applicationset.yaml.tmpl:16`** — the glob was correctly deepened to `*/*`
-(app + env), but the Application name was not updated:
-
-```yaml
-name: '[[ .TeamName ]]-{{path.basename}}'
-```
-
-`path.basename` is now the **env** directory, so every app in a system generates an Application named
-`team-a-dev`. All apps in a system collide onto one resource. For path
-`3-tenant-workloads/team-a-gitops/systems/product-system/app-a/dev`, segments are
-`0=3-tenant-workloads 1=team-a-gitops 2=systems 3=product-system 4=app-a 5=dev`. Use
-`'[[ .TeamName ]]-{{path[4]}}-{{path.basename}}'` (this file uses fasttemplate syntax; the goTemplate
-equivalent would be `{{index .path.segments 4}}`).
+- **Tenant-first layout** — `3-tenant-workloads/<team>/{apps,infra,gitops}/`, one repo kind each.
+- **`platform/` vs `apps/`** inside `infra/` and `gitops/` — ownership, not taxonomy.
+- **No `<system>/` directory.** Backstage models System as a *relation*; it lives in
+  `catalog-info.yaml` via an optional `--system` flag. `create-system` folded into `onboard-team`,
+  so the CLI is **two verbs**.
+- **Blueprints mirror their output**, so `RenderTenantFoundation` is a loop over three keys with no
+  path logic in it.
+- **CODEOWNERS at the three would-be repo roots**, where GitHub actually reads it.
+- **One platform-owned Helm chart**, a plain chart rather than per-app templates.
 
 ---
 
 ## Phase 1 — Make the CLI location-independent (Go, small)
 
-This is a prerequisite for testing *and* a real bug: today the CLI only works if you `cd 2-idp-scaffolder/golang`
-first. A binary on a developer's laptop is broken.
+Two live bugs, one fix. See `CODE_WALKTHROUGH.md` §12 bug 1 and the §3.2 note.
 
-In `cmd/cli/root.go`, add two persistent flags — `--catalog-root` and `--output-root` — defaulting to a
-discovery walk: from `os.Getwd()`, walk up until you find a directory containing `1-platform-catalog/catalog.yaml`;
-that's the repo root. Resolve both roots once in a `PersistentPreRunE` and hand them to the `Renderer`.
+**1a. `--output-root` is a dead flag.** It's assigned in `PersistentPreRunE` and read nowhere;
+`resolveDestination` hardcodes `filepath.Join("../../3-tenant-workloads", dest)`, which resolves
+against the **process CWD**. Run the binary from `/tmp` and it writes to `/tmp/3-tenant-workloads`.
 
-Rationale: root resolution is a *CLI concern*, not a renderer concern. Once the renderer takes its roots as
-inputs, it becomes trivially testable — which is the whole point of Phase 2.
+**1b. There is no `--catalog-root`.** The catalog is fetched from GitHub by `go-getter`, so local
+edits to `1-platform-catalog/` do nothing until pushed, and tests cannot run without network.
+
+Do both together:
+
+```go
+rootCmd.PersistentFlags().StringVar(&catalogRoot, "catalog-root", "", "local catalog dir (default: fetch from git)")
+rootCmd.PersistentFlags().StringVar(&outputRoot,  "output-root",  "", "where to write (default: <repo>/3-tenant-workloads)")
+```
+
+Default both by walking up from `os.Getwd()` until you find a directory containing
+`1-platform-catalog/catalog.yaml` — that's the repo root. Resolve once in `PersistentPreRunE`, then:
+
+- `CatalogFS: os.DirFS(catalogRoot)` when the flag is set, else the `go-getter` cache path.
+- Store `outputRoot` on the `Renderer` and have `resolveDestination` return a **bare relative path**,
+  prepending nothing. Joining happens once, at write time.
+
+> **Why root resolution belongs in the CLI, not the renderer:** once the renderer takes its roots as
+> inputs it becomes trivially testable, which is the whole point of Phase 2. A renderer that calls
+> `os.Getwd()` can never be tested in parallel.
+
+Also worth two minutes: `rootCmd.SilenceUsage = true`. Right now a catalog validation error dumps the
+full usage block, making a runtime failure look like a typo (§12 bug 8).
+
+**Verify** — run from a directory that is *not* the module, and confirm output lands in the repo:
+
+```bash
+cd /tmp && go run <repo>/2-idp-scaffolder/golang onboard-team --team-name payments \
+  --catalog-root <repo>/1-platform-catalog
+```
 
 ---
 
 ## Phase 2 — Plan-then-Write (Go, the main event)
 
-### 2.1 Where `IMPLEMENTATION_PLAN.md` is wrong
+Today `processSingleTemplate` calls `os.Create` and writes immediately. Two consequences, both real:
+a template that fails to parse leaves a zero-byte file behind (§12 bug 7), and `--dry-run` cannot
+exist because there is no representation of "what would be written."
 
-Read these before you start; four of them will cost you an hour each if you find them the hard way.
-
-| § | Its instruction | Why it's wrong |
-|---|---|---|
-| 2d + 3 | Keep `resolveDestination` prepending `../../3-tenant-workloads`, then call `plan.WriteTo("../../3-tenant-workloads")` | Double-prefix. `WriteTo` joins root + key, so you'd get `../../3-tenant-workloads/../../3-tenant-workloads/...`. **`Plan.Files` keys must be output-root-relative** — `resolveDestination` returns a bare relative path and prepends nothing. |
-| 2b | `Config.Capabilities` becomes `map[string]catalog.Capability` | Breaks golden-path seeding (`gp.Capabilities` is `[]string`); forces each template to hardcode its own key via `index`; map iteration is unordered, which fights determinism. See 2.3. |
-| 3 | `CatalogFS: os.DirFS("../../1-platform-catalog")` | Re-introduces the CWD dependence the refactor was meant to remove. Use the roots from Phase 1. |
-| — | Silent on `{env}` | `resolveDestination` still hardcodes `"dev"`. Make it `Config.Env`, defaulting to `dev`, so the promotion model (AGENTS decisions #3/#4) is expressible and testable. |
-
-### 2.2 Types
+### Types
 
 ```go
 type Renderer struct {
@@ -99,193 +92,140 @@ type Renderer struct {
     Spec      *catalog.Catalog
 }
 
-// Plan is every file a verb would produce. Keys are output-root-relative. Nothing has touched disk.
+// Plan is every file a verb would produce. Keys are output-root-relative.
+// Nothing has touched disk.
 type Plan struct {
     Files map[string][]byte
 }
 
 func (r *Renderer) PlanTeam(cfg Config) (*Plan, error)
-func (r *Renderer) PlanSystem(cfg Config) (*Plan, error)
 func (r *Renderer) PlanService(cfg Config) (*Plan, error)
 
 func (p *Plan) WriteTo(root string) error
-func (p *Plan) DiffAgainst(root string) (string, error)  // powers --dry-run
+func (p *Plan) DiffAgainst(root string) (string, error)   // powers --dry-run
+func (p *Plan) Paths() []string                            // SORTED — see below
 ```
 
-### 2.3 The capability data-shape decision (the one real design lesson here)
+`PlanSystem` is gone along with `create-system`.
 
-Don't give a template the whole world and make it dig its own key out. Give each capability template a view
-scoped to exactly what it renders:
+### The four traps
 
-```go
-type CapabilityView struct {
-    Config            // embedded — TeamName, AppName, SystemName, Env
-    Name       string
-    Module     string
-    Version    string
-    SourceBase string
-}
-```
+**Sorted `Paths()`.** Go randomizes map iteration deliberately. Anything that ranges over
+`Plan.Files` directly will make golden tests flap intermittently — the worst kind of failure to
+debug. Sort once, in one place.
 
-`Config.Capabilities` stays `[]string` (ordered, deduped). `PlanService` looks each name up in
-`r.Spec.Capabilities`, errors clearly on unknown names, and renders with a `CapabilityView`.
+**Collision guard in `add`.** Two templates resolving to the same destination currently means one
+silently wins. Make it an error naming both.
 
-The templates then collapse to:
+**`path` vs `filepath`.** `io/fs` paths are slash-separated, unrooted, no leading `/`, no `..`. On
+macOS `filepath` is *also* slash-separated, so mixing them compiles, runs, and produces subtly wrong
+keys. Rule: `path` for anything inside the FS, `filepath` only inside `WriteTo`.
 
-```
-source = "[[ .SourceBase ]]/[[ .Module ]]?ref=[[ .Version ]]"
-```
+**`.Delims()` before `.Parse()`.** Chainable, so calling it after also compiles — and silently does
+nothing, leaving literal `[[ .AppName ]]` in the output.
 
-Identical in all three files, no `index`, no nested quoting, no escaping hazard. **Principle: scope the data to
-the template.** Templates that need to know their own name in the catalog are a smell.
+### Fix while you're in there
 
-### 2.4 `io/fs` path rules — the trap that will bite you
+`fs.ReadFile`'s error is discarded — the next line's `:=` overwrites `err` before it's checked
+(§12 bug 6). On a read failure you get an empty template, which parses fine, and a silently empty
+output file.
 
-`io/fs` paths are **slash-separated, unrooted, no leading `/`, no `..`**, and `.` means the root. `filepath` on
-macOS is *also* slash-separated, so mistakes here compile, run, and silently produce wrong keys.
+Also: `resolveDestination` still substitutes `{system}`, which no destination uses any more. Delete
+it. And add a guard — if the resolved path still contains `{`, return an error naming the
+placeholder, so a typo'd destination fails loudly instead of creating a directory called `{regoin}`.
 
-Rule: **`path` package for anything inside the FS; `filepath` only inside `WriteTo`.**
+### Be precise about what this buys you
 
-- `filepath.WalkDir` → `fs.WalkDir(r.CatalogFS, sourceDir, …)`
-- `filepath.Rel` → `strings.TrimPrefix` + `strings.TrimPrefix(…, "/")`
-- `filepath.Join` → `path.Join`
-- `os.ReadFile` → `fs.ReadFile(r.CatalogFS, srcPath)`
-- source dirs become plain relative strings: `"building-blocks/runtimes/go"`, not `filepath.Join("..","..", …)`
-
-Also drop the `d.Name() == "copier.yml"` check in the walk — those files no longer exist.
-
-**Template-name trap:** `template.ParseFiles`/`ParseFS` register the template under its *basename*, so
-`Execute` silently fails unless `template.New(name)` matches it. Reading bytes with `fs.ReadFile` and calling
-`template.New(name).Delims("[[","]]").Parse(string(b))` sidesteps it entirely. Do that. (Note `.Delims()` must
-be called *before* `.Parse()`.)
-
-### 2.5 Fix the orphaned `catalog-info.yaml.tmpl`
-
-It sits at `building-blocks/runtimes/catalog-info.yaml.tmpl` — a *sibling* of `go/`, `python/` — so a walk
-rooted at `building-blocks/runtimes/<runtime>/` never sees it. Confirmed missing from the committed output:
-`3-tenant-workloads/team-a-services/product-system/app-a/` has only `go.mod` and `main.go`.
-
-Prefer a structural fix over a special case: move it to `building-blocks/service-meta/catalog-info.yaml.tmpl`
-and give it its own `destinations:` entry pointing at `{team}-services/{system}/{app}/`. It is not a runtime,
-so it should not live under `runtimes/`. A one-off "also render this file" line in `PlanService` is the thing
-you'd have to remember forever.
-
-### 2.6 Be precise about what Plan-then-Write guarantees
-
-`.agents/AGENTS.md` #11 currently claims it "structurally prevents half-scaffolded outputs." That oversells it.
-What you actually get: **render failures happen before any write**. If write 5 of 10 fails, four files are
-already on disk. Real atomicity needs write-to-temp-dir + `os.Rename`.
-
-Fix the wording in AGENTS.md #11 to say "no partial output from render failures," and note the temp-dir
-option as a possible follow-up. Being exact about your own guarantees is a senior habit; overstating them in
-an architecture doc is precisely what gets picked apart in a design review.
+AGENTS.md #11 is already worded correctly, and it's worth keeping that way: Plan-then-Write gives you
+**no partial output from render failures**. It is *not* atomic — if write 5 of 10 fails, four files
+are on disk. Real atomicity needs write-to-temp-dir plus `os.Rename`. Being exact about your own
+guarantees is the habit; overstating them in an architecture doc is what gets picked apart in a
+design review.
 
 ---
 
 ## Phase 3 — `--dry-run` and golden tests
 
-**3.1 `--dry-run`** is `Plan` + `DiffAgainst` instead of `WriteTo`. Not a parallel branch — the same code path
-minus the last step. That's what keeps it from drifting.
+**3a. `--dry-run`** is `Plan` + `DiffAgainst` instead of `WriteTo`. Not a parallel code path — the
+same path minus the last step. That's what stops it drifting from real behaviour.
 
-**3.2 Golden tests** in `internal/templater/render_test.go`, fixtures under `testdata/golden/<golden-path-name>/`
-(Go tooling ignores any dir named `testdata`).
+**3b. Golden tests** in `internal/templater/render_test.go`, fixtures under
+`testdata/golden/<golden-path-name>/` (Go tooling ignores any directory named `testdata`).
 
-- `var update = flag.Bool("update", false, "rewrite golden files")` → `go test ./... -update` regenerates.
-- **Derive cases from the catalog, never hardcode them** — range over `r.Spec.GoldenPaths`. Add a golden path
-  to `catalog.yaml` without fixtures and the suite fails immediately, so the catalog can't drift from its tests.
-- Assert sorted key sets first (clean "missing/extra file" message), then per-file contents. Use
+- `var update = flag.Bool("update", false, "rewrite golden files")` → `go test ./... -update`.
+- **Derive cases from the catalog, never hardcode them** — range over `r.Spec.GoldenPaths`. Add a
+  golden path to `catalog.yaml` without fixtures and the suite fails immediately, so the catalog
+  cannot drift from its tests.
+- Assert the sorted key set first (clean "missing/extra file" message), then per-file contents. Use
   `github.com/google/go-cmp`; whole-tree diffs in one shot are unreadable.
-- Renderer under test: `os.DirFS("../../../1-platform-catalog")`.
+- Renderer under test: `os.DirFS("../../../1-platform-catalog")`, or `fstest.MapFS` for unit cases.
 
-The payoff worth understanding: **the golden tree is a regression harness for your platform's public API.**
-Bump a module `version:` in `catalog.yaml`, run `-update`, and `git diff testdata/` shows every service that
-changes. That's your "git diff = the PR" idea turned inward on the platform team's own changes.
-
----
-
-## Phase 4 — Close the GitOps loop (currently dead)
-
-Neither of these was touched by the reorg; both point at directories that no longer exist. Until they're
-fixed, nothing you generate is discoverable or deployable.
-
-**4.1 `4-platform-engineering/argocd-apps/gitops-orchestration/applicationset-tenant-apps.yaml:12`**
-globs `3-tenant-workloads/*/gitops-repo/systems/*`. New layout is `3-tenant-workloads/*-gitops/platform/systems/*`.
-Also `{{path[1]}}` in the name template was `<team>` and is now `<team>-gitops`.
-
-**4.2 `.github/workflows/tenant-workloads-ci-cd.yaml:47`** loops
-`3-tenant-workloads/*/gitops-repo/helm-charts/*` — gone entirely. This is the missing half of AGENTS decision
-#6, so rewrite it to match the new model rather than patching paths:
-
-- discover `3-tenant-workloads/*-gitops/systems/*/*/*/values.yaml` (team, system, app, env)
-- source is `3-tenant-workloads/<team>-services/<system>/<app>/`
-- render **one platform-owned chart** — `1-platform-catalog/building-blocks/delivery/chart/` — with that
-  `values.yaml`, output to `<same dir>/manifests/`
-- that path is exactly what the per-system AppSet syncs (`{{path}}/manifests`), which is what makes the
-  contract closed
-
-**4.3 Regenerate `3-tenant-workloads/` once Phases 0–2 pass.** The committed tree is from a run that emitted
-no capabilities and no `catalog-info.yaml` — `team-a-infra/` contains only `platform/`. Delete and regenerate
-so the reference output is actually reference-quality.
+The payoff worth internalising: **the golden tree is a regression harness for your platform's public
+API.** Bump a module `version:` in `catalog.yaml`, run `-update`, and `git diff testdata/` shows
+every service that would change. That's "git diff = the PR" turned inward on the platform team.
 
 ---
 
-## Phase 5 — Docs
+## Remaining known bugs (from `CODE_WALKTHROUGH.md` §12)
 
-**5.1 `.agents/AGENTS.md` is now self-contradictory** and it's the first file every agent reads. Items 10–11
-were appended, but the body still documents `1-idp-scaffolder-templates/`, `tenant-foundation/`, `components/`,
-`golden-paths.yaml`, `copier.yml`, `apps-source/infra-repo/gitops-repo`, decision #6 pointing at
-`.../components/delivery/standard-helm`, and a "CLI status (mid-migration)" note about a `create` command that
-no longer exists. Rewrite the directory tree, the verb table, and decisions #6 and #9 against reality.
+Fix these as you pass through; none needs its own phase.
 
-**5.2 `README.md`** still shows `go run . create --app-name …` and the old layer descriptions.
-
-**5.3 Python scaffolder — deferred by decision.** `2-idp-scaffolder/python/` lost its `templates/` tree in the
-reorg and cannot run. You're repointing it at `1-platform-catalog` in a few weeks. Until then, add one line to
-its README and the AGENTS entry marking it non-functional pending repoint, so the docs don't lie in the
-interim.
+| # | Bug | Fix |
+|---|---|---|
+| 2 | `--runtime python --golden-path go-…` silently produces Go | `if cfg.Runtime == "" { cfg.Runtime = gp.Runtime }` |
+| 3 | `cfg.Capabilities = gp.Capabilities` shares the catalog's backing array | `append([]string(nil), gp.Capabilities...)` |
+| 4 | Capability order randomized by map iteration | `sort.Strings` before use — required before golden tests |
+| 5 | `{env}` hardcoded to `"dev"` | Add `Config.Env`, flag default `dev` |
+| 6 | Unchecked `fs.ReadFile` error | Check it before the `Parse` line |
+| 7 | `os.Create` before `Parse` leaves zero-byte files | Removed by Phase 2 |
+| 8 | Usage block printed on runtime errors | `rootCmd.SilenceUsage = true` |
 
 ---
 
 ## Verification
 
 ```bash
-# Phase 0
-python3 -c "import yaml;print(repr(yaml.safe_load(open('1-platform-catalog/catalog.yaml'))['capabilities_source_base']))"
-# must print a clean git:: URL — no backslashes, no embedded quotes
-
-# Phase 1-2 — from a directory that is NOT 2-idp-scaffolder/golang, to prove root discovery
+# Phase 1 — from a directory that is NOT the module, to prove root discovery
 cd /tmp && go run <repo>/2-idp-scaffolder/golang onboard-team --team-name payments --dry-run
 
-# full happy path
-scaffolder onboard-team  --team-name payments
-scaffolder create-system --team-name payments --system-name checkout
-scaffolder add-service   --team-name payments --system-name checkout --app-name checkout-api \
-                         --golden-path go-service-postgres
-# expect, among others:
-#   3-tenant-workloads/payments-infra/checkout/checkout-api/dev/postgres.tf
-#     with source = "git::https://...cloud-services-terraform-modules/aws-postgres?ref=v1.0.2"
-#   3-tenant-workloads/payments-services/checkout/checkout-api/catalog-info.yaml
-#   3-tenant-workloads/payments-gitops/systems/checkout/checkout-api/dev/values.yaml
+# Full happy path
+scaffolder onboard-team --team-name payments
+scaffolder add-service  --team-name payments --app-name checkout-api \
+                        --golden-path go-service-postgres --system checkout
 
-# error paths
-scaffolder add-service --team-name payments --system-name nope --app-name x --golden-path go-service-postgres
-#   → should name create-system in the error, not stack-trace
-scaffolder add-service ... --capabilities bogus
-#   → "unknown capability: bogus"
+# Expect, among others:
+#   3-tenant-workloads/payments/{apps,infra,gitops}/CODEOWNERS
+#   3-tenant-workloads/payments/gitops/platform/applicationsets/payments.yaml
+#   3-tenant-workloads/payments/apps/checkout-api/{go.mod,main.go,catalog-info.yaml}
+#   3-tenant-workloads/payments/infra/apps/checkout-api/dev/postgres.tf
+#     source = "git::https://…/aws-postgres?ref=v1.0.2"
+#   3-tenant-workloads/payments/gitops/apps/checkout-api/dev/values.yaml
+
+# Error paths
+scaffolder add-service --team-name payments --app-name x --capabilities bogus
+#   → "unknown capability: bogus", and with SilenceUsage, no usage dump
 
 # Phase 3
-cd 2-idp-scaffolder/golang && go test ./... -update && git diff --stat testdata/   # review, then commit
-go test ./...                                                                       # must pass clean
+go test ./... -update && git diff --stat testdata/   # review, then commit
+go test ./...                                        # must pass clean
+go test -race ./...                                  # catches shared-state bugs early
 
-# Phase 4
-make setup && argocd app list     # expect one Application per app/env, names NOT colliding on "-dev"
+# The delivery half, end to end
+helm lint 1-platform-catalog/building-blocks/delivery/chart
+helm template checkout-api 1-platform-catalog/building-blocks/delivery/chart \
+  -f 3-tenant-workloads/payments/gitops/apps/checkout-api/dev/values.yaml
 ```
+
+---
 
 ## Explicitly out of scope
 
-- Repointing the Python scaffolder (deferred by decision — Phase 5.3 only adds a "non-functional" note)
-- `huh`/`lipgloss` interactive UI (revisit after golden tests pass)
-- Real atomic writes via temp-dir + rename (noted in 2.6 as a follow-up)
-- Merging `create-system` into `add-service` — decided against; the verbs sit on opposite sides of a
-  permission boundary, and `os.Create` truncation would make `add-service` silently revert hand-tuned
-  ApplicationSets
+- Repointing the Python scaffolder (deferred by your decision; it is marked non-functional in the docs)
+- `huh`/`lipgloss` interactive UI — revisit after golden tests pass
+- Real atomic writes via temp-dir + rename (noted in Phase 2 as a follow-up)
+- The `net/http` API. Note the ordering though: **Plan-then-Write is its prerequisite**, not polish.
+  An HTTP handler cannot call code that writes to a CWD-relative path. Once `PlanService(cfg)`
+  returns `map[string][]byte`, the handler is trivial. Second: `cfg` and `renderer` are package-level
+  mutable globals — concurrent requests would stomp each other's `TeamName`. `renderer` is safe to
+  share (read-only after construction); `Config` must become per-request. `go test -race` will prove
+  it.

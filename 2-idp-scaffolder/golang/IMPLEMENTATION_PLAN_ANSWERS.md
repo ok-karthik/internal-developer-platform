@@ -3,76 +3,15 @@
 Companion to `IMPLEMENTATION_PLAN_CLAUDE.md`. **Try each phase yourself first.** Come here when you're
 stuck for more than ~20 minutes, or afterwards to compare approaches.
 
+> **Scope note.** Phases 0, 0.5, 4 and 5 are done and their sections have been removed — see the
+> "Already done" table in `IMPLEMENTATION_PLAN_CLAUDE.md`. What remains below is reference code for
+> **Phase 1 (roots), Phase 2 (Plan-then-Write) and Phase 3 (dry-run + golden tests)**, updated to the
+> current two-verb CLI and the current `destinations:` keys.
+
 The code below is complete, not pseudocode — but it was written by hand and has **not** been through a
 compiler, so expect the odd missing import or typo. Treat it as a reference implementation to read and
 adapt, not to paste. Where there's a Go idiom worth knowing, it's called out in a
 > **Why** block — those are the parts worth reading even if your own code already works.
-
----
-
-## Phase 0 — The corrupted files
-
-### `1-platform-catalog/catalog.yaml` line 6
-
-```yaml
-capabilities_source_base: "git::https://github.com/ok-karthik/platform-engineering-idp-gitops-reference-architecture.git//4-platform-engineering/cloud-services-terraform-modules"
-```
-
-### `building-blocks/capabilities/{postgres,s3,iam}.tf.tmpl`
-
-All three become byte-identical, because `.Name` now comes from the view struct:
-
-```terraform
-locals {
-  resource_name_prefix = "[[ .TeamName ]]-[[ .AppName ]]"
-  tags = {
-    Team      = "[[ .TeamName ]]"
-    Service   = "[[ .AppName ]]"
-    ManagedBy = "terraform"
-  }
-}
-
-module "[[ .Name ]]" {
-  source    = "[[ .SourceBase ]]/[[ .Module ]]?ref=[[ .Version ]]"
-  team_name = "[[ .TeamName ]]"
-  app_name  = "[[ .AppName ]]"
-}
-```
-
-Keep them as three separate files even though they're identical today — the moment `postgres` needs a
-parameter group or `s3` needs a lifecycle rule, they diverge. Identical-for-now is fine; one file with
-`if eq .Name "postgres"` branches inside it is not.
-
-### `blueprints/system/gitops/applicationset.yaml.tmpl` — the name line only
-
-```yaml
-      name: '[[ .TeamName ]]-{{path[4]}}-{{path.basename}}'
-```
-
----
-
-## Phase 0.5 (optional but recommended) — normalize the destinations keys
-
-Right now some keys are real catalog paths (`blueprints/team/gitops`) and some are abbreviations
-(`runtimes`, `capabilities`). Make every key the literal source path and the table becomes a pure
-source → destination map, so your Go can use one string for both:
-
-```yaml
-destinations:
-  blueprints/team/gitops:            "{team}-gitops/platform/team/"
-  blueprints/team/infra:             "{team}-infra/platform/"
-  blueprints/system/gitops:          "{team}-gitops/platform/systems/{system}/"
-  building-blocks/runtimes:          "{team}-services/{system}/{app}/"
-  building-blocks/service-meta:      "{team}-services/{system}/{app}/"
-  building-blocks/capabilities:      "{team}-infra/{system}/{app}/{env}/"
-  building-blocks/delivery/release:  "{team}-gitops/systems/{system}/{app}/{env}/"
-```
-
-Two keys pointing at the same destination is fine — the `plan.add` collision guard below catches actual
-file conflicts. All code that follows assumes these key names.
-
-Also `git mv 1-platform-catalog/building-blocks/runtimes/catalog-info.yaml.tmpl
-1-platform-catalog/building-blocks/service-meta/catalog-info.yaml.tmpl` (plan §2.5).
 
 ---
 
@@ -117,9 +56,9 @@ type Catalog struct {
 // requiredDestinations are the keys the renderer will look up. Missing any of them
 // is a catalog authoring error, so we fail at load rather than mid-render.
 var requiredDestinations = []string{
-	"blueprints/team/gitops",
+	"blueprints/team/apps",
 	"blueprints/team/infra",
-	"blueprints/system/gitops",
+	"blueprints/team/gitops",
 	"building-blocks/runtimes",
 	"building-blocks/service-meta",
 	"building-blocks/capabilities",
@@ -374,15 +313,6 @@ func (r *Renderer) destination(key string, cfg Config) (string, error) {
 	return path.Clean(dest), nil
 }
 
-// SystemMarker is the file whose existence proves `create-system` has been run.
-// Derived from the destinations table so the CLI never hardcodes the gitops layout.
-func (r *Renderer) SystemMarker(cfg Config) (string, error) {
-	dest, err := r.destination("blueprints/system/gitops", cfg)
-	if err != nil {
-		return "", err
-	}
-	return path.Join(dest, "applicationset.yaml"), nil
-}
 ```
 
 ### Template rendering
@@ -472,7 +402,7 @@ func (r *Renderer) walkAndPlan(srcDir, destDir string, data any, plan *Plan) err
 > your golden tests. Rule: **`path` for everything inside the FS, `filepath` only in
 > `WriteTo`/`DiffAgainst`.**
 
-### The three verbs
+### The two verbs
 
 ```go
 // PlanTeam scaffolds the tenancy boundary. Once per team.
@@ -482,8 +412,14 @@ func (r *Renderer) PlanTeam(cfg Config) (*Plan, error) {
 	}
 
 	plan := newPlan()
-	// After the Phase 0.5 key normalization, the destinations key IS the source path.
-	for _, src := range []string{"blueprints/team/gitops", "blueprints/team/infra"} {
+	// Each destinations key IS the source path, so one string drives both halves of the
+	// walk. The blueprints mirror their output tree, so all nesting (platform/team/,
+	// platform/applicationsets/) comes from the source layout — no path logic here.
+	for _, src := range []string{
+		"blueprints/team/apps",   // CODEOWNERS for the app-source repo root
+		"blueprints/team/infra",  // CODEOWNERS + platform/ (providers, team IAM)
+		"blueprints/team/gitops", // CODEOWNERS + platform/ (tenancy boundary, ApplicationSet)
+	} {
 		dest, err := r.destination(src, cfg)
 		if err != nil {
 			return nil, err
@@ -495,27 +431,14 @@ func (r *Renderer) PlanTeam(cfg Config) (*Plan, error) {
 	return plan, nil
 }
 
-// PlanSystem scaffolds the per-system ArgoCD ApplicationSet. Once per system.
-func (r *Renderer) PlanSystem(cfg Config) (*Plan, error) {
-	if cfg.TeamName == "" || cfg.SystemName == "" {
-		return nil, errors.New("team name and system name are required")
-	}
-
-	const src = "blueprints/system/gitops"
-	dest, err := r.destination(src, cfg)
-	if err != nil {
-		return nil, err
-	}
-
-	plan := newPlan()
-	return plan, r.walkAndPlan(src, dest, cfg, plan)
-}
-
 // PlanService composes a golden path: runtime + service metadata + delivery values
-// + one .tf file per capability. Repeatable, N per system.
+// + one .tf file per capability. Repeatable, N per team.
+//
+// SystemName is deliberately NOT required: it is optional Backstage metadata that
+// lands in catalog-info.yaml and creates no directory.
 func (r *Renderer) PlanService(cfg Config) (*Plan, error) {
-	if cfg.TeamName == "" || cfg.SystemName == "" || cfg.AppName == "" {
-		return nil, errors.New("team, system and app names are required")
+	if cfg.TeamName == "" || cfg.AppName == "" {
+		return nil, errors.New("team and app names are required")
 	}
 	if cfg.Env == "" {
 		cfg.Env = "dev" // AGENTS decision #3/#4: scaffold to dev only
@@ -763,10 +686,6 @@ var addServiceCmd = &cobra.Command{
 			return fmt.Errorf("need --runtime or --golden-path (available paths: %s)",
 				strings.Join(renderer.Spec.GoldenPathNames(), ", "))
 		}
-		if err := requireSystem(); err != nil {
-			return err
-		}
-
 		plan, err := renderer.PlanService(cfg)
 		if err != nil {
 			return err
@@ -792,75 +711,61 @@ func dedupe(in []string) []string {
 	return out
 }
 
-// requireSystem enforces the create-system → add-service ordering.
-// The two verbs stay separate because they sit on opposite sides of a permission
-// boundary (ApplicationSets are argocd-namespace, platform-approved); the UX cost
-// is paid back here, with an error that names the exact next command.
-func requireSystem() error {
-	marker, err := renderer.SystemMarker(cfg)
-	if err != nil {
-		return err
-	}
-	full := filepath.Join(outputRoot, filepath.FromSlash(marker))
-	if _, err := os.Stat(full); err == nil {
-		return nil
-	}
-	return fmt.Errorf(`system %q does not exist for team %q.
-
-  Expected: %s
-
-  Create it first (requires platform-team approval):
-      scaffolder create-system --team-name %s --system-name %s`,
-		cfg.SystemName, cfg.TeamName, full, cfg.TeamName, cfg.SystemName)
-}
+// NOTE: an earlier draft had a requireSystem() guard here that refused to run until
+// `create-system` had produced a marker file. It is gone along with that verb — there
+// is no per-system directory to check for, and the team ApplicationSet is created by
+// `onboard-team`. The ordering constraint that remains ("onboard the team first") is
+// enforced naturally: without the team AppSet, nothing ArgoCD-side picks the app up.
 
 func init() {
 	rootCmd.AddCommand(addServiceCmd)
 
 	f := addServiceCmd.Flags()
 	f.StringVarP(&cfg.TeamName, "team-name", "t", "", "owning team")
-	f.StringVarP(&cfg.SystemName, "system-name", "s", "", "logical system")
 	f.StringVarP(&cfg.AppName, "app-name", "a", "", "application name")
+	// Optional: Backstage grouping only. It reaches catalog-info.yaml and creates
+	// no directory, so it is deliberately not a required flag.
+	f.StringVarP(&cfg.SystemName, "system", "s", "", "Backstage system (metadata only)")
 	f.StringVar(&cfg.Env, "env", "dev", "target environment")
 	f.StringVar(&goldenPathFlag, "golden-path", "", "seed config from a named golden path")
 	f.StringVar(&cfg.Runtime, "runtime", "", "override the runtime (e.g. go, python)")
 	f.StringVar(&capabilitiesFlag, "capabilities", "", "extra capabilities, comma-separated")
 
 	addServiceCmd.MarkFlagRequired("team-name")
-	addServiceCmd.MarkFlagRequired("system-name")
 	addServiceCmd.MarkFlagRequired("app-name")
 }
 ```
 
-## `cmd/cli/create_system.go` and `onboard_team.go`
+## `cmd/cli/onboard_team.go`
 
 Same shape, shorter — build `cfg` from flags, plan, apply:
 
 ```go
-var createSystemCmd = &cobra.Command{
-	Use:   "create-system",
-	Short: "Create a logical system and its ArgoCD ApplicationSet",
+var onboardTeamCmd = &cobra.Command{
+	Use:   "onboard-team",
+	Short: "Scaffold the tenancy boundary and ArgoCD wiring for a new team",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		plan, err := renderer.PlanSystem(cfg)
+		plan, err := renderer.PlanTeam(cfg)
 		if err != nil {
 			return err
 		}
-		fmt.Printf("Planning system %s for team %s\n", cfg.SystemName, cfg.TeamName)
+		fmt.Printf("Planning tenancy boundary for team %s\n", cfg.TeamName)
 		return apply(plan)
 	},
 }
 
 func init() {
-	rootCmd.AddCommand(createSystemCmd)
-	f := createSystemCmd.Flags()
-	f.StringVarP(&cfg.TeamName, "team-name", "t", "", "owning team")
-	f.StringVarP(&cfg.SystemName, "system-name", "s", "", "logical system")
-	createSystemCmd.MarkFlagRequired("team-name")
-	createSystemCmd.MarkFlagRequired("system-name")
+	rootCmd.AddCommand(onboardTeamCmd)
+	onboardTeamCmd.Flags().StringVarP(&cfg.TeamName, "team-name", "t", "", "owning team")
+	onboardTeamCmd.MarkFlagRequired("team-name")
 }
 ```
 
-`onboard_team.go` is identical with `PlanTeam` and only `--team-name`.
+> **Why there is no `create-system.go`:** everything that verb produced — the ArgoCD
+> ApplicationSet — is platform-owned and written exactly once per team, which is the
+> definition of `onboard-team`'s scope. The AppSet's git generator globs `apps/*/*`,
+> so it discovers new services without ever being edited again. A second verb would
+> have had nothing left to do.
 
 ---
 
@@ -1038,4 +943,4 @@ func sortedKeys(m map[string][]byte) []string {
 | `--golden-path X` errors "runtime required" | runtime validated before the seed runs |
 | `--runtime python --golden-path go-...` yields Go | unconditional `cfg.Runtime = gp.Runtime` |
 | Help text dumped after every error | missing `SilenceUsage: true` |
-| Directory literally named `{team}-gitops` | unresolved placeholder — the `strings.IndexByte(dest, '{')` guard catches it |
+| Directory literally named `{team}` or `{regoin}` | unresolved placeholder — the `strings.IndexByte(dest, '{')` guard catches it |

@@ -22,14 +22,14 @@ We deliver this product experience through four core pillars:
 
 To make it easier to understand how this platform operates from end-to-end, the repository is logically divided into chronological layers:
 
-1. **`1-idp-scaffolder-templates/` (Shared Template Assets)**  
-   Centralized boilerplate code and application/infrastructure templates (`[[ .Var ]]` syntax) shared by both Go and Python scaffolder implementations.
+1. **`1-platform-catalog/` (The Platform's Offering)**  
+   `catalog.yaml` declares the golden paths, the version-pinned capability → Terraform module mapping, and a `destinations:` table that is the platform's output contract. Alongside it, `blueprints/` (rendered once per team or system) and `building-blocks/` (composed per service) hold the templates themselves, in `[[ .Var ]]` syntax so Helm's `{{ }}` passes through untouched.
 2. **`2-idp-scaffolder/golang/` (Go Scaffolder Engine)**  
    Go CLI implementation using **Cobra** and native `text/template` engine to render microservice workloads.
 3. **`2-idp-scaffolder/python/` (Python Scaffolder Engine & REST API)**  
    Python CLI and FastAPI REST service utilizing **Typer** and **Copier** with deterministic IP Address Management (IPAM) for tenant VPCs.
 4. **`3-tenant-workloads/` (Simulated Monorepo)**  
-   The target tenant GitOps repository where generated applications, Helm charts, and Terraform infrastructure reside. ArgoCD monitors this directory for automatic deployment.
+   The generated output, organised tenant-first as `<team>/{apps,infra,gitops}/` — each of those three maps to a standalone repo in production. `apps/` always means team-owned per-service content; the enclosing repo kind says whether that is source code, Terraform, or Helm values. There is no `<system>/` directory level — Backstage's System grouping lives in `catalog-info.yaml` instead. Inside `infra/` and `gitops/`, `platform/` is platform-owned, and a CODEOWNERS at each of the three roots makes that enforceable. ArgoCD monitors the CI-rendered `manifests/` directories for automatic deployment.
 5. **`4-platform-engineering/` (Platform Infrastructure & Control Plane)**  
    Contains reusable AWS Terraform modules (`cloud-services-terraform-modules/`), ArgoCD App-of-Apps declarations (`argocd-apps/`), Traefik ingress controller setup, and OpenTelemetry observability configurations.
 
@@ -65,7 +65,7 @@ graph TD
 ```
 
 ### 2. Zero-Touch Multi-Tenant Auto-Discovery
-To scale across hundreds of microservices, we utilize **Argo CD ApplicationSets**. Instead of manually mapping each microservice to an Argo CD `Application` resource, our ApplicationSet uses a multi-level Git directory generator (`apps/*/*-gitops-repo/apps/*`) to dynamically provision and isolate tenant applications on the fly from the `3-tenant-workloads/` directory.
+To scale across hundreds of microservices, we utilize **Argo CD ApplicationSets**. Instead of manually mapping each microservice to an Argo CD `Application` resource, discovery is two-level: a cluster-wide bootstrap ApplicationSet globs `3-tenant-workloads/*/gitops/platform/applicationsets` to apply each team's system ApplicationSets, and each of those in turn globs `3-tenant-workloads/<team>/gitops/apps/*/*` (app × env) to provision and isolate tenant applications on the fly.
 
 ---
 
@@ -111,18 +111,28 @@ make bootstrap
 
 ### 4. Scaffold a New Microservice
 Emulate a developer onboarding a new service. The generator builds the source code, pipelines, and GitOps configurations.
-```bash
-# Option A: Using Go CLI
-cd 2-idp-scaffolder/golang
-go run . create --app-name my-payment-service --team-name team-a --app-type springboot --app-port 8080
+The Go CLI exposes two lifecycle verbs, each idempotent at a different scope:
 
-# Option B: Using Python CLI
-python 2-idp-scaffolder/python/main.py create \
-  -a my-payment-service \
-  -t springboot \
-  -p 8080 \
-  -team team-a
+```bash
+cd 2-idp-scaffolder/golang
+
+# 1. Once per team — tenancy boundary (AppProject, Namespace, NetworkPolicy, team IAM)
+#    plus the ArgoCD ApplicationSet that auto-discovers everything the team owns
+go run . onboard-team --team-name payments
+
+# 2. Repeatable — a golden path: runtime + capabilities + delivery values + catalog-info
+go run . add-service --team-name payments --app-name checkout-api \
+                     --golden-path go-service-postgres --system checkout
 ```
+
+`--system` is optional Backstage metadata; it groups services in the service catalog and
+creates no directory.
+
+`--golden-path` seeds the runtime and capabilities from `catalog.yaml`; `--runtime` and
+`--capabilities` override or extend that seed.
+
+> **Note:** the Python CLI (`2-idp-scaffolder/python/`) is currently non-functional pending a
+> repoint at `1-platform-catalog/`.
 
 ---
 
