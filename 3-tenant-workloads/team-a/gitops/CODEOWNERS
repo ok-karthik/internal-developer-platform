@@ -1,0 +1,19 @@
+# CODEOWNERS for <org>/team-a-gitops
+#
+# GitHub only honours CODEOWNERS at a repository's root, .github/, or docs/ — which
+# is why this file sits at the root of the gitops tree rather than inside platform/.
+# In this monorepo that root is 3-tenant-workloads/team-a/gitops/; when the
+# tree is split out (git subtree split --prefix=3-tenant-workloads/team-a/gitops)
+# it becomes the real repository root unchanged.
+#
+# Last matching pattern wins, so the general rule goes first.
+
+# The team owns its own workloads: per-env values.yaml and CI-rendered manifests.
+*                                       @acme-corp/team-a
+
+# The tenancy boundary and ArgoCD wiring are platform-owned. A team cannot widen its
+# own AppProject, relax its NetworkPolicy, or repoint its ApplicationSet.
+/platform/                              @acme-corp/platform-engineering
+
+# Kyverno exceptions weaken a cluster-wide guardrail, so security signs those off.
+/platform/team/policy-exceptions.yaml   @acme-corp/security

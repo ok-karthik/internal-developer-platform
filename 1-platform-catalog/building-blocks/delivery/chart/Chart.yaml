@@ -1,0 +1,21 @@
+# The single, platform-owned service chart.
+#
+# This is NOT scaffolded per app — one chart serves every service on the platform,
+# and CI renders it against each app's per-env values.yaml. That is the point of
+# decision #6: teams own values, the platform owns the chart, so a chart fix ships
+# to every service at once instead of being copy-pasted into N repos.
+#
+# It is therefore a plain Chart.yaml, not a .tmpl. Per-app identity comes from the
+# Helm release name and `nameOverride` in the release values, not from templating
+# this file.
+apiVersion: v2
+name: service
+description: Platform golden-path chart for a stateless HTTP service
+type: application
+
+# version    — the CHART's version. Bump it when the chart changes; every rendered
+#              manifest carries it in the helm.sh/chart label, so you can see which
+#              services are still on an old chart.
+# appVersion — a fallback image tag only; real services pin image.tag in values.
+version: 0.1.0
+appVersion: "1.0.0"

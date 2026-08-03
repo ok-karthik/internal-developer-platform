@@ -30,7 +30,9 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       containers:
-        - name: {{ .Chart.Name }}
+        # app.name, not .Chart.Name — the chart is generically named "service", so
+        # .Chart.Name would label every container in the fleet "service".
+        - name: {{ include "app.name" . }}
           {{- with .Values.securityContext }}
           securityContext:
             {{- toYaml . | nindent 12 }}
