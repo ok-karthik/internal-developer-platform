@@ -34,9 +34,9 @@ type Catalog struct {
 // requiredDestinations are the keys the renderer will look up. Missing any of them
 // is a catalog authoring error, so we fail at load rather than mid-render.
 var requiredDestinations = []string{
-	"blueprints/team/gitops",
+	"blueprints/team/apps",
 	"blueprints/team/infra",
-	"blueprints/system/gitops",
+	"blueprints/team/gitops",
 	"building-blocks/runtimes",
 	"building-blocks/service-meta",
 	"building-blocks/capabilities",

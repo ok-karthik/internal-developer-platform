@@ -72,8 +72,11 @@ func init() {
 	rootCmd.AddCommand(addServiceCmd)
 
 	addServiceCmd.Flags().StringVarP(&cfg.TeamName, "team-name", "t", "", "Name of the tenant/team")
-	addServiceCmd.Flags().StringVarP(&cfg.SystemName, "system-name", "s", "", "Name of the logical system")
 	addServiceCmd.Flags().StringVarP(&cfg.AppName, "app-name", "a", "", "Name of the application")
+
+	// Optional Backstage grouping. It is metadata only — it appears in catalog-info.yaml
+	// and deliberately does NOT create a directory level.
+	addServiceCmd.Flags().StringVarP(&cfg.SystemName, "system", "s", "", "Backstage system this service belongs to (metadata only)")
 
 	// Flags for the Seed & Override logic
 	addServiceCmd.Flags().StringVar(&goldenPathFlag, "golden-path", "", "Seed configuration from a named golden path")
@@ -81,6 +84,5 @@ func init() {
 	addServiceCmd.Flags().StringVar(&capabilitiesString, "capabilities", "", "Comma-separated list of extra capabilities (e.g., postgres,s3)")
 
 	addServiceCmd.MarkFlagRequired("team-name")
-	addServiceCmd.MarkFlagRequired("system-name")
 	addServiceCmd.MarkFlagRequired("app-name")
 }

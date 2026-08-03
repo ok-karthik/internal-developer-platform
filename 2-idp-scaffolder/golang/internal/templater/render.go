@@ -128,25 +128,26 @@ func resolveDestination(destTemplate string, cfg Config) string {
 	//return path.Clean(dest)
 }
 
-// RenderTenantFoundation scaffolds the gitops and infra base for a team
-func (r *Renderer) RenderTenantFoundation(cfg Config) error {
-	// Render gitops-base
-	gitopsSource := path.Join("blueprints", "team", "gitops")
-	gitopsTarget := resolveDestination(r.Spec.Destinations["blueprints/team/gitops"], cfg)
-	if err := r.walkAndRender(gitopsSource, gitopsTarget, cfg); err != nil {
-		return err
-	}
-	// Render infra-base
-	infraSource := path.Join("blueprints", "team", "infra")
-	infraTarget := resolveDestination(r.Spec.Destinations["blueprints/team/infra"], cfg)
-	return r.walkAndRender(infraSource, infraTarget, cfg)
+// teamBlueprints are every catalog directory rendered once per team. Because each
+// destinations key IS the source directory inside the catalog, one string drives
+// both halves of the walk — add a blueprint by adding a key to catalog.yaml and a
+// line here, with no new path logic.
+var teamBlueprints = []string{
+	"blueprints/team/apps",   // CODEOWNERS for the app-source repo
+	"blueprints/team/infra",  // CODEOWNERS + platform/ (providers, backend, team IAM)
+	"blueprints/team/gitops", // CODEOWNERS + platform/ (tenancy boundary, ApplicationSet)
 }
 
-// RenderSystem renders the ApplicationSet for a system grouping
-func (r *Renderer) RenderSystem(cfg Config) error {
-	sourceDir := path.Join("blueprints", "system", "gitops")
-	targetDir := resolveDestination(r.Spec.Destinations["blueprints/system/gitops"], cfg)
-	return r.walkAndRender(sourceDir, targetDir, cfg)
+// RenderTenantFoundation scaffolds everything a team gets exactly once. All of it
+// is platform-owned, which is why it sits behind a single verb.
+func (r *Renderer) RenderTenantFoundation(cfg Config) error {
+	for _, source := range teamBlueprints {
+		target := resolveDestination(r.Spec.Destinations[source], cfg)
+		if err := r.walkAndRender(source, target, cfg); err != nil {
+			return fmt.Errorf("rendering %s: %w", source, err)
+		}
+	}
+	return nil
 }
 
 // RenderService renders runtime, delivery, and capability templates for a service
