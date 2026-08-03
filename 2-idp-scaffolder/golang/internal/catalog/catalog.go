@@ -57,6 +57,12 @@ func LoadCatalog(filePath string) (*Catalog, error) {
 		return nil, err
 	}
 
+	// 3. Fail at load, where the error can still name the offending key, rather
+	// than mid-render with half the tree already on disk.
+	if err := catalog.validate(); err != nil {
+		return nil, fmt.Errorf("invalid catalog %s: %w", filePath, err)
+	}
+
 	return &catalog, nil
 }
 

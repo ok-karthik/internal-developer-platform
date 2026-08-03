@@ -154,21 +154,30 @@ func (r *Renderer) RenderService(cfg Config) error {
 	// 1. Render Runtime
 	if cfg.Runtime != "" {
 		runtimeSrc := path.Join("building-blocks", "runtimes", cfg.Runtime)
-		runtimeTarget := resolveDestination(r.Spec.Destinations["runtimes"], cfg)
+		runtimeTarget := resolveDestination(r.Spec.Destinations["building-blocks/runtimes"], cfg)
 		if err := r.walkAndRender(runtimeSrc, runtimeTarget, cfg); err != nil {
 			return err
 		}
 	}
 
-	// 2. Render Delivery (Release Values)
+	// 2. Render Service Metadata (Backstage catalog-info.yaml)
+	// Lives outside runtimes/ because it is runtime-agnostic — a walk rooted at
+	// building-blocks/runtimes/<runtime>/ would never reach it.
+	metaSrc := path.Join("building-blocks", "service-meta")
+	metaTarget := resolveDestination(r.Spec.Destinations["building-blocks/service-meta"], cfg)
+	if err := r.walkAndRender(metaSrc, metaTarget, cfg); err != nil {
+		return err
+	}
+
+	// 3. Render Delivery (Release Values)
 	deliverySrc := path.Join("building-blocks", "delivery", "release")
-	deliveryTarget := resolveDestination(r.Spec.Destinations["delivery/release"], cfg)
+	deliveryTarget := resolveDestination(r.Spec.Destinations["building-blocks/delivery/release"], cfg)
 	if err := r.walkAndRender(deliverySrc, deliveryTarget, cfg); err != nil {
 		return err
 	}
 
-	// 3. Render Infrastructure Capabilities
-	infraTargetDir := resolveDestination(r.Spec.Destinations["capabilities"], cfg)
+	// 4. Render Infrastructure Capabilities
+	infraTargetDir := resolveDestination(r.Spec.Destinations["building-blocks/capabilities"], cfg)
 	if err := os.MkdirAll(infraTargetDir, 0755); err != nil {
 		return err
 	}

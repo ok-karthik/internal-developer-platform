@@ -11,10 +11,14 @@ spec:
         repoURL: 'https://github.com/ok-karthik/platform-engineering-idp-gitops-reference-architecture.git'
         revision: HEAD
         directories:
-          - path: 3-tenant-workloads/*/gitops-repo/systems/*
+          # Each team keeps all of its platform-owned system ApplicationSets in one
+          # directory, so this yields one Application per team that applies them all.
+          # For 3-tenant-workloads/team-a/gitops/platform/applicationsets the segments
+          # are 0=3-tenant-workloads 1=team-a 2=gitops 3=platform 4=applicationsets.
+          - path: 3-tenant-workloads/*/gitops/platform/applicationsets
   template:
     metadata:
-      name: '{{path[1]}}-{{path.basename}}-system'
+      name: '{{path[1]}}-appsets'
     spec:
       project: default
       source:

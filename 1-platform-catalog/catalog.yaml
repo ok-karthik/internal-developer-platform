@@ -33,10 +33,24 @@ capabilities:
 
 # The Output Contract: Where each component gets written.
 # This eliminates hardcoded paths in the Go CLI.
+#
+# Every key is the LITERAL source directory inside this catalog, so the renderer
+# can derive the source path from the key instead of hardcoding both sides.
+#
+# Layout is tenant-first: 3-tenant-workloads/{team}/{services,infra,gitops}/.
+# Each of those three subdirectories maps 1:1 to a standalone repo in production
+# (<org>/{team}-services, <org>/{team}-infra, <org>/{team}-gitops) — the mapping
+# lives here in docs rather than being encoded in the directory name.
+#
+# Ownership is a single glob:
+#   {team}/gitops/platform/**  and  {team}/infra/platform/**  -> platform team
+#   everything else                                          -> the owning team
 destinations:
-  blueprints/team/gitops: "{team}-gitops/platform/team/"
-  blueprints/team/infra:  "{team}-infra/platform/"
-  blueprints/system/gitops: "{team}-gitops/platform/systems/{system}/"
-  runtimes: "{team}-services/{system}/{app}/"
-  capabilities: "{team}-infra/{system}/{app}/{env}/"
-  delivery/release: "{team}-gitops/systems/{system}/{app}/{env}/"
+  blueprints/team/gitops:   "{team}/gitops/platform/team/"
+  blueprints/team/infra:    "{team}/infra/platform/"
+  blueprints/system/gitops: "{team}/gitops/platform/applicationsets/"
+
+  building-blocks/runtimes:         "{team}/services/{system}/{app}/"
+  building-blocks/service-meta:     "{team}/services/{system}/{app}/"
+  building-blocks/capabilities:     "{team}/infra/systems/{system}/{app}/{env}/"
+  building-blocks/delivery/release: "{team}/gitops/systems/{system}/{app}/{env}/"
