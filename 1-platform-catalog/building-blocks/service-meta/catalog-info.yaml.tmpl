@@ -8,4 +8,8 @@ spec:
   type: service
   lifecycle: production
   owner: team-[[ .TeamName ]]
+  # System is a Backstage RELATION, not a location — it groups services without
+  # dictating a directory level. Omitted when --system is not supplied.
+  [[- if .SystemName ]]
   system: [[ .SystemName ]]
+  [[- end ]]

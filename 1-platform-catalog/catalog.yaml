@@ -37,20 +37,42 @@ capabilities:
 # Every key is the LITERAL source directory inside this catalog, so the renderer
 # can derive the source path from the key instead of hardcoding both sides.
 #
-# Layout is tenant-first: 3-tenant-workloads/{team}/{services,infra,gitops}/.
+# Layout is tenant-first: 3-tenant-workloads/{team}/{apps,infra,gitops}/.
 # Each of those three subdirectories maps 1:1 to a standalone repo in production
-# (<org>/{team}-services, <org>/{team}-infra, <org>/{team}-gitops) — the mapping
-# lives here in docs rather than being encoded in the directory name.
+# (<org>/{team}-apps, <org>/{team}-infra, <org>/{team}-gitops) — the mapping lives
+# here in docs rather than being encoded in the directory name.
 #
-# Ownership is a single glob:
+# "apps" is the one word used throughout for team-owned, per-service content; what
+# it holds depends on which repo kind it sits in:
+#   {team}/apps/...          -> application source code
+#   {team}/infra/apps/...    -> that app's Terraform
+#   {team}/gitops/apps/...   -> that app's Helm values
+#
+# Inside infra/ and gitops/ the split is by OWNERSHIP, not taxonomy:
+#   platform/  -> platform team owns it (CODEOWNERS-protected)
+#   apps/      -> the team owns it
+# so the ownership rule is a single glob:
 #   {team}/gitops/platform/**  and  {team}/infra/platform/**  -> platform team
 #   everything else                                          -> the owning team
+#
+# There is deliberately NO {system} directory level. Backstage models System as a
+# metadata relation, not a location, so the grouping lives in catalog-info.yaml
+# (`spec.system`) where it cannot drift from a second encoding in the path. Add a
+# grouping level here only if a single team outgrows a flat app list.
 destinations:
-  blueprints/team/gitops:   "{team}/gitops/platform/team/"
-  blueprints/team/infra:    "{team}/infra/platform/"
-  blueprints/system/gitops: "{team}/gitops/platform/applicationsets/"
+  # One key per repo kind, mapping a blueprint directory to a would-be repo ROOT.
+  # blueprints/team/<kind>/ mirrors the tree it produces exactly — so the nesting
+  # inside each blueprint (platform/team/, platform/applicationsets/) is the whole
+  # path logic. Nothing needs a per-file rule, which is what lets CODEOWNERS sit at
+  # the repo root where GitHub actually honours it.
+  #
+  # These three paths are also exactly the `git subtree split` prefixes, which is
+  # what makes splitting into real repos a no-op rather than a reshuffle.
+  blueprints/team/apps:   "{team}/apps/"
+  blueprints/team/infra:  "{team}/infra/"
+  blueprints/team/gitops: "{team}/gitops/"
 
-  building-blocks/runtimes:         "{team}/services/{system}/{app}/"
-  building-blocks/service-meta:     "{team}/services/{system}/{app}/"
-  building-blocks/capabilities:     "{team}/infra/systems/{system}/{app}/{env}/"
-  building-blocks/delivery/release: "{team}/gitops/systems/{system}/{app}/{env}/"
+  building-blocks/runtimes:         "{team}/apps/{app}/"
+  building-blocks/service-meta:     "{team}/apps/{app}/"
+  building-blocks/capabilities:     "{team}/infra/apps/{app}/{env}/"
+  building-blocks/delivery/release: "{team}/gitops/apps/{app}/{env}/"
