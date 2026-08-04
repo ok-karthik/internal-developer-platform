@@ -40,7 +40,12 @@ var rootCmd = &cobra.Command{
 			if err != nil {
 				return err
 			}
-			outputRoot = wd // Default to the folder the user is currently in
+			// If running from inside 2-idp-scaffolder/golang, step up to repo root
+			if filepath.Base(wd) == "golang" || filepath.Base(wd) == "2-idp-scaffolder" {
+				outputRoot = filepath.Clean(filepath.Join(wd, "../.."))
+			} else {
+				outputRoot = wd
+			}
 		}
 
 		if catalogRoot == "" {
