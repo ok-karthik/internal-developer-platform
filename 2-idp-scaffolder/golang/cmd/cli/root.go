@@ -29,10 +29,10 @@ var rootCmd = &cobra.Command{
 	Short: "Scaffolds templates for IDPs",
 	Long: `CLI tool that scaffolds application templates
 for IDPs
-
 Created using GoLang Cobra CLI library.`,
-	// Uncomment the following line if your bare application
-	// has an action associated with it:
+	// PersistentPreRunE is inherited by all subcommands (e.g. onboard-team).
+	// Unlike RunE (which runs command-specific logic), this runs BEFORE every subcommand
+	// to execute shared setup: setting default output path and fetching/loading the catalog.
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		// 1. Where do we save the output?
 		if outputRoot == "" {
@@ -66,6 +66,7 @@ Created using GoLang Cobra CLI library.`,
 		renderer = &templater.Renderer{
 			CatalogFS: os.DirFS(catalogPath),
 			Spec:      spec,
+			OutputDir: filepath.Join(outputRoot, "3-tenant-workloads"),
 		}
 
 		return nil

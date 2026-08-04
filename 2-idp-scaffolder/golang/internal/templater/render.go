@@ -24,6 +24,7 @@ type Config struct {
 type Renderer struct {
 	CatalogFS fs.FS
 	Spec      *catalog.Catalog
+	OutputDir string
 }
 
 type CapabilityView struct {
@@ -116,7 +117,7 @@ func renderPath(pathStr string, cfg Config) (string, error) {
 }
 
 // Add this helper function above RenderTenantFoundation
-func resolveDestination(destTemplate string, cfg Config) string {
+func (r *Renderer) resolveDestination(destTemplate string, cfg Config) string {
 	dest := destTemplate
 	dest = strings.ReplaceAll(dest, "{team}", cfg.TeamName)
 	dest = strings.ReplaceAll(dest, "{system}", cfg.SystemName)
@@ -124,8 +125,7 @@ func resolveDestination(destTemplate string, cfg Config) string {
 	dest = strings.ReplaceAll(dest, "{env}", "dev") // default to dev environment for scaffolding
 
 	// Prepend the root target directory
-	return filepath.Join("../../3-tenant-workloads", dest)
-	//return path.Clean(dest)
+	return filepath.Join(r.OutputDir, dest)
 }
 
 // teamBlueprints are every catalog directory rendered once per team. Because each
@@ -142,7 +142,7 @@ var teamBlueprints = []string{
 // is platform-owned, which is why it sits behind a single verb.
 func (r *Renderer) RenderTenantFoundation(cfg Config) error {
 	for _, source := range teamBlueprints {
-		target := resolveDestination(r.Spec.Destinations[source], cfg)
+		target := r.resolveDestination(r.Spec.Destinations[source], cfg)
 		if err := r.walkAndRender(source, target, cfg); err != nil {
 			return fmt.Errorf("rendering %s: %w", source, err)
 		}
@@ -155,7 +155,7 @@ func (r *Renderer) RenderService(cfg Config) error {
 	// 1. Render Runtime
 	if cfg.Runtime != "" {
 		runtimeSrc := path.Join("building-blocks", "runtimes", cfg.Runtime)
-		runtimeTarget := resolveDestination(r.Spec.Destinations["building-blocks/runtimes"], cfg)
+		runtimeTarget := r.resolveDestination(r.Spec.Destinations["building-blocks/runtimes"], cfg)
 		if err := r.walkAndRender(runtimeSrc, runtimeTarget, cfg); err != nil {
 			return err
 		}
@@ -165,20 +165,20 @@ func (r *Renderer) RenderService(cfg Config) error {
 	// Lives outside runtimes/ because it is runtime-agnostic — a walk rooted at
 	// building-blocks/runtimes/<runtime>/ would never reach it.
 	metaSrc := path.Join("building-blocks", "service-meta")
-	metaTarget := resolveDestination(r.Spec.Destinations["building-blocks/service-meta"], cfg)
+	metaTarget := r.resolveDestination(r.Spec.Destinations["building-blocks/service-meta"], cfg)
 	if err := r.walkAndRender(metaSrc, metaTarget, cfg); err != nil {
 		return err
 	}
 
 	// 3. Render Delivery (Release Values)
 	deliverySrc := path.Join("building-blocks", "delivery", "release")
-	deliveryTarget := resolveDestination(r.Spec.Destinations["building-blocks/delivery/release"], cfg)
+	deliveryTarget := r.resolveDestination(r.Spec.Destinations["building-blocks/delivery/release"], cfg)
 	if err := r.walkAndRender(deliverySrc, deliveryTarget, cfg); err != nil {
 		return err
 	}
 
 	// 4. Render Infrastructure Capabilities
-	infraTargetDir := resolveDestination(r.Spec.Destinations["building-blocks/capabilities"], cfg)
+	infraTargetDir := r.resolveDestination(r.Spec.Destinations["building-blocks/capabilities"], cfg)
 	if err := os.MkdirAll(infraTargetDir, 0755); err != nil {
 		return err
 	}
