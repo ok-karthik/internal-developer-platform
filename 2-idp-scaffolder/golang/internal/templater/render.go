@@ -1,6 +1,7 @@
 package templater
 
 import (
+	"bytes"
 	"fmt"
 	"io/fs"
 	"os"
@@ -17,6 +18,7 @@ type Config struct {
 	TeamName     string   // e.g., "payments"
 	SystemName   string   // e.g., "checkout"
 	AppName      string   // e.g., "checkout-api"
+	Env          string   // e.g., "dev" (Default value, can be overridden by flags or golden-path)
 	Runtime      string   // e.g., "go" (From golden-path)
 	Capabilities []string // e.g., ["postgres", "s3"] (From flags or golden-path)
 }
@@ -78,24 +80,33 @@ func (r *Renderer) processSingleTemplate(srcPath string, targetPath string, data
 	// Strip .tmpl extension for the output file
 	targetPath = strings.TrimSuffix(targetPath, ".tmpl")
 
-	// Create the output file on disk
+	// Parse and execute template from source path to outFile
+	// 1. Read & compile the template file at 'srcPath'
+	rawBytes, err := fs.ReadFile(r.CatalogFS, srcPath)
+	if err != nil {
+		return fmt.Errorf("failed to read template %s: %w", srcPath, err)
+	}
+
+	tmpl, err := template.New(filepath.Base(srcPath)).Delims("[[", "]]").Parse(string(rawBytes))
+	if err != nil {
+		return fmt.Errorf("failed to parse template %s: %w", srcPath, err)
+	}
+
+	// 2. Render into a memory-buffer first, to avoid 0-byte files on disk if execution fails
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, data); err != nil {
+		return fmt.Errorf("failed to render template %s: %w", srcPath, err)
+	}
+
+	// 3. Create and write the output file on disk
 	outFile, err := os.Create(targetPath)
 	if err != nil {
 		return fmt.Errorf("failed to create output file %s: %w", targetPath, err)
 	}
 	defer outFile.Close()
 
-	// Parse and execute template from source path to outFile
-	// 1. Read & compile the template file at 'srcPath'
-	rawBytes, err := fs.ReadFile(r.CatalogFS, srcPath)
-	tmpl, err := template.New(filepath.Base(srcPath)).Delims("[[", "]]").Parse(string(rawBytes))
-	if err != nil {
-		return err
-	}
-
-	// 2. Inject 'cfg' data into the compiled template and write to 'outFile'
-	if err := tmpl.Execute(outFile, data); err != nil {
-		return err
+	if _, err := buf.WriteTo(outFile); err != nil {
+		return fmt.Errorf("failed to write to output file %s: %w", targetPath, err)
 	}
 
 	fmt.Println(srcPath, "-->", targetPath)
@@ -122,7 +133,12 @@ func (r *Renderer) resolveDestination(destTemplate string, cfg Config) string {
 	dest = strings.ReplaceAll(dest, "{team}", cfg.TeamName)
 	dest = strings.ReplaceAll(dest, "{system}", cfg.SystemName)
 	dest = strings.ReplaceAll(dest, "{app}", cfg.AppName)
-	dest = strings.ReplaceAll(dest, "{env}", "dev") // default to dev environment for scaffolding
+
+	env := "dev" // default to dev environment for scaffolding
+	if cfg.Env != "" {
+		env = cfg.Env
+	}
+	dest = strings.ReplaceAll(dest, "{env}", env)
 
 	// Prepend the root target directory
 	return filepath.Join(r.OutputDir, dest)

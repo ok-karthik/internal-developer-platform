@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -25,9 +26,14 @@ var addServiceCmd = &cobra.Command{
 				return fmt.Errorf("golden path '%s' not found in catalog", goldenPathFlag)
 			}
 
-			// Seed the config
-			cfg.Runtime = gp.Runtime
-			cfg.Capabilities = gp.Capabilities
+			// Runtime parameter takes priority when passed and golden path runtime will be ignored
+			if cfg.Runtime == "" {
+				cfg.Runtime = gp.Runtime
+			}
+
+			if len(cfg.Capabilities) == 0 {
+				cfg.Capabilities = slices.Clone(gp.Capabilities)
+			}
 		}
 
 		// Ensure we have a runtime either from --golden-path or --runtime override
@@ -58,6 +64,9 @@ var addServiceCmd = &cobra.Command{
 			for cap := range capMap {
 				cfg.Capabilities = append(cfg.Capabilities, cap)
 			}
+
+			// Sort slice to ensure deterministic output order across runs/tests
+			slices.Sort(cfg.Capabilities)
 		}
 
 		// (Optional for learning): You might want to deduplicate cfg.Capabilities here
@@ -82,6 +91,7 @@ func init() {
 	addServiceCmd.Flags().StringVar(&goldenPathFlag, "golden-path", "", "Seed configuration from a named golden path")
 	addServiceCmd.Flags().StringVar(&cfg.Runtime, "runtime", "", "Override the application runtime (e.g., golang, python)")
 	addServiceCmd.Flags().StringVar(&capabilitiesString, "capabilities", "", "Comma-separated list of extra capabilities (e.g., postgres,s3)")
+	addServiceCmd.Flags().StringVar(&cfg.Env, "env", "dev", "Target environment for scaffolding (e.g. dev, prod)")
 
 	addServiceCmd.MarkFlagRequired("team-name")
 	addServiceCmd.MarkFlagRequired("app-name")

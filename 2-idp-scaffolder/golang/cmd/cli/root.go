@@ -14,8 +14,9 @@ import (
 )
 
 var (
-	outputRoot string
-	dryRun     bool
+	outputRoot  string
+	catalogRoot string
+	dryRun      bool
 
 	// cfg holds the CLI flags (--team-name, --app-name, etc)
 	cfg templater.Config
@@ -25,11 +26,10 @@ var (
 
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
-	Use:   "scaffolder",
-	Short: "Scaffolds templates for IDPs",
-	Long: `CLI tool that scaffolds application templates
-for IDPs
-Created using GoLang Cobra CLI library.`,
+	Use:          "scaffolder",
+	Short:        "Scaffolds templates for IDPs",
+	Long:         `CLI tool that scaffolds application templates for IDPs. Created using GoLang Cobra CLI library.`,
+	SilenceUsage: true,
 	// PersistentPreRunE is inherited by all subcommands (e.g. onboard-team).
 	// Unlike RunE (which runs command-specific logic), this runs BEFORE every subcommand
 	// to execute shared setup: setting default output path and fetching/loading the catalog.
@@ -42,29 +42,35 @@ Created using GoLang Cobra CLI library.`,
 			}
 			outputRoot = wd // Default to the folder the user is currently in
 		}
-		// 2. Download the templates
-		// 2. Download the templates with a beautiful spinner!
-		s := spinner.New(spinner.CharSets[14], 100*time.Millisecond)
-		s.Suffix = " Fetching templates from GitHub..."
-		s.Start()
-		catalogPath, err := fetchRemoteCatalog("feature/go-cli")
-		if err != nil {
-			s.Stop() // Make sure to stop it if there's an error!
-			return err
+
+		if catalogRoot == "" {
+			// 2. Download the templates with a beautiful spinner!
+			s := spinner.New(spinner.CharSets[14], 100*time.Millisecond)
+			s.Suffix = " Fetching templates from GitHub..."
+			s.Start()
+
+			var err error
+			catalogRoot, err = fetchRemoteCatalog("feature/go-cli")
+			if err != nil {
+				s.Stop() // Make sure to stop it if there's an error!
+				return err
+			}
+
+			s.Stop()
+			fmt.Println("✅ Templates fetched!")
+		} else {
+			fmt.Printf("📁 Using local catalog from: %s\n", catalogRoot)
 		}
 
-		s.Stop()
-		fmt.Println("✅ Templates fetched!")
-
 		// 3. Load the spec (this assumes you will write catalog.Load later)
-		spec, err := catalog.LoadCatalog(filepath.Join(catalogPath, "catalog.yaml"))
+		spec, err := catalog.LoadCatalog(filepath.Join(catalogRoot, "catalog.yaml"))
 		if err != nil {
 			return err
 		}
 
 		// 4. Initialize the Renderer
 		renderer = &templater.Renderer{
-			CatalogFS: os.DirFS(catalogPath),
+			CatalogFS: os.DirFS(catalogRoot),
 			Spec:      spec,
 			OutputDir: filepath.Join(outputRoot, "3-tenant-workloads"),
 		}
@@ -88,6 +94,7 @@ func init() {
 	// will be global for your application.
 
 	rootCmd.PersistentFlags().StringVar(&outputRoot, "output-root", "", "path to 3-tenant-workloads (default: auto-discovered)")
+	rootCmd.PersistentFlags().StringVar(&catalogRoot, "catalog-root", "", "path to 1-platform-catalog (default: auto-discovered)")
 	rootCmd.PersistentFlags().BoolVar(&dryRun, "dry-run", false, "print what would be written without writing it")
 }
 

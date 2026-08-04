@@ -12,3 +12,4 @@ dist/
 .pytest_cache/
 .coverage
 htmlcov/
+2-idp-scaffolder/golang/scaffolder
