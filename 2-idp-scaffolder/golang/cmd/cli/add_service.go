@@ -3,7 +3,6 @@ package cli
 import (
 	"fmt"
 	"slices"
-	"strings"
 
 	"github.com/spf13/cobra"
 )
@@ -11,7 +10,7 @@ import (
 // We need temporary variables to capture flags before merging them into `cfg`
 var (
 	goldenPathFlag     string
-	capabilitiesString string
+	capabilitiesString []string
 )
 
 var addServiceCmd = &cobra.Command{
@@ -19,58 +18,28 @@ var addServiceCmd = &cobra.Command{
 	Short: "Adds a microservice to a system (Runtime + Delivery + Infra)",
 	RunE: func(cmd *cobra.Command, args []string) error {
 
-		// If a golden path is provided, seed the configuration
+		// Seed from the golden path; explicit flags layer on top.
 		if goldenPathFlag != "" {
 			gp, found := renderer.Spec.FindGoldenPath(goldenPathFlag)
 			if !found {
 				return fmt.Errorf("golden path '%s' not found in catalog", goldenPathFlag)
 			}
-
-			// Runtime parameter takes priority when passed and golden path runtime will be ignored
+			// An explicit --runtime wins over the golden path's.
 			if cfg.Runtime == "" {
 				cfg.Runtime = gp.Runtime
 			}
-
-			if len(cfg.Capabilities) == 0 {
-				cfg.Capabilities = slices.Clone(gp.Capabilities)
-			}
+			cfg.Capabilities = append(cfg.Capabilities, gp.Capabilities...)
 		}
 
-		// Ensure we have a runtime either from --golden-path or --runtime override
 		if cfg.Runtime == "" {
 			return fmt.Errorf("a valid runtime or --golden-path must be specified (e.g. --golden-path go-microservice OR --runtime go)")
 		}
 
-		// If the user passed explicit capabilities, override/extend the list
-		if capabilitiesString != "" {
-			// Split the comma-separated string into a slice: "postgres,s3" -> ["postgres", "s3"]
-			extraCaps := strings.Split(capabilitiesString, ",")
-
-			// Deduplicate capabilities using a map
-			capMap := make(map[string]bool)
-
-			// Add existing capabilities to the map
-			for _, cap := range cfg.Capabilities {
-				capMap[cap] = true
-			}
-
-			// Add new capabilities, skipping duplicates
-			for _, cap := range extraCaps {
-				capMap[cap] = true
-			}
-
-			// Convert map back to slice
-			cfg.Capabilities = []string{}
-			for cap := range capMap {
-				cfg.Capabilities = append(cfg.Capabilities, cap)
-			}
-
-			// Sort slice to ensure deterministic output order across runs/tests
-			slices.Sort(cfg.Capabilities)
-		}
-
-		// (Optional for learning): You might want to deduplicate cfg.Capabilities here
-		// so if a user asks for 'postgres' twice, it only renders once!
+		// Union of golden-path and user capabilities. Sort makes output deterministic;
+		// Compact then drops the duplicates Sort has made adjacent.
+		cfg.Capabilities = append(cfg.Capabilities, capabilitiesString...)
+		slices.Sort(cfg.Capabilities)
+		cfg.Capabilities = slices.Compact(cfg.Capabilities)
 
 		fmt.Printf("Generating app '%s' [Runtime: %s, Capabilities: %v]\n", cfg.AppName, cfg.Runtime, cfg.Capabilities)
 		return renderer.RenderService(cfg)
@@ -90,7 +59,7 @@ func init() {
 	// Flags for the Seed & Override logic
 	addServiceCmd.Flags().StringVar(&goldenPathFlag, "golden-path", "", "Seed configuration from a named golden path")
 	addServiceCmd.Flags().StringVar(&cfg.Runtime, "runtime", "", "Override the application runtime (e.g., golang, python)")
-	addServiceCmd.Flags().StringVar(&capabilitiesString, "capabilities", "", "Comma-separated list of extra capabilities (e.g., postgres,s3)")
+	addServiceCmd.Flags().StringSliceVar(&capabilitiesString, "capabilities", nil, "Comma-separated list of extra capabilities (e.g., postgres,s3)")
 	addServiceCmd.Flags().StringVar(&cfg.Env, "env", "dev", "Target environment for scaffolding (e.g. dev, prod)")
 
 	addServiceCmd.MarkFlagRequired("team-name")

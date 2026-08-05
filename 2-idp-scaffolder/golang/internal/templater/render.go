@@ -166,34 +166,38 @@ func (r *Renderer) RenderTenantFoundation(cfg Config) error {
 	return nil
 }
 
+// blueprint pairs a source directory inside the catalog with the destinations key
+// that decides where its output lands. The two are usually the same string; runtime
+// is the exception, since its source carries the runtime name as a final segment.
+type blueprint struct {
+	src     string
+	destKey string
+}
+
 // RenderService renders runtime, delivery, and capability templates for a service
 func (r *Renderer) RenderService(cfg Config) error {
-	// 1. Render Runtime
-	if cfg.Runtime != "" {
-		runtimeSrc := path.Join("building-blocks", "runtimes", cfg.Runtime)
-		runtimeTarget := r.resolveDestination(r.Spec.Destinations["building-blocks/runtimes"], cfg)
-		if err := r.walkAndRender(runtimeSrc, runtimeTarget, cfg); err != nil {
-			return err
+	// Guard the exported boundary rather than trusting the caller: path.Join drops
+	// empty segments, so an empty Runtime would silently point the walk at
+	// building-blocks/runtimes and render EVERY runtime into the one app directory.
+	if cfg.Runtime == "" {
+		return fmt.Errorf("cfg.Runtime is required")
+	}
+
+	buildingBlocks := []blueprint{
+		{src: path.Join("building-blocks", "runtimes", cfg.Runtime), destKey: "building-blocks/runtimes"},
+		{src: "building-blocks/service-meta", destKey: "building-blocks/service-meta"},
+		{src: "building-blocks/delivery/release", destKey: "building-blocks/delivery/release"},
+	}
+
+	for _, item := range buildingBlocks {
+		// Render Runtime, Service Meta, Delivery (Release)
+		target := r.resolveDestination(r.Spec.Destinations[item.destKey], cfg)
+		if err := r.walkAndRender(item.src, target, cfg); err != nil {
+			return fmt.Errorf("rendering %s: %w", item.src, err)
 		}
 	}
 
-	// 2. Render Service Metadata (Backstage catalog-info.yaml)
-	// Lives outside runtimes/ because it is runtime-agnostic — a walk rooted at
-	// building-blocks/runtimes/<runtime>/ would never reach it.
-	metaSrc := path.Join("building-blocks", "service-meta")
-	metaTarget := r.resolveDestination(r.Spec.Destinations["building-blocks/service-meta"], cfg)
-	if err := r.walkAndRender(metaSrc, metaTarget, cfg); err != nil {
-		return err
-	}
-
-	// 3. Render Delivery (Release Values)
-	deliverySrc := path.Join("building-blocks", "delivery", "release")
-	deliveryTarget := r.resolveDestination(r.Spec.Destinations["building-blocks/delivery/release"], cfg)
-	if err := r.walkAndRender(deliverySrc, deliveryTarget, cfg); err != nil {
-		return err
-	}
-
-	// 4. Render Infrastructure Capabilities
+	// Render Infrastructure Capabilities
 	infraTargetDir := r.resolveDestination(r.Spec.Destinations["building-blocks/capabilities"], cfg)
 	if err := os.MkdirAll(infraTargetDir, 0755); err != nil {
 		return err
