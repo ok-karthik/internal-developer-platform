@@ -4,6 +4,7 @@ from pathlib import Path
 import subprocess
 import shutil
 import tempfile
+import re
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
 
@@ -24,11 +25,8 @@ env = Environment(
     undefined=StrictUndefined,    # fail on unhandled variables (matches Go behavior)
 )
 
-DEFAULT_CLOUD_SERVICES = ["aws-networking", "aws-iam"]
-
 # IPAM registry file for tracking VPC CIDR allocations
 IPAM_REGISTRY_FILE = TENANT_WORKLOADS_DIR / "cloud_vpcs_allocated.yaml"
-
 
 
 REMOTE_TEMPLATE_REPO = "" # "https://github.com/ok-karthik/internal-developer-platform@version=feature/python-scaffolder"
@@ -47,8 +45,16 @@ def create_jinja_env(catalog_root: Path) -> Environment:
 
 def render_template_string(env: Environment, tmpl_content: str, data: dict) -> str:
     """Renders an in-memory template string with Go delimiters."""
-    template = env.from_string(tmpl_content)
+    # 1. Convert Go conditionals [[- if .SystemName ]] -> [% if SystemName %], [[- end ]] -> [% endif %]
+    cleaned_content = re.sub(r'\[\[-?\s*if\s*\.([a-zA-Z0-9_]+)\s*\]\]', r'[% if \1 %]', tmpl_content)
+    cleaned_content = re.sub(r'\[\[-?\s*end\s*\]\]', r'[% endif %]', cleaned_content)
+    
+    # 2. Convert Go template dot variables [[ .Var ]] -> [[ Var ]] for Jinja2 compatibility
+    cleaned_content = re.sub(r'\[\[\s*\.([a-zA-Z0-9_]+)\s*\]\]', r'[[ \1 ]]', cleaned_content)
+    
+    template = env.from_string(cleaned_content)
     return template.render(**data)
+
 
 def get_template_base_dir() -> Path:
     """Gets the path to the template base directory.

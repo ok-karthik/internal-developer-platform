@@ -7,7 +7,7 @@
     {
       "customType": "regex",
       "fileMatch": [
-        "^2-idp-scaffolder/python/utils\\.py$"
+        "^2-idp-scaffolder/python/render\\.py$"
       ],
       "matchStrings": [
         "REMOTE_TEMPLATE_REPO = \"https://github\\.com/(?<depName>[^/]+/[^/@]+)@version=(?<currentValue>v[0-9.]+.*)\""

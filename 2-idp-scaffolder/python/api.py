@@ -1,4 +1,4 @@
-import schemas, utils
+import schemas, render
 import cli
 from fastapi import FastAPI, HTTPException
 
@@ -15,17 +15,17 @@ async def get_cloud_services():
 @api.get("/api/v1/meta/app-types", tags=["Metadata"])
 async def get_app_types():
     """List all application runtimes supported by the platform templates."""
-    return {"app_types": utils.list_available_app_types()}
+    return {"app_types": render.list_available_app_types()}
 
 @api.get("/api/v1/teams", tags=["Tenancy"])
 async def get_teams():
     """List all currently onboarded teams."""
-    return {"teams": utils.list_onboarded_teams()}
+    return {"teams": render.list_onboarded_teams()}
 
 @api.get("/api/v1/teams/{team_name}/repositories", tags=["Tenancy"])
 async def get_repositories(team_name: str):
     """List all repositories generated for a specific team."""
-    return {"repositories": utils.list_tenant_repositories(team_name)}
+    return {"repositories": render.list_tenant_repositories(team_name)}
 
 @api.post("/api/v1/applications", status_code=201, tags=["Scaffolding"])
 def scaffold_application(app: schemas.AppDetails):

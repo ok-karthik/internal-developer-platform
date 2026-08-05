@@ -1,72 +1,99 @@
 import typer, copier
 from typing import Annotated
-import schemas, utils
+import schemas, render, catalog
 
 from pydantic import ValidationError
 
-DEFAULT_CLOUD_SERVICES = ["aws-vpc", "aws-iam"]
+def add_service_workload(
+    team_name: str,
+    app_name: str,
+    golden_path: str = "",
+    runtime: str = "",
+    capabilities: list[str] = None,
+    system: str = "",
+    env_name: str = "dev"
+) -> bool:
+    capabilities = capabilities or []
+    cat_data = catalog.load_catalog(render.CATALOG_DIR / "catalog.yaml")
 
-def scaffold_tenant_workload(app_name: str, app_type: str, app_port: int, team_name: str, cloud_services: list[str] = list()) -> bool:
-    """Scaffolds the workspace directory, helm charts, and starting code for a tenant application.
+    # 1. Seed from Golden Path if specified
+    if golden_path:
+        gp = catalog.find_golden_path(cat_data, golden_path)
+        if gp:
+            if not runtime:
+                runtime = gp.runtime
+            # Combine seeded capabilities with explicit capability overrides
+            capabilities = list(set(gp.capabilities + capabilities))
+
+    if not runtime:
+        runtime = "go"  # default runtime fallback
+
+    env = render.create_jinja_env(render.CATALOG_DIR)
     
-    Args:
-        app_name: Name of the application to be generated
-        app_type: Type of the application (e.g. python, golang)
-        app_port: Port the application listens on
-        team_name: Tenant/Team namespace
-        cloud_services: Supported cloud service modules to enable
-        
-    Returns:
-        True if the scaffolding was completed successfully
-    """
-    # IPAM Network Allocation
-    vpc_cidr = utils.allocate_vpc_cidr_block(team_name)
+    # 2. Render Runtime Source + Service Meta into apps/<app>
+    app_dst = render.TENANT_WORKLOADS_DIR / team_name / "apps" / app_name
+    svc_data = {"TeamName": team_name, "AppName": app_name, "SystemName": system}
 
-    # Resolve the template base directory (supports local fallback or cloned remote repository)
-    template_base_dir = utils.get_template_base_dir()
+    for block_dir in [render.CATALOG_DIR / "building-blocks" / "runtimes" / runtime,
+                      render.CATALOG_DIR / "building-blocks" / "service-meta"]:
+        if block_dir.exists():
+            for path in block_dir.rglob("*"):
+                if path.is_file():
+                    rel = path.relative_to(block_dir)
+                    out_path = app_dst / str(rel).replace(".tmpl", "").replace("[[ .AppName ]]", app_name)
+                    out_path.parent.mkdir(parents=True, exist_ok=True)
+                    content = path.read_text(encoding="utf-8")
+                    if path.suffix == ".tmpl":
+                        content = render.render_template_string(env, content, svc_data)
+                    out_path.write_text(content, encoding="utf-8")
+                    typer.echo(f"  [WROTE] {out_path.relative_to(render.REPO_ROOT)}")
 
-    # Pass 1: Scaffold common team infrastructure & GitOps workflows
-    copier.run_copy(
-        str(template_base_dir / "templates" / "tenant-template"),
-        str(utils.TENANT_WORKLOADS_DIR),
-        data={
-            "team_name": team_name,
-            "tenant_name": team_name,
-            "app_name": app_name,
-            "app_type": app_type,
-            "app_port": app_port,
-            "cloud_services": cloud_services,
-            "vpc_cidr": vpc_cidr
-        },
-        overwrite=True,
-        defaults=True
-    )
+    # 3. Render Delivery Release values into gitops/apps/<app>/<env>/
+    gitops_src = render.CATALOG_DIR / "building-blocks" / "delivery" / "release"
+    gitops_dst = render.TENANT_WORKLOADS_DIR / team_name / "gitops" / "apps" / app_name / env_name
+    if gitops_src.exists():
+        for path in gitops_src.rglob("*"):
+            if path.is_file():
+                rel = path.relative_to(gitops_src)
+                out_path = gitops_dst / str(rel).replace(".tmpl", "")
+                out_path.parent.mkdir(parents=True, exist_ok=True)
+                content = path.read_text(encoding="utf-8")
+                if path.suffix == ".tmpl":
+                    content = render.render_template_string(env, content, svc_data)
+                out_path.write_text(content, encoding="utf-8")
+                typer.echo(f"  [WROTE] {out_path.relative_to(render.REPO_ROOT)}")
 
-    # Pass 2: Inject the language starter application files
-    copier.run_copy(
-        str(template_base_dir / "templates" / "apps-source" / app_type),
-        str(utils.TENANT_WORKLOADS_DIR / team_name / "apps-source" / app_name),
-        data={
-            "team_name": team_name,
-            "tenant_name": team_name,
-            "app_name": app_name,
-            "app_port": app_port
-        },
-        overwrite=True,
-        defaults=True
-    )
-    return True
+    # 4. Render Capability Terraform claims into infra/apps/<app>/<env>/
+    infra_dst = render.TENANT_WORKLOADS_DIR / team_name / "infra" / "apps" / app_name / env_name
+    for cap_name in capabilities:
+        cap_template = render.CATALOG_DIR / "building-blocks" / "capabilities" / f"{cap_name}.tf.tmpl"
+        if cap_template.exists() and cap_name in cat_data.capabilities:
+            cap_info = cat_data.capabilities[cap_name]
+            cap_data = {
+                "TeamName": team_name,
+                "AppName": app_name,
+                "CapabilitiesSourceBase": cat_data.capabilities_source_base,
+                "Module": cap_info.module,
+                "Version": cap_info.version,
+            }
+            out_path = infra_dst / f"{cap_name}.tf"
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            content = cap_template.read_text(encoding="utf-8")
+            content = render.render_template_string(env, content, cap_data)
+            out_path.write_text(content, encoding="utf-8")
+            typer.echo(f"  [WROTE] {out_path.relative_to(render.REPO_ROOT)}")
+
 
 def onboard_team_workload(team_name: str) -> bool:
-    catalog_dir = utils.CATALOG_DIR
-    vpc_cidr = utils.allocate_vpc_cidr_block(team_name)
-    env = utils.create_jinja_env(catalog_dir)
+    catalog_dir = render.CATALOG_DIR
+    vpc_cidr = render.allocate_vpc_cidr_block(team_name)
+    env = render.create_jinja_env(catalog_dir)
     data = {"TeamName": team_name, "VpcCidr": vpc_cidr}
 
     # Render team blueprints (apps, infra, gitops)
     for blueprint_kind in ["apps", "infra", "gitops"]:
         src_dir = catalog_dir / "blueprints" / "team" / blueprint_kind
-        dst_dir = utils.TENANT_WORKLOADS_DIR / team_name / blueprint_kind
+        dst_dir = render.TENANT_WORKLOADS_DIR / team_name / blueprint_kind
         
         if not src_dir.exists():
             continue
@@ -79,9 +106,11 @@ def onboard_team_workload(team_name: str) -> bool:
                 
                 content = path.read_text(encoding="utf-8")
                 if path.suffix == ".tmpl":
-                    content = utils.render_template_string(env, content, data)
+                    content = render.render_template_string(env, content, data)
                 
                 out_path.write_text(content, encoding="utf-8")
+                typer.echo(f"  [WROTE] {out_path.relative_to(render.REPO_ROOT)}")
+
                 
     typer.echo(f"Successfully onboarded team '{team_name}'")
     return True
@@ -132,6 +161,14 @@ def add_service(
             typer.echo(f"  - {loc}: {error['msg']}")
         raise typer.Exit(code=1)
 
-    # TODO: render runtime, service-meta, delivery release values & capability modules into 3-tenant-workloads
-    typer.echo(f"Scaffolded service '{app_name}' for team '{team_name}' (env: {env}) successfully.")
+    add_service_workload(
+        team_name=validated_data.team_name,
+        app_name=validated_data.app_name,
+        golden_path=validated_data.golden_path,
+        runtime=validated_data.runtime,
+        capabilities=validated_data.capabilities,
+        system=validated_data.system,
+        env_name=validated_data.env,
+    )
     return True
+
