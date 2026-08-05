@@ -1,19 +1,18 @@
-from enum import Enum
-from pydantic import BaseModel, Field, ValidationError
-import utils
+from pydantic import BaseModel, Field
 
-AppType = Enum("AppType", {t: t for t in utils.list_available_app_types()}, type=str)
+class OnboardTeamInput(BaseModel):
+    """Validation schema for onboard-team command"""
+    model_config = {"extra": "forbid"}
+    team_name: str = Field(min_length=2, max_length=40, pattern=r"^[a-z0-9][-a-z0-9]*[a-z0-9]$", description="Team/Tenant name")
 
-CloudServices = Enum("CloudService", {t: t for t in utils.list_available_cloud_services()}, type=str)
+class AddServiceInput(BaseModel):
+    """Validation schema for add-service command"""
+    model_config = {"extra": "forbid"}
+    team_name: str = Field(min_length=2, max_length=40, pattern=r"^[a-z0-9][-a-z0-9]*[a-z0-9]$", description="Team/Tenant name")
+    app_name: str = Field(min_length=2, max_length=40, pattern=r"^[a-z0-9][-a-z0-9]*[a-z0-9]$", description="Name of the application")
+    golden_path: str = Field(default="", description="Named golden path to seed defaults from")
+    runtime: str = Field(default="", description="Runtime language/framework override")
+    capabilities: list[str] = Field(default_factory=list, description="List of capabilities")
+    system: str = Field(default="", description="Backstage system metadata")
+    env: str = Field(default="dev", description="Target environment")
 
-# Validate the input details datatypes and ensure the data is sent via JSON body rather than URL parameters
-class AppDetails(BaseModel):
-    """App Model request body validations"""
-    model_config = {
-        "extra": "forbid"
-    }
-    app_name: str = Field(min_length=2, max_length=40, pattern=r"^[a-z0-9][-a-z0-9]*[a-z0-9]$", description="Name of the application to be generated")
-    app_type: AppType
-    app_port: int = Field(default=8080, ge=0, le=65535, description="Port number of the application to be generated")
-    team_name: str = Field(min_length=2, max_length=40, pattern=r"^[a-z0-9][-a-z0-9]*[a-z0-9]$", description="Team/Tenant name of the application to be generated")
-    cloud_services: list[CloudServices] = []

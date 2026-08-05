@@ -8,7 +8,7 @@ metadata:
 spec:
   generators:
     - git:
-        repoURL: 'https://github.com/ok-karthik/platform-engineering-idp-gitops-reference-architecture.git'
+        repoURL: 'https://github.com/ok-karthik/internal-developer-platform.git'
         revision: HEAD
         directories:
           # Each team keeps all of its platform-owned system ApplicationSets in one
@@ -22,7 +22,7 @@ spec:
     spec:
       project: default
       source:
-        repoURL: 'https://github.com/ok-karthik/platform-engineering-idp-gitops-reference-architecture.git'
+        repoURL: 'https://github.com/ok-karthik/internal-developer-platform.git'
         targetRevision: HEAD
         path: '{{path}}'
       destination:

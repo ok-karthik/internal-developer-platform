@@ -918,7 +918,7 @@ a rename in YAML silently breaks rendering.
 
 ```hcl
 module "postgres" {
-  source = "git::https://github.com/ok-karthik/platform-engineering-idp-gitops-reference-architecture.git//4-platform-engineering/cloud-services-terraform-modules/aws-postgres?ref=v1.0.2"
+  source = "git::https://github.com/ok-karthik/internal-developer-platform.git//4-platform-engineering/cloud-services-terraform-modules/aws-postgres?ref=v1.0.2"
   team_name = "payments"
   app_name  = "checkout-api"
 }

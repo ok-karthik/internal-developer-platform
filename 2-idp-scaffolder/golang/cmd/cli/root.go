@@ -109,7 +109,7 @@ func fetchRemoteCatalog(version string) (string, error) {
 	home, _ := os.UserHomeDir()
 	cacheDir := filepath.Join(home, ".scaffolder-cache", version)
 	// 2. The remote Git URL (you can even specify branches or tags using ?ref=)
-	url := "git::https://github.com/ok-karthik/platform-engineering-idp-gitops-reference-architecture.git//1-platform-catalog?ref=" + version
+	url := "git::https://github.com/ok-karthik/internal-developer-platform.git//1-platform-catalog?ref=" + version
 	// 3. HashiCorp's go-getter handles the actual download
 	err := getter.Get(cacheDir, url)
 	if err != nil {

@@ -84,7 +84,7 @@ spec:
               drop:
               - ALL
             readOnlyRootFilesystem: true
-          image: "ghcr.io/ok-karthik/platform-engineering-idp-gitops-reference-architecture/team-a/app-a:latest"
+          image: "ghcr.io/ok-karthik/internal-developer-platform/team-a/app-a:latest"
           imagePullPolicy: IfNotPresent
           ports:
             - name: http

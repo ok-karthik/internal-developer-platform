@@ -7,7 +7,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: "https://github.com/ok-karthik/platform-engineering-idp-gitops-reference-architecture.git"
+    repoURL: "https://github.com/ok-karthik/internal-developer-platform.git"
     targetRevision: HEAD
     path: 4-platform-engineering/argocd-apps # This tells Argo to apply everything inside the bootstrap folder!
     directory:

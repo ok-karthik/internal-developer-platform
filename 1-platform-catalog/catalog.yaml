@@ -3,7 +3,7 @@
 # and its output contract (Destinations)
 
 # The base URL for all Terraform modules
-capabilities_source_base: "git::https://github.com/ok-karthik/platform-engineering-idp-gitops-reference-architecture.git//4-platform-engineering/cloud-services-terraform-modules"
+capabilities_source_base: "git::https://github.com/ok-karthik/internal-developer-platform.git//4-platform-engineering/cloud-services-terraform-modules"
 
 # Golden Paths define secure-by-default microservice scaffolds
 # Schema uses a list so it maps correctly to the Go struct `[]GoldenPath`

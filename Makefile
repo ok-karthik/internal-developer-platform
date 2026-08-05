@@ -191,8 +191,9 @@ endif
 	@echo "Platform completely destroyed!"
 
 install-scaffolder:
-	cd 1-idp-scaffolder && uv pip install -e .
+	cd 2-idp-scaffolder/python && uv pip install -e .
 
 run-api:
-	cd 1-idp-scaffolder && fastapi dev api.py
+	cd 2-idp-scaffolder/python && fastapi dev api.py
+
 

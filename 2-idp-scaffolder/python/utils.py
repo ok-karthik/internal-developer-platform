@@ -4,15 +4,51 @@ from pathlib import Path
 import subprocess
 import shutil
 import tempfile
+from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
-# Absolute path to the directory containing this script (e.g., ".../1-idp-scaffolder")
-SCAFFOLDER_PKG_ROOT: Path = Path(__file__).resolve().parent
-# Target output directory (e.g., ".../3-tenant-workloads")
-TENANT_WORKLOADS_DIR: Path = SCAFFOLDER_PKG_ROOT.parent / "3-tenant-workloads"
+
+# Absolute path to repository root (2 levels up from 2-idp-scaffolder/python/)
+REPO_ROOT: Path = Path(__file__).resolve().parents[2]
+
+# Platform catalog containing golden paths and capabilities
+CATALOG_DIR: Path = REPO_ROOT / "1-platform-catalog"
+
+# Target output directory for tenant workloads
+TENANT_WORKLOADS_DIR: Path = REPO_ROOT / "3-tenant-workloads"
+
+env = Environment(
+    loader=FileSystemLoader(CATALOG_DIR),
+    variable_start_string="[[", variable_end_string="]]",
+    block_start_string="[%",   block_end_string="%]",
+    keep_trailing_newline=True,   # preserve trailing newlines
+    undefined=StrictUndefined,    # fail on unhandled variables (matches Go behavior)
+)
+
 DEFAULT_CLOUD_SERVICES = ["aws-networking", "aws-iam"]
+
+# IPAM registry file for tracking VPC CIDR allocations
 IPAM_REGISTRY_FILE = TENANT_WORKLOADS_DIR / "cloud_vpcs_allocated.yaml"
 
-REMOTE_TEMPLATE_REPO = "https://github.com/ok-karthik/platform-engineering-idp-gitops-reference-architecture@version=v1.0.2"
+
+
+REMOTE_TEMPLATE_REPO = "" # "https://github.com/ok-karthik/internal-developer-platform@version=feature/python-scaffolder"
+
+def create_jinja_env(catalog_root: Path) -> Environment:
+    """Configures Jinja2 with Go-compatible delimiters [[ ]] and strict erroring."""
+    return Environment(
+        loader=FileSystemLoader(str(catalog_root)),
+        variable_start_string="[[",
+        variable_end_string="]]",
+        block_start_string="[%",
+        block_end_string="%]",
+        keep_trailing_newline=True,
+        undefined=StrictUndefined,
+    )
+
+def render_template_string(env: Environment, tmpl_content: str, data: dict) -> str:
+    """Renders an in-memory template string with Go delimiters."""
+    template = env.from_string(tmpl_content)
+    return template.render(**data)
 
 def get_template_base_dir() -> Path:
     """Gets the path to the template base directory.
@@ -44,29 +80,26 @@ def get_template_base_dir() -> Path:
                 except Exception:
                     pass
                 
-            cmd = ["git", "clone", "--depth", "1", repo_url, str(cache_dir)]
-            if version:
-                cmd = ["git", "clone", repo_url, str(cache_dir)]
+            cmd = ["git", "clone", "--depth", "1", "--branch", version, repo_url, str(cache_dir)]
                 
             subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             
-            if version:
-                subprocess.run(["git", "checkout", version], cwd=str(cache_dir), check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                
-            # The templates are in the `1-idp-scaffolder` subdirectory of the cloned repo
-            return cache_dir / "1-idp-scaffolder"
+            return cache_dir / "1-platform-catalog"
         except Exception as e:
             print(f"Warning: Failed to retrieve remote templates from {repo_url} (Error: {e}). Falling back to local templates.")
-            return SCAFFOLDER_PKG_ROOT
+            return CATALOG_DIR
     else:
-        return SCAFFOLDER_PKG_ROOT
+        return CATALOG_DIR
 
-def list_available_app_types() -> list[str]:
-    """List all available app types"""
-    languages_dir = get_template_base_dir() / "templates" / "apps-source"
-    if not languages_dir.exists():
-        raise FileNotFoundError(f"Templates directory not found at: {languages_dir}")
-    return [template.name for template in languages_dir.iterdir() if template.is_dir()]
+def list_available_capabilities() -> list[str]:
+    """List all capabilities defined in catalog.yaml"""
+    catalog_path = CATALOG_DIR / "catalog.yaml"
+    if catalog_path.exists():
+        with open(catalog_path, "r") as f:
+            data = yaml.safe_load(f) or {}
+            return list(data.get("capabilities", {}).keys())
+    return ["postgres", "s3", "iam"]
+
 
 def list_available_cloud_services() -> list[str]:
     """List all cloud service templates except the default ones"""

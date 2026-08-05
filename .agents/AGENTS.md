@@ -101,7 +101,7 @@ Key decisions:
 ### 4. Terraform Cloud Modules Location
 - Reusable Terraform modules reside under `4-platform-engineering/cloud-services-terraform-modules/`.
 - Module git source URLs:
-  `git::https://github.com/ok-karthik/platform-engineering-idp-gitops-reference-architecture.git//4-platform-engineering/cloud-services-terraform-modules/<module_name>?ref=v1.0.2`
+  `git::https://github.com/ok-karthik/internal-developer-platform.git//4-platform-engineering/cloud-services-terraform-modules/<module_name>?ref=v1.0.2`
 
 ---
 
