@@ -33,28 +33,31 @@ would have caught any of them.
 
 ---
 
-## Phase 1 — `golangci-lint` (30 minutes, highest ROI here)
+## ~~Phase 1 — `golangci-lint`~~ ✅ DONE
 
-**Why:** bug 3 was a discarded `error` return. `errcheck` finds that whole class
-automatically and permanently, with no test to maintain. `go vet` does **not** check
-this — it is not in the default analyzer set.
+`.golangci.yml` (schema v2) sits at the module root. Defaults plus `errorlint`,
+`misspell`, `nilerr`, `unconvert`, `wastedassign`; `errcheck` runs with
+`check-blank: true` so `x, _ := f()` is reported too.
 
-**Do:**
+It found two real defects on the first run, both invisible to build, vet and gofmt:
 
-```bash
-brew install golangci-lint
-golangci-lint run ./...
-```
+1. `render.go` — `defer outFile.Close()` discarded its error. Closing a file you just
+   wrote to is precisely where a buffered write can still fail (full disk, network
+   filesystem), so this could report success having lost bytes. Replaced the
+   Create/WriteTo/deferred-Close trio with a single `os.WriteFile`: one call, one
+   error, and one line for Phase 3's `Writer` seam to replace later.
+2. `root.go` — `home, _ := os.UserHomeDir()`. On failure `home` is `""`, which makes
+   the cache path a *relative* `.scaffolder-cache/<ref>`, written into whatever
+   directory the user ran from and never found again.
 
-Add `.golangci.yml` at the module root enabling at least `errcheck`, `govet`,
-`ineffassign`, `staticcheck`, `unused`. Expect real hits on existing code:
-`MarkFlagRequired` returns an error that is ignored in `add_service.go`, and
-`defer outFile.Close()` in `processSingleTemplate` swallows a close-time write error.
+One exclusion is configured, with its reasoning in the file: cobra's `MarkFlagRequired`
+returns an error only when the named flag does not exist, which is a programmer error
+caught the first time the command runs.
 
-**Research:** `golangci-lint` config reference; `errcheck`; why `defer f.Close()` on a
-*written* file is a genuine bug, not pedantry (buffered data can fail to flush on close).
+**Run:** `golangci-lint run ./...` — currently `0 issues`.
 
-**Verify:** `golangci-lint run ./...` exits 0.
+> Note the config schema: golangci-lint v2 moved `exclusions` under `linters:` and
+> requires a top-level `version: "2"`. Check with `golangci-lint config verify`.
 
 ---
 

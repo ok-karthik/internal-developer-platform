@@ -1,0 +1,37 @@
+# golangci-lint configuration (schema v2).
+#
+# Why this exists: `go vet` does NOT report discarded error returns. A bare
+# `r.renderDestinations(...)` compiles clean, passes vet and gofmt, and silently
+# swallows the failure — which shipped once already and made the CLI exit 0 while
+# writing an orphaned postgres.tf for a service whose source was never created.
+# errcheck closes that whole class permanently, with no test to maintain.
+#
+# Run:  golangci-lint run ./...
+version: "2"
+
+linters:
+  # errcheck, govet, ineffassign, staticcheck and unused are enabled by default
+  # in v2; the ones below are additions worth the noise for a CLI that writes
+  # files to disk.
+  enable:
+    - errorlint # %w vs %v, and == comparisons that should be errors.Is
+    - misspell
+    - nilerr # returning nil when err is non-nil — the mistake vet cannot see
+    - unconvert
+    - wastedassign
+
+  settings:
+    errcheck:
+      # Deferred Close on a *written* file is not pedantry: buffered data can
+      # fail to flush at close, and the write then silently loses bytes.
+      check-blank: true
+
+  exclusions:
+    rules:
+      # Cobra's MarkFlagRequired returns an error only when the named flag does
+      # not exist, which is a programmer error caught the first time the command
+      # runs. Checking it at every call site adds noise without adding safety.
+      - path: cmd/cli/
+        text: "Error return value of `.*MarkFlag.*` is not checked"
+        linters:
+          - errcheck
