@@ -1,106 +1,168 @@
-# 🏛️ Golden Path Scaffolder (IDP Control Plane)
+# 🐍 Python Scaffolder Engine & REST API
 
-A production-ready blueprint engine for zero-touch microservice onboarding, GitOps bootstrapping, and declarative Infrastructure-as-Code (IaC) scaffolding. 
+The Python implementation of the IDP scaffolder: a Typer CLI and a FastAPI service,
+both driven by `1-platform-catalog/catalog.yaml`.
 
-This component acts as the **Control Plane / Developer Experience Layer (Layer 1)** of our Internal Developer Platform (IDP) reference architecture.
+It is a **second engine, not a legacy one.** The Go CLI in `../golang/` is definitive;
+this exists so the catalog is a *falsifiable* contract rather than an asserted one — run
+both with the same inputs, diff the trees, and any difference is a real finding. See
+[The Acceptance Test](#-the-acceptance-test).
 
----
-
-## 💡 Core Design Patterns & Engineering Architecture
-
-### 1. Two-Pass Template Rendering Pattern
-Instead of single-shot text replacement, the scaffolder splits scaffolding into two discrete passes:
-* **Pass 1: Common Platform Layout**: Orchestrated by [Copier](https://copier.readthedocs.io/) using `templates/tenant-template/`. This establishes the team's shared workspaces, GitOps repositories, GitHub Action CD pipelines, and environmental directories (`dev/` and `prod/` Terraform configurations).
-* **Pass 2: Language-Specific App Blueprint**: Evaluated from `templates/apps-source/` (e.g. Python, Go, Node.js, Spring Boot) to generate the starter microservice code itself under the team's `apps-source/` directory.
-
-### 2. Idempotent Infrastructure Scaffolding
-To ensure that product teams can safely add manual configurations (e.g., custom S3 buckets, SQS queues) without the scaffolder overwriting their work on subsequent runs:
-* Infrastructure is split into shared `team-base.tf` and app-specific `{{app_name}}.tf` files.
-* Copier's `_skip_if_exists` rule protects the shared base files, allowing safe, multi-app scaffolding within the same repository without merge conflicts.
-
-### 3. Automated Dependency Management (Renovate)
-The entire platform relies on **RenovateBot** to stay secure and up to date:
-* Natively bumps Python (`pyproject.toml`, `uv.lock`) and deployed Terraform workloads.
-* Utilizes **Custom Regex Managers** (`renovate.json`) to dynamically scan and update the `vX.Y.Z` Git module references embedded deeply within `.tf.jinja` template files and python scaffolding logic.
-
-### 4. Strictly Validated API/CLI Contracts (Pydantic Layer)
-To ensure platform stability and prevent invalid Kubernetes/cloud resource creation, all inputs are parsed and validated by a robust Pydantic data layer (`schemas.py`):
-* **Strict Port Validation**: Microservice ports must be within standard non-system ranges (`1024-65535`).
-* **RFC-Compliant Naming Rules**: Team and application names must conform to lowercase alphanumeric characters and hyphens (DNS compliance).
-* **Type Safety & Cloud Enums**: Restricts selected cloud services to supported platform-managed modules (e.g. `aws-s3`, `aws-postgres`).
-
-### 5. State-Preserving IPAM System
-To enable seamless multi-tenant cloud architectures, the scaffolder features a **Deterministic IP Address Management (IPAM)** engine:
-* Automatically reads, updates, and saves tenant allocations in a central state file (`3-tenant-workloads/cloud_vpcs_allocated.yaml`).
-* Assigns non-overlapping `/16` CIDR blocks (starting from `10.0.0.0/16`) to each new tenant VPC.
-* Guarantees network safety and prevents peer-routing collisions during AWS/multi-cloud VPC peering.
-
-### 6. GitOps Separation of Concerns (Helm Source vs Rendered Manifests)
-To optimize ArgoCD performance and enhance auditability, the generated repository structure strictly separates source Helm charts from rendered Kubernetes configurations:
-* **Source (`helm-charts/`)**: Holds the parameterized Helm templates, `values.yaml`, and `Chart.yaml` for developer modifications.
-* **Rendered (`rendered-manifests/`)**: Used by the GitOps agent (ArgoCD). During a CI/CD run, the GitHub Action automatically executes `helm template` against the source and writes flat, raw Kubernetes manifests into the rendered directory, committing them back to Git.
+What Python adds on top of parity: pydantic validation of every input, deterministic
+VPC CIDR allocation (IPAM), and a REST surface a developer portal can call.
 
 ---
 
-## 🛠️ Technology Stack
+## 💡 Design
 
-* **CLI Framework**: [Typer](https://typer.tiangolo.com/) for building self-documenting, type-hinted developer CLIs.
-* **API Framework**: [FastAPI](https://fastapi.tiangolo.com/) for exposing REST endpoints (fully documented with OpenAPI/Swagger), allowing easy integration with developer portals like Spotify Backstage.
-* **Template Engine**: [Copier](https://copier.readthedocs.io/) to enable Jinja-powered templating with built-in Day-2 upgrade capabilities (declarative updates to downstream scaffolded files when platform templates evolve).
-* **Validation Layer**: [Pydantic v2](https://docs.pydantic.dev/) for type safety, validation, and data serialization.
+### 1. The catalog is the only source of truth
+
+`catalog.py` is the Python twin of `../golang/internal/catalog/catalog.go`. It loads and
+validates `catalog.yaml` with pydantic, and its `REQUIRED_DESTINATIONS` list is kept
+**textually identical** to Go's `requiredDestinations`. If the two drift, one engine
+accepts a catalog the other rejects and the contract claim dies quietly.
+
+Validation happens at the load boundary, so a bad catalog fails with the offending key
+named, before anything is written — not halfway through, with half a tree on disk.
+
+### 2. Jinja2 configured to behave like Go's `text/template`
+
+Templates in `1-platform-catalog/` are written in Go syntax and shared by both engines,
+so Jinja is configured to match:
+
+| Setting | Why |
+|---|---|
+| `variable_start_string="[["` | leaves Helm's `{{ }}` untouched, so charts pass through verbatim |
+| `block_start_string="[%"` | Go's `[[- if ]]` is rewritten to this by regex at render time |
+| `keep_trailing_newline=True` | otherwise every rendered file loses its final `\n` |
+| `undefined=StrictUndefined` | a typo'd variable must fail, not silently render `""` — Go's default |
+
+**Copier was removed.** It renders *to a directory* and cannot hand back rendered bytes,
+which is incompatible with the Plan-then-Write architecture both engines are moving
+toward. Dropping it also gave up Copier's `_skip_if_exists` idempotency — an honest cost,
+tracked as skip-if-exists plus `--force` in [`TODO.md`](TODO.md).
+
+### 3. Strictly validated CLI and API contracts (pydantic)
+
+`schemas.py` validates every input before any work happens:
+
+* **RFC-compliant naming** — team and app names must be lowercase alphanumeric with
+  hyphens (DNS-safe, since they become Kubernetes and AWS resource names).
+* **`extra: "forbid"`** — an unknown field is an error, not silently ignored.
+
+Go has no equivalent, so this is a genuine Python-side advantage.
+
+### 4. Deterministic IPAM
+
+`render.py` assigns non-overlapping `/16` CIDR blocks from `10.0.0.0/8`, recording them in
+`3-tenant-workloads/cloud_vpcs_allocated.yaml`. Overlapping VPC CIDRs break peering
+irreversibly, so allocation belongs to the platform, not to a team's Terraform.
+
+This is **Python-only** — Go has no VPC concept — so the engines are not interchangeable
+for `onboard-team`. Resolving that (port it, or declare Python the owner) is an open
+decision in [`TODO.md`](TODO.md).
 
 ---
 
-## 📂 Directory Structure
+## 📂 Layout
 
 ```text
-1-idp-scaffolder/
-├── api.py                    # FastAPI server exposing REST endpoints
-├── cli.py                    # Typer command-line interface implementation
-├── main.py                   # Package entrypoint (delegates execution to Typer CLI)
-├── schemas.py                # Pydantic data models & schema validation rules
-├── utils.py                  # Helper functions for filesystem and IPAM calculations
-├── pyproject.toml            # Package metadata and CLI entrypoint registrations
-├── uv.lock                   # Deterministic package dependency lockfile
-└── templates/
-    ├── apps-source/          # Language-specific starter microservices
-    ├── cloud-services/       # Terraform modules for AWS services
-    └── tenant-template/      # Common platform templates (Terraform, GitOps workflows, Helm charts)
+2-idp-scaffolder/python/
+├── main.py          # entrypoint, delegates to the Typer app
+├── cli.py           # the two verbs: onboard-team, add-service
+├── api.py           # FastAPI endpoints over the same engine
+├── catalog.py       # loads + validates catalog.yaml (twin of Go's internal/catalog)
+├── render.py        # Jinja2 environment, path roots, IPAM
+├── schemas.py       # pydantic input models
+├── pyproject.toml   # package metadata, dependencies, CLI entrypoint
+├── uv.lock          # deterministic lockfile
+└── TODO.md          # remaining work, phased, with an answer key
 ```
+
+There is no `templates/` directory — templates live in `1-platform-catalog/`, shared with
+the Go engine.
 
 ---
 
-## 🚀 Getting Started & Execution
-
-### 1. Local Installation
-Install the scaffolder package locally in your active virtual environment in editable mode. This registers the `scaffolder` command globally within your shell:
+## 🚀 Usage
 
 ```bash
-# Install CLI via pip or uv (run from project root)
-make install-scaffolder
+uv sync
+
+uv run python main.py onboard-team --team-name payments
+
+uv run python main.py add-service --team-name payments --app-name checkout-api \
+    --golden-path go-service-postgres
+
+# --golden-path seeds runtime + capabilities from catalog.yaml;
+# --runtime and --capabilities override or extend that seed.
+uv run python main.py add-service --team-name payments --app-name checkout-api \
+    --runtime go --capabilities postgres,s3
 ```
 
-### 2. Scaffold a Service via CLI
-To scaffold a new microservice for a team (including dedicated VPC CIDR block, Terraform code, microservice template, Helm charts, and CI/CD pipelines):
+Verbs and flags match the Go CLI exactly. Two vocabularies for one platform is the thing
+that makes a reference architecture look unconsidered.
+
+### As a REST API
 
 ```bash
-# Provide multiple --cloud-services (or -cs) flags for each service
-scaffolder create \
-  --app-name my-python-app \
-  --app-type python \
-  --app-port 8080 \
-  --team-name team-a \
-  --cloud-services aws-s3 \
-  --cloud-services aws-postgres
+make run-api        # then open http://127.0.0.1:8000/docs
 ```
 
-*Note: Typer parses list options by repeating the flag (e.g., `-cs aws-s3 -cs aws-postgres`). Passing comma-separated lists (e.g., `aws-s3,aws-postgres`) is not supported.*
+| Endpoint | Purpose |
+|---|---|
+| `GET /api/v1/meta/capabilities` | capabilities and their pinned module versions |
+| `GET /api/v1/meta/golden-paths` | paved roads — what a portal renders as a picker |
+| `GET /api/v1/meta/runtimes` | runtimes with a scaffold template |
+| `GET /api/v1/teams` | onboarded teams |
+| `GET /api/v1/teams/{team}/repositories` | repo kinds generated for a team |
+| `POST /api/v1/teams` | the `onboard-team` verb |
+| `POST /api/v1/applications` | the `add-service` verb |
+| `POST /api/v1/applications/plan` | **501** — needs Plan-then-Write (`TODO.md` Phase 2) |
 
-### 3. Alternative: Run as a REST API (FastAPI)
-If you prefer exposing the scaffolder as a web service (e.g., to integrate it with a developer portal UI like Spotify Backstage), you can run the FastAPI application:
+Every metadata endpoint reads the catalog, so the API and CLI cannot disagree about what
+the platform offers. Bad requests return `400` with the same message the CLI prints.
+
+---
+
+## 🔬 The Acceptance Test
 
 ```bash
-# Starts the local FastAPI web server
-make run-api
+# Go
+cd ../golang
+go run . onboard-team --catalog-root ../../1-platform-catalog --output-root /tmp/go-out -t acc
+go run . add-service  --catalog-root ../../1-platform-catalog --output-root /tmp/go-out \
+    -t acc -a checkout --golden-path go-service-postgres
+
+# Python
+cd ../python
+uv run python main.py onboard-team --team-name acc
+uv run python main.py add-service --team-name acc --app-name checkout \
+    --golden-path go-service-postgres
+
+diff -r /tmp/go-out/3-tenant-workloads/acc ../../3-tenant-workloads/acc
 ```
-Once started, you can access the interactive OpenAPI Documentation at **[http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)** to trigger microservice creation via API requests.
+
+Currently one difference remains: a stray whitespace line in `catalog-info.yaml`, caused
+by Go's `[[-` trim markers being lost in the Jinja conversion. Fix and full context in
+[`TODO.md`](TODO.md) Phase 1a.
+
+> Python has no `--output-root` yet (`TODO.md` Phase 3), so it always writes into the real
+> `3-tenant-workloads/`. Back up `cloud_vpcs_allocated.yaml` and remove the scratch team
+> afterwards, or use a team name you do not mind deleting.
+
+---
+
+## ⚠️ Known limitations
+
+Full detail, with fixes, in [`TODO.md`](TODO.md).
+
+* **Not idempotent** — writes truncate, so re-running `add-service` overwrites edits to a
+  previously scaffolded file.
+* **No `--dry-run`** and no `--catalog-root` / `--output-root`.
+* **`catalog.destinations` is ignored** — output paths are currently hardcoded in
+  `cli.py`. They happen to match Go today; change a `destinations:` value and only Go
+  follows it.
+* **Silent divergences from Go** — an unknown golden path, a missing runtime, and an
+  unknown capability are all errors in Go but are ignored or defaulted here.
+* **No tests.**

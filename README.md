@@ -25,9 +25,9 @@ To make it easier to understand how this platform operates from end-to-end, the 
 1. **`1-platform-catalog/` (The Platform's Offering)**  
    `catalog.yaml` declares the golden paths, the version-pinned capability → Terraform module mapping, and a `destinations:` table that is the platform's output contract. Alongside it, `blueprints/` (rendered once per team or system) and `building-blocks/` (composed per service) hold the templates themselves, in `[[ .Var ]]` syntax so Helm's `{{ }}` passes through untouched.
 2. **`2-idp-scaffolder/golang/` (Go Scaffolder Engine)**  
-   Go CLI implementation using **Cobra** and native `text/template` engine to render microservice workloads.
+   Go CLI implementation using **Cobra** and native `text/template` to render microservice workloads. This is the definitive engine.
 3. **`2-idp-scaffolder/python/` (Python Scaffolder Engine & REST API)**  
-   Python CLI and FastAPI REST service utilizing **Typer** and **Copier** with deterministic IP Address Management (IPAM) for tenant VPCs.
+   Python CLI and FastAPI REST service using **Typer**, **Jinja2** (configured with Go's `[[ ]]` delimiters) and **pydantic** validation, plus deterministic IP Address Management (IPAM) for tenant VPCs. It implements the *same two verbs against the same catalog* — see [One Catalog, Two Engines](#-one-catalog-two-engines) below for why.
 4. **`3-tenant-workloads/` (Simulated Monorepo)**  
    The generated output, organised tenant-first as `<team>/{apps,infra,gitops}/` — each of those three maps to a standalone repo in production. `apps/` always means team-owned per-service content; the enclosing repo kind says whether that is source code, Terraform, or Helm values. There is no `<system>/` directory level — Backstage's System grouping lives in `catalog-info.yaml` instead. Inside `infra/` and `gitops/`, `platform/` is platform-owned, and a CODEOWNERS at each of the three roots makes that enforceable. ArgoCD monitors the CI-rendered `manifests/` directories for automatic deployment.
 5. **`4-platform-engineering/` (Platform Infrastructure & Control Plane)**  
@@ -69,6 +69,24 @@ To scale across hundreds of microservices, we utilize **Argo CD ApplicationSets*
 
 ---
 
+## 🔬 One Catalog, Two Engines
+
+Most reference architectures claim their catalog is "the contract" and leave it at that. Here the claim is **falsifiable**.
+
+`1-platform-catalog/catalog.yaml` is consumed by two independent implementations — Go (`text/template`, Cobra) and Python (Jinja2, Typer, pydantic). Run both with the same inputs and diff the trees:
+
+```bash
+diff -r /tmp/go-out/3-tenant-workloads/payments 3-tenant-workloads/payments
+```
+
+If the output differs, one of two things is true: the engines have drifted, or the catalog is under-specified about something both had to guess. Both are findings worth having. Today they agree on every generated file except one whitespace line in `catalog-info.yaml`, tracked in `2-idp-scaffolder/python/TODO.md`.
+
+This is also why the templates carry no logic beyond one conditional, why output paths live in `catalog.yaml`'s `destinations:` table rather than in either codebase, and why both engines validate the same required keys at load time. A contract that only one implementation reads is just a config file.
+
+> Two engines is a deliberate teaching choice, not a production recommendation. In a real platform you would ship one and spend the saved effort on Day-2 concerns — `--dry-run`, idempotent regeneration, catalog version pinning. Those are exactly the items in the two `TODO.md` files.
+
+---
+
 ## 🧰 Component Matrix
 
 This blueprint integrates best-in-class cloud-native tooling to form a cohesive ecosystem:
@@ -83,7 +101,7 @@ This blueprint integrates best-in-class cloud-native tooling to form a cohesive 
 | **Edge Gateway** | **Traefik** | L7 ingress, API gateway, rate-limiting, and middleware injection. |
 | **Secrets Ops** | **Sealed Secrets** | Asymmetric encryption enabling safe storage of secrets in Git. |
 | **Observability** | **Grafana Stack**| Unified metrics (Prometheus), logs (Loki), and traces (Tempo). |
-| **Dep. Management**| **Renovate** | Automated dependency bumps for Terraform modules, Helm charts, and Python packages via custom Regex Managers. |
+| **Dep. Management**| **Renovate** | Automated dependency bumps. `go.mod` and `pyproject.toml` are covered by the built-in managers; one custom regex manager handles the version pins in `catalog.yaml`, which no package manager understands. |
 
 ---
 
@@ -118,21 +136,37 @@ cd 2-idp-scaffolder/golang
 
 # 1. Once per team — tenancy boundary (AppProject, Namespace, NetworkPolicy, team IAM)
 #    plus the ArgoCD ApplicationSet that auto-discovers everything the team owns
-go run . onboard-team --team-name payments
+go run . onboard-team --catalog-root ../../1-platform-catalog --team-name payments
 
 # 2. Repeatable — a golden path: runtime + capabilities + delivery values + catalog-info
-go run . add-service --team-name payments --app-name checkout-api \
+go run . add-service --catalog-root ../../1-platform-catalog \
+                     --team-name payments --app-name checkout-api \
                      --golden-path go-service-postgres --system checkout
 ```
 
-`--system` is optional Backstage metadata; it groups services in the service catalog and
-creates no directory.
-
 `--golden-path` seeds the runtime and capabilities from `catalog.yaml`; `--runtime` and
-`--capabilities` override or extend that seed.
+`--capabilities` override or extend that seed. `--system` is optional Backstage metadata;
+it groups services in the service catalog and creates no directory.
 
-> **Note:** the Python CLI (`2-idp-scaffolder/python/`) is currently non-functional pending a
-> repoint at `1-platform-catalog/`.
+> **`--catalog-root` matters.** Without it the CLI fetches the catalog from GitHub, so your
+> local edits to `1-platform-catalog/` will not take effect until pushed. `--output-root`
+> likewise redirects the generated tree somewhere other than `3-tenant-workloads/`.
+
+The same verbs in the Python engine, which also exposes them over REST:
+
+```bash
+cd 2-idp-scaffolder/python && uv sync
+
+uv run python main.py onboard-team --team-name payments
+uv run python main.py add-service --team-name payments --app-name checkout-api \
+                      --golden-path go-service-postgres
+
+make run-api      # FastAPI on the same engine; open /docs for the OpenAPI UI
+```
+
+> **Not yet idempotent.** Both engines use truncating writes, so re-running `add-service`
+> overwrites edits to a previously scaffolded file. Skip-if-exists and a working
+> `--dry-run` are the next items in both `TODO.md` files.
 
 ---
 
