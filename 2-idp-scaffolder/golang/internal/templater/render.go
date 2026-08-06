@@ -99,15 +99,14 @@ func (r *Renderer) processSingleTemplate(srcPath string, targetPath string, data
 		return fmt.Errorf("failed to render template %s: %w", srcPath, err)
 	}
 
-	// 3. Create and write the output file on disk
-	outFile, err := os.Create(targetPath)
-	if err != nil {
-		return fmt.Errorf("failed to create output file %s: %w", targetPath, err)
-	}
-	defer outFile.Close()
-
-	if _, err := buf.WriteTo(outFile); err != nil {
-		return fmt.Errorf("failed to write to output file %s: %w", targetPath, err)
+	// 3. Write the output file on disk.
+	//
+	// os.WriteFile rather than Create + WriteTo + deferred Close: a deferred
+	// Close discards its error, and closing a file we just wrote to is exactly
+	// where a buffered write can still fail (full disk, network filesystem).
+	// That would report success having lost bytes. One call, one error.
+	if err := os.WriteFile(targetPath, buf.Bytes(), 0644); err != nil {
+		return fmt.Errorf("failed to write output file %s: %w", targetPath, err)
 	}
 
 	fmt.Println(srcPath, "-->", targetPath)

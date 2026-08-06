@@ -32,7 +32,14 @@ IPAM_REGISTRY_FILE = TENANT_WORKLOADS_DIR / "cloud_vpcs_allocated.yaml"
 REMOTE_TEMPLATE_REPO = "" # "https://github.com/ok-karthik/internal-developer-platform@version=feature/python-scaffolder"
 
 def create_jinja_env(catalog_root: Path) -> Environment:
-    """Configures Jinja2 with Go-compatible delimiters [[ ]] and strict erroring."""
+    """Configures Jinja2 to render Go text/template sources identically to Go.
+
+    trim_blocks/lstrip_blocks reproduce Go's `[[-` whitespace trimming. The regex
+    conversion in render_template_string() rewrites `[[- if .X ]]` to `[% if X %]`
+    and cannot carry the `-` markers across, so without these two flags a false
+    conditional leaves an indented blank line behind. That was the sole remaining
+    difference between the two engines' output (in catalog-info.yaml).
+    """
     return Environment(
         loader=FileSystemLoader(str(catalog_root)),
         variable_start_string="[[",
@@ -40,6 +47,8 @@ def create_jinja_env(catalog_root: Path) -> Environment:
         block_start_string="[%",
         block_end_string="%]",
         keep_trailing_newline=True,
+        trim_blocks=True,
+        lstrip_blocks=True,
         undefined=StrictUndefined,
     )
 

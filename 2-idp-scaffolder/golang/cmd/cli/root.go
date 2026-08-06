@@ -111,14 +111,20 @@ func init() {
 // This downloads the catalog from GitHub into a temporary folder
 func fetchRemoteCatalog(version string) (string, error) {
 	// 1. Where to save it locally (e.g. ~/.scaffolder-cache/v1.0.0/)
-	home, _ := os.UserHomeDir()
+	//
+	// Discarding this error used to leave home as "", which makes cacheDir a
+	// RELATIVE .scaffolder-cache/<ref> — silently written into whatever
+	// directory the user happened to run from, and never found again.
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("cannot locate home directory for the catalog cache: %w", err)
+	}
 	cacheDir := filepath.Join(home, ".scaffolder-cache", version)
 	// 2. The remote Git URL (you can even specify branches or tags using ?ref=)
 	url := "git::https://github.com/ok-karthik/internal-developer-platform.git//1-platform-catalog?ref=" + version
 	// 3. HashiCorp's go-getter handles the actual download
-	err := getter.Get(cacheDir, url)
-	if err != nil {
-		return "", err
+	if err := getter.Get(cacheDir, url); err != nil {
+		return "", fmt.Errorf("fetching catalog %s: %w", version, err)
 	}
 
 	return cacheDir, nil

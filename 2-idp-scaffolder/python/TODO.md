@@ -85,19 +85,15 @@ from the last round.
 
 ## Phase 1 — Close the contract gap (the important one)
 
-### 1a. The whitespace diff — one line, verified
+### ~~1a. The whitespace diff~~ ✅ DONE
 
-`render.py:34-44` builds the Jinja `Environment` without whitespace control, so Go's
-`[[-` trim markers are lost in conversion and a false conditional leaves an indented
-blank line.
+`create_jinja_env` now sets `trim_blocks=True` and `lstrip_blocks=True`, reproducing
+Go's `[[-` trim markers, which the regex conversion to `[% if %]` cannot carry across.
 
-```python
-trim_blocks=True,     # drop the first newline after a block tag
-lstrip_blocks=True,   # drop leading whitespace before a block tag
-```
-
-Verified against the real template: with these two kwargs the rendered tail is
-`...not supplied.\n` — byte-identical to Go. Without them it is `...not supplied.\n  \n`.
+**The acceptance test now passes byte-for-byte** — 17 files, both verbs, zero diff. That
+is the headline claim of this whole design, and it is now true rather than nearly true.
+Keep it that way: re-run the diff in [The acceptance test](#the-acceptance-test) before
+merging anything that touches a template or either renderer.
 
 ### 1b. Python ignores `catalog.destinations` entirely
 

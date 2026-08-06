@@ -143,9 +143,10 @@ uv run python main.py add-service --team-name acc --app-name checkout \
 diff -r /tmp/go-out/3-tenant-workloads/acc ../../3-tenant-workloads/acc
 ```
 
-Currently one difference remains: a stray whitespace line in `catalog-info.yaml`, caused
-by Go's `[[-` trim markers being lost in the Jinja conversion. Fix and full context in
-[`TODO.md`](TODO.md) Phase 1a.
+**This currently produces no output** — the trees are byte-identical, both verbs, every
+file. Keeping it that way depends on `trim_blocks`/`lstrip_blocks` in `create_jinja_env`:
+the regex that rewrites `[[- if .X ]]` to `[% if X %]` cannot carry Go's `-` trim markers
+across, so without those flags a false conditional leaves an indented blank line behind.
 
 > Python has no `--output-root` yet (`TODO.md` Phase 3), so it always writes into the real
 > `3-tenant-workloads/`. Back up `cloud_vpcs_allocated.yaml` and remove the scratch team

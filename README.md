@@ -79,7 +79,7 @@ Most reference architectures claim their catalog is "the contract" and leave it 
 diff -r /tmp/go-out/3-tenant-workloads/payments 3-tenant-workloads/payments
 ```
 
-If the output differs, one of two things is true: the engines have drifted, or the catalog is under-specified about something both had to guess. Both are findings worth having. Today they agree on every generated file except one whitespace line in `catalog-info.yaml`, tracked in `2-idp-scaffolder/python/TODO.md`.
+If the output differs, one of two things is true: the engines have drifted, or the catalog is under-specified about something both had to guess. Both are findings worth having. **Today the two trees are byte-identical** — every file, both verbs.
 
 This is also why the templates carry no logic beyond one conditional, why output paths live in `catalog.yaml`'s `destinations:` table rather than in either codebase, and why both engines validate the same required keys at load time. A contract that only one implementation reads is just a config file.
 
