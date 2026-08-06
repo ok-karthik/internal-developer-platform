@@ -8,6 +8,7 @@ import (
 	"path"
 	"path/filepath"
 	"scaffolder/internal/catalog"
+	"slices"
 	"strings"
 	"text/template"
 )
@@ -19,7 +20,7 @@ type Config struct {
 	SystemName   string   // e.g., "checkout"
 	AppName      string   // e.g., "checkout-api"
 	Env          string   // e.g., "dev" (Default value, can be overridden by flags or golden-path)
-	Runtime      string   // e.g., "go" (From golden-path)
+	Runtime      string   // e.g., "go" (From runtimes)
 	Capabilities []string // e.g., ["postgres", "s3"] (From flags or golden-path)
 }
 
@@ -127,7 +128,7 @@ func renderPath(pathStr string, cfg Config) (string, error) {
 	return buf.String(), nil
 }
 
-// Add this helper function above RenderTenantFoundation
+// Substitutes {team}/{system}/{app}/{env} and prefixes OutputDir
 func (r *Renderer) resolveDestination(destTemplate string, cfg Config) string {
 	dest := destTemplate
 	dest = strings.ReplaceAll(dest, "{team}", cfg.TeamName)
@@ -144,34 +145,25 @@ func (r *Renderer) resolveDestination(destTemplate string, cfg Config) string {
 	return filepath.Join(r.OutputDir, dest)
 }
 
-// teamBlueprints are every catalog directory rendered once per team. Because each
-// destinations key IS the source directory inside the catalog, one string drives
-// both halves of the walk — add a blueprint by adding a key to catalog.yaml and a
-// line here, with no new path logic.
-var teamBlueprints = []string{
-	"blueprints/team/apps",   // CODEOWNERS for the app-source repo
-	"blueprints/team/infra",  // CODEOWNERS + platform/ (providers, backend, team IAM)
-	"blueprints/team/gitops", // CODEOWNERS + platform/ (tenancy boundary, ApplicationSet)
-}
-
-// RenderTenantFoundation scaffolds everything a team gets exactly once. All of it
-// is platform-owned, which is why it sits behind a single verb.
-func (r *Renderer) RenderTenantFoundation(cfg Config) error {
-	for _, source := range teamBlueprints {
-		target := r.resolveDestination(r.Spec.Destinations[source], cfg)
-		if err := r.walkAndRender(source, target, cfg); err != nil {
-			return fmt.Errorf("rendering %s: %w", source, err)
-		}
-	}
-	return nil
-}
-
 // blueprint pairs a source directory inside the catalog with the destinations key
 // that decides where its output lands. The two are usually the same string; runtime
 // is the exception, since its source carries the runtime name as a final segment.
 type blueprint struct {
 	src     string
 	destKey string
+}
+
+// RenderTenantFoundation scaffolds everything a team gets exactly once. All of it
+// is platform-owned, which is why it sits behind a single verb.
+func (r *Renderer) RenderTenantFoundation(cfg Config) error {
+	teamBlueprints := []blueprint{
+		// Each destination key IS the source directory inside the catalog.yaml
+		{src: "blueprints/team/apps", destKey: "blueprints/team/apps"},     // CODEOWNERS for the app-source repo
+		{src: "blueprints/team/infra", destKey: "blueprints/team/infra"},   // CODEOWNERS + platform/ (providers, backend, team IAM)
+		{src: "blueprints/team/gitops", destKey: "blueprints/team/gitops"}, // CODEOWNERS + platform/ (tenancy boundary, ApplicationSet)
+	}
+
+	return r.renderDestinations(teamBlueprints, cfg)
 }
 
 // RenderService renders runtime, delivery, and capability templates for a service
@@ -189,12 +181,9 @@ func (r *Renderer) RenderService(cfg Config) error {
 		{src: "building-blocks/delivery/release", destKey: "building-blocks/delivery/release"},
 	}
 
-	for _, item := range buildingBlocks {
-		// Render Runtime, Service Meta, Delivery (Release)
-		target := r.resolveDestination(r.Spec.Destinations[item.destKey], cfg)
-		if err := r.walkAndRender(item.src, target, cfg); err != nil {
-			return fmt.Errorf("rendering %s: %w", item.src, err)
-		}
+	// Render Runtime, Service Meta, Delivery (Release)
+	if err := r.renderDestinations(buildingBlocks, cfg); err != nil {
+		return err
 	}
 
 	// Render Infrastructure Capabilities
@@ -231,4 +220,45 @@ func (r *Renderer) RenderService(cfg Config) error {
 	}
 
 	return nil
+}
+
+func (r *Renderer) renderDestinations(bps []blueprint, cfg Config) error {
+	for _, item := range bps {
+		target := r.resolveDestination(r.Spec.Destinations[item.destKey], cfg)
+		if err := r.walkAndRender(item.src, target, cfg); err != nil {
+			return fmt.Errorf("rendering %s: %w", item.src, err)
+		}
+	}
+	return nil
+}
+
+// Resolve merges a golden path with explicit overrides into the final Config.
+// It reads nothing outside its parameters, so it is safe for any caller — CLI or API.
+func Resolve(spec *catalog.Catalog, goldenPath string, in Config) (Config, error) {
+	out := in
+	// Clone so appending below cannot write into the caller's backing array.
+	out.Capabilities = slices.Clone(in.Capabilities)
+
+	if goldenPath != "" {
+		gp, found := spec.FindGoldenPath(goldenPath)
+		if !found {
+			return Config{}, fmt.Errorf("golden path '%s' not found in catalog", goldenPath)
+		}
+		// An explicit --runtime wins over the golden path's.
+		if out.Runtime == "" {
+			out.Runtime = gp.Runtime
+		}
+		out.Capabilities = append(out.Capabilities, gp.Capabilities...)
+	}
+
+	if out.Runtime == "" {
+		return Config{}, fmt.Errorf("a runtime is required: pass --runtime or --golden-path")
+	}
+
+	// Sort makes output deterministic; Compact then drops the duplicates
+	// Sort has made adjacent.
+	slices.Sort(out.Capabilities)
+	out.Capabilities = slices.Compact(out.Capabilities)
+
+	return out, nil
 }

@@ -2,15 +2,14 @@ package cli
 
 import (
 	"fmt"
-	"slices"
+	"scaffolder/internal/templater"
 
 	"github.com/spf13/cobra"
 )
 
 // We need temporary variables to capture flags before merging them into `cfg`
 var (
-	goldenPathFlag     string
-	capabilitiesString []string
+	goldenPathFlag string
 )
 
 var addServiceCmd = &cobra.Command{
@@ -18,31 +17,13 @@ var addServiceCmd = &cobra.Command{
 	Short: "Adds a microservice to a system (Runtime + Delivery + Infra)",
 	RunE: func(cmd *cobra.Command, args []string) error {
 
-		// Seed from the golden path; explicit flags layer on top.
-		if goldenPathFlag != "" {
-			gp, found := renderer.Spec.FindGoldenPath(goldenPathFlag)
-			if !found {
-				return fmt.Errorf("golden path '%s' not found in catalog", goldenPathFlag)
-			}
-			// An explicit --runtime wins over the golden path's.
-			if cfg.Runtime == "" {
-				cfg.Runtime = gp.Runtime
-			}
-			cfg.Capabilities = append(cfg.Capabilities, gp.Capabilities...)
+		resolvedCfg, err := templater.Resolve(renderer.Spec, goldenPathFlag, cfg)
+		if err != nil {
+			return err
 		}
 
-		if cfg.Runtime == "" {
-			return fmt.Errorf("a valid runtime or --golden-path must be specified (e.g. --golden-path go-microservice OR --runtime go)")
-		}
-
-		// Union of golden-path and user capabilities. Sort makes output deterministic;
-		// Compact then drops the duplicates Sort has made adjacent.
-		cfg.Capabilities = append(cfg.Capabilities, capabilitiesString...)
-		slices.Sort(cfg.Capabilities)
-		cfg.Capabilities = slices.Compact(cfg.Capabilities)
-
-		fmt.Printf("Generating app '%s' [Runtime: %s, Capabilities: %v]\n", cfg.AppName, cfg.Runtime, cfg.Capabilities)
-		return renderer.RenderService(cfg)
+		fmt.Printf("Generating app '%s' [Runtime: %s, Capabilities: %v]\n", resolvedCfg.AppName, resolvedCfg.Runtime, resolvedCfg.Capabilities)
+		return renderer.RenderService(resolvedCfg)
 	},
 }
 
@@ -58,10 +39,11 @@ func init() {
 
 	// Flags for the Seed & Override logic
 	addServiceCmd.Flags().StringVar(&goldenPathFlag, "golden-path", "", "Seed configuration from a named golden path")
-	addServiceCmd.Flags().StringVar(&cfg.Runtime, "runtime", "", "Override the application runtime (e.g., golang, python)")
-	addServiceCmd.Flags().StringSliceVar(&capabilitiesString, "capabilities", nil, "Comma-separated list of extra capabilities (e.g., postgres,s3)")
+	addServiceCmd.Flags().StringVar(&cfg.Runtime, "runtime", "", "Override the application runtime (e.g., go, python, nodejs, java-springboot)")
+	addServiceCmd.Flags().StringSliceVar(&cfg.Capabilities, "capabilities", nil, "Comma-separated list of extra capabilities (e.g., postgres,s3)")
 	addServiceCmd.Flags().StringVar(&cfg.Env, "env", "dev", "Target environment for scaffolding (e.g. dev, prod)")
 
 	addServiceCmd.MarkFlagRequired("team-name")
 	addServiceCmd.MarkFlagRequired("app-name")
+	addServiceCmd.MarkFlagsOneRequired("golden-path", "runtime")
 }
