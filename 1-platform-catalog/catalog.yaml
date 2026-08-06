@@ -23,13 +23,13 @@ capabilities_source_base: "git::https://github.com/ok-karthik/internal-developer
 capabilities:
   postgres:
     module: aws-postgres
-    version: v1.0.2
+    version: v1.1.0
   s3:
     module: aws-s3
-    version: v1.0.2
+    version: v1.1.0
   iam:
     module: aws-iam
-    version: v1.0.2
+    version: v1.1.0
 
 # The Output Contract: Where each component gets written.
 # This eliminates hardcoded paths in the Go CLI.

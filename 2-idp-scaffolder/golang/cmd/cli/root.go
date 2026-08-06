@@ -54,8 +54,13 @@ var rootCmd = &cobra.Command{
 			s.Suffix = " Fetching templates from GitHub..."
 			s.Start()
 
+			// TODO(platform): this should be a --catalog-ref flag defaulting to a
+			// release tag stamped at build time via -ldflags, so a bad catalog
+			// commit cannot break every engineer at once and a rollback is possible.
+			// Tracked as Phase 4 in TODO.md. Until then, track the default branch —
+			// never a feature branch, which disappears when it merges.
 			var err error
-			catalogRoot, err = fetchRemoteCatalog("feature/go-cli")
+			catalogRoot, err = fetchRemoteCatalog("main")
 			if err != nil {
 				s.Stop() // Make sure to stop it if there's an error!
 				return err
