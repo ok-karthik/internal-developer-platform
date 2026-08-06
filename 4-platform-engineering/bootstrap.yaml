@@ -1,0 +1,23 @@
+# Save this on your laptop as master-app.yaml and run: kubectl apply -f master-app.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: platform-bootstrap
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: "https://github.com/ok-karthik/internal-developer-platform.git"
+    targetRevision: HEAD
+    path: 4-platform-engineering/argocd-apps # This tells Argo to apply everything inside the bootstrap folder!
+    directory:
+      recurse: true
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - SkipDryRunOnMissingResource=true

@@ -1,34 +1,57 @@
 name: Tenant Workloads - CI/CD Pipeline
 
+# Closes the GitOps loop. The scaffolder writes source + values; ArgoCD syncs only
+# rendered manifests; this workflow is the bridge between them.
+#
+#   <team>/apps/<app>/                       source        -> container image
+#   <team>/gitops/apps/<app>/<env>/values.yaml  team's API -> input to the chart
+#   1-platform-catalog/.../delivery/chart/   platform-owned, ONE chart for everyone
+#   <team>/gitops/apps/<app>/<env>/manifests/   output     -> what ArgoCD syncs
+#
+# The discovery unit is a values.yaml, not a directory of charts: a file existing
+# at that path IS the declaration that an app should be deployed to that env. That
+# is what makes promotion "copy dev/values.yaml to prod/" and nothing else.
+
 on:
   push:
     branches:
       - main
     paths:
-      - '2-tenant-workloads/**'
+      - '3-tenant-workloads/**'
+      - '1-platform-catalog/building-blocks/delivery/chart/**'
       - '.github/workflows/tenant-workloads-ci-cd.yaml'
 
-# Grants write permission to push the rendered manifests back to the repo and publish images to GHCR
+# contents: write pushes the rendered manifests back; packages: write publishes to GHCR.
 permissions:
   contents: write
   packages: write
 
+env:
+  CHART_DIR: 1-platform-catalog/building-blocks/delivery/chart
+
 jobs:
-  run-tenant-pipelines:
+  render:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Code
+      - name: Checkout code
         uses: actions/checkout@v4
 
       - name: Install Helm
         uses: azure/setup-helm@v4
         with:
-          version: v4.2.0
+          # This is the HELM version, not the action version. It previously read
+          # v4.2.0 — the action's own tag — which does not resolve to a Helm release.
+          version: v3.17.0
+
+      - name: Lint the platform chart
+        # The chart is shared by every service on the platform, so a broken chart is
+        # a fleet-wide outage. Fail here, before anything is rendered or pushed.
+        run: helm lint "$CHART_DIR"
 
       - name: Lowercase repository name
         id: repo_name
         run: |
-          echo "image_name=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
+          echo "image_name=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
 
       - name: Setup pack CLI
         uses: buildpacks/github-actions/setup-pack@v5.12.4
@@ -40,67 +63,105 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Run CI/CD Pipelines for Generated Apps
+      # ---------------------------------------------------------------------
+      # CI: one image per app, regardless of how many environments it has.
+      # ---------------------------------------------------------------------
+      - name: Build and push images
         run: |
-          # Find all generated applications that have a templated-manifests directory
-          for dir in 2-tenant-workloads/*/gitops-repo/helm-charts/*; do
-            if [ -d "$dir" ]; then
-              TENANT_NAME=$(echo "$dir" | awk -F'/' '{print $2}')
-              APP_NAME=$(basename "$dir")
-              SRC_DIR="2-tenant-workloads/$TENANT_NAME/apps-source/$APP_NAME"
-              
-              echo "==================================================="
-              echo "🚀 Running Pipelines for App: $APP_NAME ($TENANT_NAME)"
-              echo "==================================================="
-              
-              # 1. Simulate CI Pipeline (Image Build)
-              if [ -d "$SRC_DIR" ]; then
-                echo "---------------------------------------------------"
-                echo "📦 Building Docker Image"
-                echo "---------------------------------------------------"
-                
-                IMAGE_TAG_LATEST="ghcr.io/${{ steps.repo_name.outputs.image_name }}/$TENANT_NAME/$APP_NAME:latest"
-                IMAGE_TAG_RUN="ghcr.io/${{ steps.repo_name.outputs.image_name }}/$TENANT_NAME/$APP_NAME:v${{ github.run_number }}"
-                
-                if [ -f "$SRC_DIR/Dockerfile" ]; then
-                  echo "Dockerfile found. Building with BuildKit..."
-                  docker build -t "$IMAGE_TAG_LATEST" -t "$IMAGE_TAG_RUN" -f "$SRC_DIR/Dockerfile" "$SRC_DIR"
-                  docker push "$IMAGE_TAG_LATEST"
-                  docker push "$IMAGE_TAG_RUN"
-                else
-                  echo "No Dockerfile found. Building with Cloud Native Buildpacks..."
-                  pack build "$IMAGE_TAG_LATEST" --path "$SRC_DIR" --builder paketobuildpacks/builder-jammy-base
-                  docker tag "$IMAGE_TAG_LATEST" "$IMAGE_TAG_RUN"
-                  docker push "$IMAGE_TAG_LATEST"
-                  docker push "$IMAGE_TAG_RUN"
-                fi
-              fi
-              
-              # 2. Simulate CD Pipeline (Manifest Rendering)
-              echo "---------------------------------------------------"
-              echo "☸️ Rendering Helm Manifests"
-              echo "---------------------------------------------------"
-              cd "2-tenant-workloads/$TENANT_NAME/gitops-repo/"
-              rm -rf rendered-manifests/$APP_NAME || true
-              mkdir -p rendered-manifests/$APP_NAME
-              helm template "$APP_NAME" helm-charts/$APP_NAME \
-                --set image.repository="ghcr.io/${{ steps.repo_name.outputs.image_name }}/$TENANT_NAME/$APP_NAME" \
-                > rendered-manifests/$APP_NAME/rendered.yaml
-              cd - > /dev/null
-            fi
-          done
+          set -euo pipefail
 
-      - name: Commit and Push Rendered Manifests
+          # Deduplicate: an app with dev/ and prod/ yields two values.yaml files but
+          # must produce exactly one image build.
+          find 3-tenant-workloads/*/gitops/apps/*/*/values.yaml -type f 2>/dev/null \
+            | awk -F'/' '{print $2"/"$5}' | sort -u > /tmp/apps.txt || true
+
+          if [ ! -s /tmp/apps.txt ]; then
+            echo "No scaffolded apps found. Nothing to build."
+            exit 0
+          fi
+
+          while IFS='/' read -r TEAM APP; do
+            SRC_DIR="3-tenant-workloads/$TEAM/apps/$APP"
+
+            if [ ! -d "$SRC_DIR" ]; then
+              echo "::warning::$TEAM/$APP has values.yaml but no source at $SRC_DIR — skipping build."
+              continue
+            fi
+
+            echo "::group::Building $TEAM/$APP"
+            IMAGE="ghcr.io/${{ steps.repo_name.outputs.image_name }}/$TEAM/$APP"
+
+            if [ -f "$SRC_DIR/Dockerfile" ]; then
+              echo "Dockerfile found — building with BuildKit."
+              docker build -t "$IMAGE:latest" -t "$IMAGE:v${{ github.run_number }}" \
+                -f "$SRC_DIR/Dockerfile" "$SRC_DIR"
+            else
+              echo "No Dockerfile — building with Cloud Native Buildpacks (the paved road)."
+              pack build "$IMAGE:latest" --path "$SRC_DIR" \
+                --builder paketobuildpacks/builder-jammy-base
+              docker tag "$IMAGE:latest" "$IMAGE:v${{ github.run_number }}"
+            fi
+
+            docker push "$IMAGE:latest"
+            docker push "$IMAGE:v${{ github.run_number }}"
+            echo "::endgroup::"
+          done < /tmp/apps.txt
+
+      # ---------------------------------------------------------------------
+      # CD: render the ONE platform chart against each per-env values.yaml.
+      # ---------------------------------------------------------------------
+      - name: Render manifests
         run: |
-          git config --global user.name "github-actions[bot]"
+          set -euo pipefail
+
+          find 3-tenant-workloads/*/gitops/apps/*/*/values.yaml -type f 2>/dev/null \
+            | sort > /tmp/values.txt || true
+
+          if [ ! -s /tmp/values.txt ]; then
+            echo "No values.yaml files found. Nothing to render."
+            exit 0
+          fi
+
+          while read -r VALUES; do
+            # 3-tenant-workloads/<team>/gitops/apps/<app>/<env>/values.yaml
+            #        $1          $2      $3     $4    $5     $6      $7
+            TEAM=$(echo "$VALUES" | awk -F'/' '{print $2}')
+            APP=$(echo  "$VALUES" | awk -F'/' '{print $5}')
+            ENV=$(echo  "$VALUES" | awk -F'/' '{print $6}')
+            OUT_DIR="$(dirname "$VALUES")/manifests"
+
+            echo "::group::Rendering $TEAM/$APP/$ENV"
+
+            # Wipe first: without this, a resource removed from the chart or disabled
+            # in values would linger as a stale file and ArgoCD would keep syncing it.
+            rm -rf "$OUT_DIR"
+            mkdir -p "$OUT_DIR"
+
+            # No --set overrides. The rendered output is a pure function of
+            # (chart, values.yaml), so the committed manifests are an honest record
+            # of what git says should be running. Image tags move by editing
+            # values.yaml, which is the promotion mechanism.
+            helm template "$APP" "$CHART_DIR" \
+              --values "$VALUES" \
+              --namespace "$TEAM" \
+              > "$OUT_DIR/rendered.yaml"
+
+            echo "Wrote $OUT_DIR/rendered.yaml ($(wc -l < "$OUT_DIR/rendered.yaml") lines)"
+            echo "::endgroup::"
+          done < /tmp/values.txt
+
+      - name: Commit and push rendered manifests
+        run: |
+          set -euo pipefail
+          git config --global user.name  "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add 2-tenant-workloads/
-          
-          # Check if there are changes to commit
+          git add 3-tenant-workloads/
+
           if git diff --staged --quiet; then
             echo "No manifest changes detected. Skipping commit."
           else
-            # [skip ci] prevents the action from triggering itself in an infinite loop
-            git commit -m "chore(platform): auto-render manifests for scaffolded apps [skip ci]"
+            git diff --staged --stat
+            # [skip ci] prevents this push from re-triggering the workflow.
+            git commit -m "chore(platform): render manifests for scaffolded apps [skip ci]"
             git push
           fi

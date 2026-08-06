@@ -1,0 +1,67 @@
+# Platform defaults for the golden-path service chart.
+#
+# Anything app-specific (image.repository, nameOverride, hosts) is deliberately
+# left empty here and supplied by the per-env values.yaml that `add-service`
+# scaffolds into <team>/gitops/apps/<app>/<env>/. Keep this file to values that
+# are genuinely the same for every service on the platform.
+
+replicaCount: 1
+
+image:
+  # Set per app in the release values. Empty here so a missing override fails
+  # loudly at render time instead of silently deploying someone else's image.
+  repository: ""
+  pullPolicy: IfNotPresent
+  tag: "latest"
+
+imagePullSecrets: []
+
+# Set to the app name by the release values so resource names come out as
+# "<app>" rather than "<app>-service". See the app.fullname helper.
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+podLabels: {}
+
+# Secure-by-default: non-root, no privilege escalation, read-only root filesystem.
+# This is the kind of thing that belongs in the platform chart rather than in each
+# team's values — it is a guardrail, not a preference.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+service:
+  type: ClusterIP
+  port: 8080
+
+resources: {}
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 20
+  targetCPUUtilizationPercentage: 80
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+ingress:
+  enabled: false
+  annotations: {}
+  hosts: []

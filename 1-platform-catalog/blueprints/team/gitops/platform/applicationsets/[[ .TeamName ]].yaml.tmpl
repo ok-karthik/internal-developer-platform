@@ -1,0 +1,36 @@
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: [[ .TeamName ]]
+  namespace: argocd
+spec:
+  # https://argo-cd.readthedocs.io/en/stable/operator-manual/applicationset/Template/#go-templating
+  goTemplate: true
+  generators:
+    - git:
+        repoURL: 'https://github.com/ok-karthik/internal-developer-platform.git'
+        revision: HEAD
+        directories:
+          # app x env — one Application per environment of every app this team owns.
+          - path: 3-tenant-workloads/[[ .TeamName ]]/gitops/apps/*/*
+  template:
+    metadata:
+      # For path 3-tenant-workloads/team-a/gitops/apps/app-a/dev the segments are
+      # 0=3-tenant-workloads 1=team-a 2=gitops 3=apps 4=app-a 5=dev — so segment 4
+      # is the app and basename is the env.
+      name: '[[ .TeamName ]]-{{ index .path.segments 4 }}-{{ .path.basename }}'
+    spec:
+      project: [[ .TeamName ]]
+      source:
+        repoURL: 'https://github.com/ok-karthik/internal-developer-platform.git'
+        targetRevision: HEAD
+        path: '{{ .path.path }}/manifests'
+      destination:
+        server: 'https://kubernetes.default.svc'
+        namespace: '[[ .TeamName ]]'
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true

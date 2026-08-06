@@ -6,24 +6,22 @@
   "customManagers": [
     {
       "customType": "regex",
-      "fileMatch": ["^1-idp-scaffolder/utils\\.py$"],
-      "matchStrings": [
-        "REMOTE_TEMPLATE_REPO = \"https://github\\.com/(?<depName>[^/]+/[^/@]+)@version=(?<currentValue>v[0-9.]+.*)\""
+      "description": "Terraform module version pins in the platform catalog. capabilities_source_base points at 4-platform-engineering/cloud-services-terraform-modules in this same repo, so the pin resolves against this repo's own git tags. This is the ONLY hand-maintained version pin in the tree — everything else (go.mod, pyproject.toml) is covered by Renovate's built-in gomod and pep621 managers with no custom config.",
+      "fileMatch": [
+        "^1-platform-catalog/catalog\\.yaml$"
       ],
-      "datasourceTemplate": "github-tags"
-    },
-    {
-      "customType": "regex",
-      "fileMatch": ["\\.tf\\.jinja$"],
       "matchStrings": [
-        "source\\s*=\\s*\"git::https://github\\.com/(?<depName>[^/]+/[^/]+?)\\.git//.*?\\?ref=(?<currentValue>v[0-9.]+.*)\""
+        "version:\\s*[\"']?(?<currentValue>v\\d+\\.\\d+\\.\\d+)[\"']?"
       ],
+      "depNameTemplate": "ok-karthik/internal-developer-platform",
       "datasourceTemplate": "github-tags"
     }
   ],
   "packageRules": [
     {
-      "matchDatasources": ["github-tags"],
+      "matchDatasources": [
+        "github-tags"
+      ],
       "groupName": "IDP Template Version Updates"
     }
   ]

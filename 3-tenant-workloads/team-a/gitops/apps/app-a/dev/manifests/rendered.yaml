@@ -1,0 +1,161 @@
+---
+# Source: service/templates/serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: app-a
+  labels:
+    helm.sh/chart: service-0.1.0
+    app.kubernetes.io/name: app-a
+    app.kubernetes.io/instance: app-a
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    team: team-a
+automountServiceAccountToken: 
+
+---
+# Source: service/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: app-a
+  labels:
+    helm.sh/chart: service-0.1.0
+    app.kubernetes.io/name: app-a
+    app.kubernetes.io/instance: app-a
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    team: team-a
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8080
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: app-a
+    app.kubernetes.io/instance: app-a
+
+---
+# Source: service/templates/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app-a
+  labels:
+    helm.sh/chart: service-0.1.0
+    app.kubernetes.io/name: app-a
+    app.kubernetes.io/instance: app-a
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    team: team-a
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: app-a
+      app.kubernetes.io/instance: app-a
+  template:
+    metadata:
+      annotations:
+        instrumentation.opentelemetry.io/inject-sdk: app-a-autoinstrumentation
+      labels:
+        helm.sh/chart: service-0.1.0
+        app.kubernetes.io/name: app-a
+        app.kubernetes.io/instance: app-a
+        app.kubernetes.io/version: "1.0.0"
+        app.kubernetes.io/managed-by: Helm
+        team: team-a
+    spec:
+      serviceAccountName: app-a
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        # app.name, not .Chart.Name — the chart is generically named "service", so
+        # .Chart.Name would label every container in the fleet "service".
+        - name: app-a
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+              - ALL
+            readOnlyRootFilesystem: true
+          image: "ghcr.io/ok-karthik/internal-developer-platform/team-a/app-a:latest"
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          resources:
+            limits:
+              cpu: 500m
+              memory: 512Mi
+            requests:
+              cpu: 100m
+              memory: 128Mi
+
+---
+# Source: service/templates/ingress.yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: app-a
+  labels:
+    helm.sh/chart: service-0.1.0
+    app.kubernetes.io/name: app-a
+    app.kubernetes.io/instance: app-a
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    team: team-a
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: "app-a-dev.local"
+      http:
+        paths:
+          - path: /
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: app-a
+                port:
+                  number: 8080
+
+---
+# Source: service/templates/instrumentation.yaml
+apiVersion: opentelemetry.io/v1alpha1
+kind: Instrumentation
+metadata:
+  name: app-a-autoinstrumentation
+  labels:
+    helm.sh/chart: service-0.1.0
+    app.kubernetes.io/name: app-a
+    app.kubernetes.io/instance: app-a
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    team: team-a
+spec:
+  exporter:
+    # Point traces to the centralized Tempo service running in the monitoring namespace
+    endpoint: http://tempo.monitoring.svc.cluster.local:4317
+  propagators:
+    - tracecontext
+    - baggage
+    - b3
+  sampler:
+    type: parentbased_always_on
+  python:
+    image: ghcr.io/open-telemetry/opentelemetry-operator/autoinstrumentation-python:latest
+    env:
+      - name: OTEL_PYTHON_DISABLED_INSTRUMENTATIONS
+        value: "system_metrics"
+      - name: OTEL_LOGS_EXPORTER
+        value: "none"
+  java:
+    image: ghcr.io/open-telemetry/opentelemetry-operator/autoinstrumentation-java:latest
+  nodejs:
+    image: ghcr.io/open-telemetry/opentelemetry-operator/autoinstrumentation-nodejs:latest
