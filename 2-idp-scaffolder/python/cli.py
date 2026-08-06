@@ -72,6 +72,11 @@ def add_service_workload(
             cap_data = {
                 "TeamName": team_name,
                 "AppName": app_name,
+                # Env must be present: the capability templates tag resources with
+                # it, and StrictUndefined turns a missing key into an error rather
+                # than a silently empty value. Go supplies it via CapabilityView
+                # embedding Config, so both engines render the same fields.
+                "Env": env_name,
                 "CapabilitiesSourceBase": cat_data.capabilities_source_base,
                 "Module": cap_info.module,
                 "Version": cap_info.version,
