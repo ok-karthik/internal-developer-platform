@@ -2,9 +2,6 @@
 # This file defines the platform's offering (Golden Paths, Capabilities)
 # and its output contract (Destinations)
 
-# The base URL for all Terraform modules
-capabilities_source_base: "git::https://github.com/ok-karthik/internal-developer-platform.git//4-platform-engineering/cloud-services-terraform-modules"
-
 # Golden Paths define secure-by-default microservice scaffolds
 # Schema uses a list so it maps correctly to the Go struct `[]GoldenPath`
 golden-paths:
@@ -18,6 +15,9 @@ golden-paths:
     runtime: python
     capabilities: [s3]
     delivery: standard-helm
+
+# The base URL for all Terraform modules
+capabilities_source_base: "git::https://github.com/ok-karthik/internal-developer-platform.git//4-platform-engineering/cloud-services-terraform-modules"
 
 # Capabilities map a friendly name to a version-pinned Terraform module
 capabilities:
