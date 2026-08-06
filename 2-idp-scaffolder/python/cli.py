@@ -1,4 +1,4 @@
-import typer, copier
+import typer
 from typing import Annotated
 import schemas, render, catalog
 
