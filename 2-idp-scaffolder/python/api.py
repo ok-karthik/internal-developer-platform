@@ -5,7 +5,7 @@ CLI can never disagree about what the platform offers.
 
 Run it:
 
-    make dev-api          # or: fastapi dev api.py
+    make run-api          # or: fastapi dev api.py
 """
 
 from functools import lru_cache
