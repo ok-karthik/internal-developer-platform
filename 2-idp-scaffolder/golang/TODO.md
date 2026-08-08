@@ -220,18 +220,18 @@ the tree looking for `.git`, erroring cleanly if absent.
 **Research:** "golang find git root walk up parent directory"; note `filepath.Dir`
 returns its own input at the filesystem root — that is the loop's termination condition.
 
-### 5b. `GoldenPath.Delivery` is dead — `catalog.go:23`
+### 5b. ~~`GoldenPath.Delivery` is dead~~ — DONE
 
-Parsed, validated, never reaches the renderer. `standard-helm` does nothing;
-`RenderService` hardcodes `building-blocks/delivery/release`. Either wire it in as
-`building-blocks/delivery/<delivery>` in the blueprint table, or delete the field.
-**Do not carry config that lies.**
+Deleted rather than wired up. There is exactly one delivery mechanism, so
+`delivery: standard-helm` was config that lied. Add a `delivery:` registry only when a
+second mechanism actually exists — that is when it earns its keep.
 
-Open question while here: `1-platform-catalog/building-blocks/delivery/chart/`
-(Chart.yaml, values.yaml, templates/) is **never rendered by the CLI at all**. Decide
-whether it is a shared library chart referenced by the ApplicationSet — in which case it
-belongs in a chart repo, not the scaffolder's output contract — or per-app scaffolding
-that is currently missing.
+The open question about the chart is also settled: it is a shared platform-owned chart,
+**never** part of the scaffolder's output contract. It moved to
+`1-platform-catalog/charts/service/`, which keeps one rule true — everything under
+`building-blocks/` has a `destinations` key and lands in a tenant repo; nothing else
+does. Publishing it to an OCI registry and referencing it by version is the natural
+next step, but storing it in-repo is fine until a second chart exists.
 
 ### 5c. Globals — `root.go:16-25`
 

@@ -5,8 +5,13 @@ name: Tenant Workloads - CI/CD Pipeline
 #
 #   <team>/apps/<app>/                       source        -> container image
 #   <team>/gitops/apps/<app>/<env>/values.yaml  team's API -> input to the chart
-#   1-platform-catalog/.../delivery/chart/   platform-owned, ONE chart for everyone
+#   1-platform-catalog/charts/service/       platform-owned, ONE chart for everyone
 #   <team>/gitops/apps/<app>/<env>/manifests/   output     -> what ArgoCD syncs
+#
+# The chart lives in charts/, not building-blocks/, because it is never scaffolded
+# into a tenant repo — it has no destinations key, and only its rendered OUTPUT
+# reaches 3-tenant-workloads/. Everything under building-blocks/ gets copied; this
+# gets rendered. Different verbs, different directories.
 #
 # The discovery unit is a values.yaml, not a directory of charts: a file existing
 # at that path IS the declaration that an app should be deployed to that env. That
@@ -18,7 +23,7 @@ on:
       - main
     paths:
       - '3-tenant-workloads/**'
-      - '1-platform-catalog/building-blocks/delivery/chart/**'
+      - '1-platform-catalog/charts/service/**'
       - '.github/workflows/tenant-workloads-ci-cd.yaml'
 
 # contents: write pushes the rendered manifests back; packages: write publishes to GHCR.
@@ -27,7 +32,7 @@ permissions:
   packages: write
 
 env:
-  CHART_DIR: 1-platform-catalog/building-blocks/delivery/chart
+  CHART_DIR: 1-platform-catalog/charts/service
 
 jobs:
   render:
