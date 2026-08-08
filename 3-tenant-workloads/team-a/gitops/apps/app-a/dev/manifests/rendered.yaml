@@ -11,7 +11,8 @@ metadata:
     app.kubernetes.io/version: "1.0.0"
     app.kubernetes.io/managed-by: Helm
     team: team-a
-automountServiceAccountToken:
+automountServiceAccountToken: 
+
 ---
 # Source: service/templates/service.yaml
 apiVersion: v1
@@ -35,6 +36,7 @@ spec:
   selector:
     app.kubernetes.io/name: app-a
     app.kubernetes.io/instance: app-a
+
 ---
 # Source: service/templates/deployment.yaml
 apiVersion: apps/v1
@@ -95,6 +97,7 @@ spec:
             requests:
               cpu: 100m
               memory: 128Mi
+
 ---
 # Source: service/templates/ingress.yaml
 apiVersion: networking.k8s.io/v1
@@ -121,6 +124,7 @@ spec:
                 name: app-a
                 port:
                   number: 8080
+
 ---
 # Source: service/templates/instrumentation.yaml
 apiVersion: opentelemetry.io/v1alpha1
