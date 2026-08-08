@@ -23,7 +23,7 @@ We deliver this product experience through four core pillars:
 To make it easier to understand how this platform operates from end-to-end, the repository is logically divided into chronological layers:
 
 1. **`1-platform-catalog/` (The Platform's Offering)**  
-   `catalog.yaml` declares the golden paths, the version-pinned capability → Terraform module mapping, and a `destinations:` table that is the platform's output contract. Alongside it, `blueprints/` (rendered once per team or system) and `building-blocks/` (composed per service) hold the templates themselves, in `[[ .Var ]]` syntax so Helm's `{{ }}` passes through untouched.
+   `catalog.yaml` declares the golden paths, the offered runtimes, the version-pinned capability → Terraform module mapping, and a `destinations:` table that is the platform's output contract. Alongside it sit three directories distinguished by *what happens to the files in them*: `blueprints/` is copied once per team, `building-blocks/` is copied per service, and `charts/` is never copied at all — CI renders it and only the output reaches a tenant repo. Templates use `[[ .Var ]]` syntax so Helm's `{{ }}` passes through untouched.
 2. **`2-idp-scaffolder/golang/` (Go Scaffolder Engine)**  
    Go CLI implementation using **Cobra** and native `text/template` to render microservice workloads. This is the definitive engine.
 3. **`2-idp-scaffolder/python/` (Python Scaffolder Engine & REST API)**  
@@ -32,6 +32,58 @@ To make it easier to understand how this platform operates from end-to-end, the 
    The generated output, organised tenant-first as `<team>/{apps,infra,gitops}/` — each of those three maps to a standalone repo in production. `apps/` always means team-owned per-service content; the enclosing repo kind says whether that is source code, Terraform, or Helm values. There is no `<system>/` directory level — Backstage's System grouping lives in `catalog-info.yaml` instead. Inside `infra/` and `gitops/`, `platform/` is platform-owned, and a CODEOWNERS at each of the three roots makes that enforceable. ArgoCD monitors the CI-rendered `manifests/` directories for automatic deployment.
 5. **`4-platform-engineering/` (Platform Infrastructure & Control Plane)**  
    Contains reusable AWS Terraform modules (`cloud-services-terraform-modules/`), ArgoCD App-of-Apps declarations (`argocd-apps/`), Traefik ingress controller setup, and OpenTelemetry observability configurations.
+
+---
+
+## 📜 The Output Contract
+
+The catalog has three top-level directories, and the thing that distinguishes them is **what happens to the files inside**:
+
+| Catalog directory | Rendered by | When | What reaches a tenant repo |
+| :--- | :--- | :--- | :--- |
+| `blueprints/` | Scaffolder CLI / API — `onboard-team` | once per team | the files themselves, copied |
+| `building-blocks/` | Scaffolder CLI / API — `add-service` | once per service | the files themselves, copied |
+| `charts/` | **GitHub Actions**, never the CLI | every push touching a `values.yaml` or the chart | **only its rendered output**, into `manifests/` |
+
+That third row is the one people trip over. The chart is *not* a template the scaffolder copies — nothing under `charts/` ever appears in `3-tenant-workloads/`. One platform-owned chart serves every service, CI runs `helm template` against each app's `values.yaml`, and only the resulting plain YAML is committed. A chart fix therefore ships fleet-wide instead of being copy-pasted into N repos, and ArgoCD syncs `manifests/` only.
+
+The first two directories are also laid out differently from each other, on purpose. `blueprints/` is walked and copied wholesale, so it mirrors the tree it produces. `building-blocks/` is *selected from* by name — `runtime: go`, `capabilities: [postgres]` — so it is organised by the keys `catalog.yaml` uses to address it. Two different access patterns, two different layouts.
+
+What ties the catalog to its output is therefore not the directory names but this table:
+
+| Catalog source | Rendered | Lands at |
+| :--- | :--- | :--- |
+| `blueprints/team/apps/` | once per team | `<team>/apps/` |
+| `blueprints/team/infra/` | once per team | `<team>/infra/` |
+| `blueprints/team/gitops/` | once per team | `<team>/gitops/` |
+| `building-blocks/runtimes/<lang>/` | per service | `<team>/apps/<app>/` |
+| `building-blocks/service-meta/` | per service | `<team>/apps/<app>/` |
+| `building-blocks/capabilities/<cap>.tf.tmpl` | per service, per capability | `<team>/infra/apps/<app>/<env>/` |
+| `building-blocks/delivery/release/` | per service | `<team>/gitops/apps/<app>/<env>/` |
+| `charts/service/` | **never scaffolded** | CI renders it into `<team>/gitops/apps/<app>/<env>/manifests/` |
+
+Every row except the last is the `destinations:` block in `catalog.yaml`, verbatim — the CLI reads that same data to decide where to write, so this table cannot drift from the code. Restructuring `3-tenant-workloads/` is a YAML edit, not a Go change.
+
+The last row is the exception worth understanding: **the chart is never copied into a tenant repo.** One platform-owned chart serves every service, so a chart fix ships fleet-wide instead of being copy-pasted into N repos. Teams own `values.yaml`; the platform owns the chart; CI renders one against the other and commits only the result. That is why it lives in `charts/` rather than `building-blocks/` — everything under `building-blocks/` gets copied, and this gets rendered.
+
+### Seeing it
+
+One command shows the entire mapping better than any diagram:
+
+```console
+$ scaffolder add-service --team-name payments --app-name checkout-api \
+    --golden-path go-service-postgres --catalog-root ./1-platform-catalog
+
+Generating app 'checkout-api' [Runtime: go, Capabilities: [postgres]]
+building-blocks/runtimes/go/go.mod.tmpl              --> payments/apps/checkout-api/go.mod
+building-blocks/runtimes/go/main.go.tmpl             --> payments/apps/checkout-api/main.go
+building-blocks/service-meta/catalog-info.yaml.tmpl  --> payments/apps/checkout-api/catalog-info.yaml
+building-blocks/delivery/release/values.yaml.tmpl    --> payments/gitops/apps/checkout-api/dev/values.yaml
+Adding infrastructure capability: postgres
+building-blocks/capabilities/postgres.tf.tmpl        --> payments/infra/apps/checkout-api/dev/postgres.tf
+```
+
+Five files, three would-be repos, one command. Note what is absent: no `Chart.yaml`, no Helm packaging in `apps/`, and nothing written outside `dev/` — production requires a deliberate promotion PR.
 
 ---
 

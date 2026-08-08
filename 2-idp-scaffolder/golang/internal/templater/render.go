@@ -254,6 +254,15 @@ func Resolve(spec *catalog.Catalog, goldenPath string, in Config) (Config, error
 		return Config{}, fmt.Errorf("a runtime is required: pass --runtime or --golden-path")
 	}
 
+	// Golden-path runtimes are checked at catalog load, but an explicit --runtime
+	// never passes through that check — so it is verified here against the same
+	// declared set. A directory on disk that the catalog does not offer stays
+	// deliberately unreachable.
+	if _, ok := spec.Runtimes[out.Runtime]; !ok {
+		return Config{}, fmt.Errorf("unknown runtime %q (offered: %s)",
+			out.Runtime, strings.Join(spec.GetRuntimeNames(), ", "))
+	}
+
 	// Sort makes output deterministic; Compact then drops the duplicates
 	// Sort has made adjacent.
 	slices.Sort(out.Capabilities)

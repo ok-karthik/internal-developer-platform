@@ -220,18 +220,18 @@ the tree looking for `.git`, erroring cleanly if absent.
 **Research:** "golang find git root walk up parent directory"; note `filepath.Dir`
 returns its own input at the filesystem root — that is the loop's termination condition.
 
-### 5b. `GoldenPath.Delivery` is dead — `catalog.go:23`
+### 5b. ~~`GoldenPath.Delivery` is dead~~ — DONE
 
-Parsed, validated, never reaches the renderer. `standard-helm` does nothing;
-`RenderService` hardcodes `building-blocks/delivery/release`. Either wire it in as
-`building-blocks/delivery/<delivery>` in the blueprint table, or delete the field.
-**Do not carry config that lies.**
+Deleted rather than wired up. There is exactly one delivery mechanism, so
+`delivery: standard-helm` was config that lied. Add a `delivery:` registry only when a
+second mechanism actually exists — that is when it earns its keep.
 
-Open question while here: `1-platform-catalog/building-blocks/delivery/chart/`
-(Chart.yaml, values.yaml, templates/) is **never rendered by the CLI at all**. Decide
-whether it is a shared library chart referenced by the ApplicationSet — in which case it
-belongs in a chart repo, not the scaffolder's output contract — or per-app scaffolding
-that is currently missing.
+The open question about the chart is also settled: it is a shared platform-owned chart,
+**never** part of the scaffolder's output contract. It moved to
+`1-platform-catalog/charts/service/`, which keeps one rule true — everything under
+`building-blocks/` has a `destinations` key and lands in a tenant repo; nothing else
+does. Publishing it to an OCI registry and referencing it by version is the natural
+next step, but storing it in-repo is fine until a second chart exists.
 
 ### 5c. Globals — `root.go:16-25`
 
@@ -515,3 +515,63 @@ path lists *first* (a missing or extra file is the more common failure), then di
 contents per file. With `-update`, write the tree to `testdata` instead of comparing.
 Report the first mismatch with both values — a golden test that says only "trees differ"
 wastes the time it was meant to save.
+
+---
+
+## Phase 6 — Refresh `CODE_WALKTHROUGH.md`
+
+The walkthrough is a teaching document that quotes source verbatim, so it rots the
+moment a signature changes. Two commits — `bc03765` (declared runtimes) and `214864c`
+(chart move) — left it stale. Fix it in one pass rather than drip-feeding, and re-read
+§4 end to end afterwards: a walkthrough that is 90% right is worse than none, because a
+reader trusts it instead of the code.
+
+**Stale spots, in file order:**
+
+1. **`~264` — the caller.** Shows `catalog.LoadCatalog(filepath.Join(catalogPath, "catalog.yaml"))`.
+   It is now `LoadCatalog(catalogFS)`. Worth explaining *why*: `root.go` derives one
+   `os.DirFS(catalogRoot)` and hands the same `fs.FS` to both the loader and the
+   renderer, so validation checks declarations against the very tree that will be
+   walked. That is a design point, not a mechanical rename.
+
+2. **`~294` — the §4 code block.** Still shows `LoadCatalog(filePath string)`,
+   `os.ReadFile(filePath)`, `catalog.validate()`, and the error wrap
+   `"invalid catalog %s"`. All four changed: `fs.FS`, `fs.ReadFile(catalogFS, "catalog.yaml")`,
+   `validate(catalogFS)`, `"invalid catalog.yaml: %w"`. The line
+   **"In: a file path"** immediately below needs to become "In: the catalog filesystem".
+
+3. **`~330` — the YAML→struct mapping block.** Two errors: it still lists
+   `delivery: standard-helm → GoldenPaths[0].Delivery` (the field was deleted as dead
+   config), and it omits `runtimes:` entirely. Pins also read `v1.0.2`; the catalog is
+   on `v1.1.0`.
+
+4. **`~340` — "why is golden-paths a list but capabilities a map?"** This is the best
+   paragraph in §4 and it now has a *third* data point: `runtimes` is a map for exactly
+   the capabilities reason (looked up by name, `c.Runtimes[gp.Runtime]`), never
+   iterated for display. Extend it rather than leaving the reader to infer.
+
+5. **`~842` — the call-flow diagram.** Still shows `LoadCatalog(.../catalog.yaml)`.
+
+6. **Missing entirely: the `fs.FS` testability payoff.** The walkthrough already claims
+   `Renderer.CatalogFS` is "the testability seam". `LoadCatalog` now sits on that same
+   seam, and `internal/catalog/catalog_test.go` is the proof — a table-driven test
+   building a whole catalog out of `fstest.MapFS`, no disk, no fixtures directory. Show
+   the `fstest.MapFS` literal; it is the most convincing argument in the document for
+   why the signature takes an interface rather than a path.
+
+7. **Missing: the runtime checks.** Three of them, and the split matters. `validate()`
+   rejects a golden path naming an undeclared runtime, and rejects a declared runtime
+   with no directory; `Resolve` (`render.go`) applies the same check to an explicit
+   `--runtime`, because a flag override never passes through golden-path validation.
+   Note the deliberate *absence* too: an undeclared directory is invisible, not an
+   error. See AGENTS.md decision 13 — it is the kind of thing a reader will otherwise
+   file as an oversight.
+
+8. **Sweep for `building-blocks/` inventories.** The chart moved to
+   `1-platform-catalog/charts/service/`. A grep for the old path comes back clean, but
+   any prose listing what lives under `building-blocks/` should now mention that
+   `charts/` is a sibling and is rendered by CI, never scaffolded.
+
+**Guard against the next drift:** most of these are quoted code that no test covers.
+Once Phase 2b lands, the golden-file `testdata` becomes the honest illustration for §4
+and the walkthrough can reference it instead of pasting a second copy of the truth.
