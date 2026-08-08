@@ -2,7 +2,9 @@ package catalog
 
 import (
 	"fmt"
-	"os"
+	"io/fs"
+	"path"
+	"slices"
 
 	"gopkg.in/yaml.v3"
 )
@@ -13,6 +15,10 @@ type Capability struct {
 	Version string `yaml:"version"`
 }
 
+type Runtime struct {
+	Description string `yaml:"description"`
+}
+
 // GoldenPath represents a single paved-road configuration.
 // The `yaml:"..."` tags tell the parser which YAML key maps to which field.
 type GoldenPath struct {
@@ -20,13 +26,13 @@ type GoldenPath struct {
 	Description  string   `yaml:"description"`
 	Runtime      string   `yaml:"runtime"`
 	Capabilities []string `yaml:"capabilities"`
-	Delivery     string   `yaml:"delivery"`
 }
 
 // Catalog represents the top-level structure of the YAML file.
 type Catalog struct {
-	CapabilitiesSourceBase string                `yaml:"capabilities_source_base"`
 	GoldenPaths            []GoldenPath          `yaml:"golden-paths"`
+	Runtimes               map[string]Runtime    `yaml:"runtimes"`
+	CapabilitiesSourceBase string                `yaml:"capabilities_source_base"`
 	Capabilities           map[string]Capability `yaml:"capabilities"`
 	Destinations           map[string]string     `yaml:"destinations"`
 }
@@ -43,10 +49,14 @@ var requiredDestinations = []string{
 	"building-blocks/delivery/release",
 }
 
-// LoadCatalog reads the YAML file from disk and parses it into our Structs.
-func LoadCatalog(filePath string) (*Catalog, error) {
+// LoadCatalog parses catalog.yaml out of the catalog filesystem.
+//
+// It takes an fs.FS rather than a path so that validation can check declarations
+// against the template tree they refer to — and so tests can supply an
+// fstest.MapFS, the same seam Renderer.CatalogFS uses.
+func LoadCatalog(catalogFS fs.FS) (*Catalog, error) {
 	// 1. Read the raw bytes from the file
-	data, err := os.ReadFile(filePath)
+	data, err := fs.ReadFile(catalogFS, "catalog.yaml")
 	if err != nil {
 		return nil, err // Return the error if file doesn't exist
 	}
@@ -59,8 +69,8 @@ func LoadCatalog(filePath string) (*Catalog, error) {
 
 	// 3. Fail at load, where the error can still name the offending key, rather
 	// than mid-render with half the tree already on disk.
-	if err := catalog.validate(); err != nil {
-		return nil, fmt.Errorf("invalid catalog %s: %w", filePath, err)
+	if err := catalog.validate(catalogFS); err != nil {
+		return nil, fmt.Errorf("invalid catalog.yaml: %w", err)
 	}
 
 	return &catalog, nil
@@ -79,7 +89,7 @@ func (c *Catalog) FindGoldenPath(name string) (*GoldenPath, bool) {
 	return nil, false // Not found
 }
 
-func (c *Catalog) validate() error {
+func (c *Catalog) validate(catalogFS fs.FS) error {
 	if c.CapabilitiesSourceBase == "" {
 		return fmt.Errorf("capabilities_source_base is not defined in the catalog")
 	}
@@ -99,10 +109,23 @@ func (c *Catalog) validate() error {
 			return fmt.Errorf("golden-path '%s' is missing required field runtime", gp.Name)
 		}
 
+		// Check if runtime referenced under goldenpaths is valid
+		if _, exists := c.Runtimes[gp.Runtime]; !exists {
+			return fmt.Errorf("golden-path '%s' references unknown runtime '%s'", gp.Name, gp.Runtime)
+		}
+
+		// Check if capabilities referenced under goldenpaths are valid
 		for _, name := range gp.Capabilities {
 			if _, exists := c.Capabilities[name]; !exists {
 				return fmt.Errorf("golden-path '%s' references unknown capability '%s'", gp.Name, name)
 			}
+		}
+	}
+
+	// Ensure every declared runtime has a directory in the template set.
+	for name := range c.Runtimes {
+		if _, err := fs.Stat(catalogFS, path.Join("building-blocks/runtimes", name)); err != nil {
+			return fmt.Errorf("runtime %q is declared in the catalog but building-blocks/runtimes/%s/ does not exist", name, name)
 		}
 	}
 
@@ -114,6 +137,18 @@ func (c *Catalog) GetGoldenPathNames() []string {
 	for _, gp := range c.GoldenPaths {
 		s = append(s, gp.Name)
 	}
+	return s
+}
+
+// GetRuntimeNames lists the offered runtimes. Sorted, because it ends up in
+// error messages and CLI help where map iteration order would make the output
+// change between runs.
+func (c *Catalog) GetRuntimeNames() []string {
+	s := make([]string, 0, len(c.Runtimes))
+	for name := range c.Runtimes {
+		s = append(s, name)
+	}
+	slices.Sort(s)
 	return s
 }
 

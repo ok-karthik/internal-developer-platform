@@ -6,12 +6,18 @@ import (
 	"testing"
 )
 
-// testCatalog returns a small in-memory catalog. Resolve only ever reads
-// GoldenPaths, so nothing else needs filling in — and because Resolve takes the
+// testCatalog returns a small in-memory catalog. Resolve reads GoldenPaths and
+// Runtimes, so nothing else needs filling in — and because Resolve takes the
 // catalog as a parameter, this test never touches the filesystem or the network.
 // That is the payoff of extracting it out of the cobra RunE closure.
 func testCatalog() *catalog.Catalog {
 	return &catalog.Catalog{
+		// The offered set. Resolve rejects any runtime absent from this map, so a
+		// case exercising an unknown runtime just leaves it out.
+		Runtimes: map[string]catalog.Runtime{
+			"go":     {Description: "Go HTTP service"},
+			"python": {Description: "Python FastAPI service"},
+		},
 		GoldenPaths: []catalog.GoldenPath{
 			{
 				Name:         "go-service-postgres",

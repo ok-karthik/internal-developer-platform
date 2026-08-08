@@ -72,15 +72,17 @@ var rootCmd = &cobra.Command{
 			fmt.Printf("📁 Using local catalog from: %s\n", catalogRoot)
 		}
 
-		// 3. Load the spec (this assumes you will write catalog.Load later)
-		spec, err := catalog.LoadCatalog(filepath.Join(catalogRoot, "catalog.yaml"))
+		// 3. Load the spec. One fs.FS serves both the load and the render, so
+		// validation checks declarations against the very tree we will walk.
+		catalogFS := os.DirFS(catalogRoot)
+		spec, err := catalog.LoadCatalog(catalogFS)
 		if err != nil {
 			return err
 		}
 
 		// 4. Initialize the Renderer
 		renderer = &templater.Renderer{
-			CatalogFS: os.DirFS(catalogRoot),
+			CatalogFS: catalogFS,
 			Spec:      spec,
 			OutputDir: filepath.Join(outputRoot, "3-tenant-workloads"),
 		}

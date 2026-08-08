@@ -9,12 +9,19 @@ golden-paths:
     description: Go microservice backed by AWS Postgres, shipped via ArgoCD
     runtime: go
     capabilities: [postgres]
-    delivery: standard-helm
   - name: python-worker-s3
     description: Python worker with an S3 bucket
     runtime: python
     capabilities: [s3]
-    delivery: standard-helm
+
+# Runtimes the platform offers. A directory under building-blocks/runtimes/ is
+# only scaffoldable if it is listed here — that is what makes "supported" a
+# deliberate declaration rather than whatever happens to be on disk.
+runtimes:
+  go:              { description: Go HTTP service }
+  python:          { description: Python FastAPI service }
+  nodejs:          { description: Node.js Express service }
+  java-springboot: { description: Java Spring Boot service }
 
 # The base URL for all Terraform modules
 capabilities_source_base: "git::https://github.com/ok-karthik/internal-developer-platform.git//4-platform-engineering/cloud-services-terraform-modules"
