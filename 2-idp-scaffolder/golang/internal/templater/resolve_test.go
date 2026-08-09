@@ -74,7 +74,6 @@ func TestResolve(t *testing.T) {
 			in:         Config{},
 			wantErr:    true,
 		},
-
 		// TODO(you): add these three.
 		//
 		// 1. "duplicates are collapsed" — golden path go-service-postgres plus
@@ -89,6 +88,26 @@ func TestResolve(t *testing.T) {
 		// 3. "capabilities are sorted deterministically" — pass them out of order
 		//    and assert the resolved order is stable. Sorting is what makes the
 		//    rendered output diffable across runs.
+		{
+			name:        "duplicates are collapsed",
+			goldenPath:  "go-service-postgres",
+			in:          Config{Runtime: "go", Capabilities: []string{"postgres", "iam", "postgres"}},
+			wantRuntime: "go",
+			wantCaps:    []string{"iam", "postgres"}, // capabilities has to come de-duplicated and sorted
+		},
+		{
+			name:       "no runtime and no golden path is an error",
+			goldenPath: "",
+			in:         Config{},
+			wantErr:    true,
+		},
+		{
+			name:        "capabilities are sorted deterministically",
+			goldenPath:  "python-worker-s3",
+			in:          Config{Runtime: "go", Capabilities: []string{"postgres", "s3", "postgres", "s3", "iam", "iam"}},
+			wantRuntime: "go",
+			wantCaps:    []string{"iam", "postgres", "s3"}, // capabilities has to come sorted deterministically
+		},
 	}
 
 	for _, tt := range tests {
@@ -133,5 +152,42 @@ func TestResolve(t *testing.T) {
 // failure is the whole lesson — the aliasing bug it prevents is invisible
 // otherwise, and no compiler or linter will point at it.
 func TestResolveDoesNotMutateInput(t *testing.T) {
-	t.Skip("TODO: implement — see comment above")
+	// The setup needs three properties at once, and dropping any one of them
+	// makes the bug invisible and the test worthless:
+	//
+	//  1. len < cap. append only writes into the caller's backing array while
+	//     there is spare room; at len == cap it allocates a fresh array and the
+	//     aliasing quietly disappears. That capacity dependence is exactly why
+	//     this class of bug is intermittent in production.
+	//  2. At least TWO elements. The mutation that is actually observable is
+	//     slices.Sort reordering in place — a one-element slice has nothing to
+	//     reorder.
+	//  3. Unsorted. If the input is already in sorted order, Sort is a no-op and
+	//     changes nothing to detect.
+	caps := make([]string, 2, 4)
+	caps[0] = "s3"
+	caps[1] = "iam"
+
+	in := Config{Capabilities: caps}
+
+	// go-service-postgres contributes "postgres", so append runs.
+	got, err := Resolve(testCatalog(), "go-service-postgres", in)
+	if err != nil {
+		t.Fatalf("Resolve() returned unexpected error: %v", err)
+	}
+
+	// The RETURN VALUE is correct with or without the clone — that is the trap.
+	// Asserting only on `got` would leave the bug completely undetected.
+	if want := []string{"iam", "postgres", "s3"}; !slices.Equal(got.Capabilities, want) {
+		t.Errorf("got.Capabilities = %v, want %v", got.Capabilities, want)
+	}
+
+	// This is the assertion that matters: the caller handed Resolve a slice and
+	// must get it back untouched. Without slices.Clone, append writes "postgres"
+	// into caps[2] (past len, invisible) and then slices.Sort reorders indices
+	// 0..2 of the shared array, so caps becomes ["iam", "postgres"] — visibly
+	// corrupted, and the caller never called anything that should reorder it.
+	if want := []string{"s3", "iam"}; !slices.Equal(caps, want) {
+		t.Errorf("Resolve mutated the caller's slice: caps = %v, want %v", caps, want)
+	}
 }
