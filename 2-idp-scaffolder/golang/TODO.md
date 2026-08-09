@@ -213,12 +213,66 @@ produces that tag's templates.
 
 ## Phase 5 — Smaller items
 
-### 5a. `outputRoot` discovery — `root.go:44`
+### 5a. ~~`outputRoot` discovery~~ — DONE (and the original instruction was wrong)
 
-`filepath.Base(wd) == "golang"` is a developer-machine heuristic. Replace with a walk up
-the tree looking for `.git`, erroring cleanly if absent.
-**Research:** "golang find git root walk up parent directory"; note `filepath.Dir`
-returns its own input at the filesystem root — that is the loop's termination condition.
+`outputRoot` now defaults to the current working directory, and the demo flow moved to
+`make demo-add-service` / `make demo-onboard-team`, which pass
+`--output-root "$(git rev-parse --show-toplevel)"`.
+
+This item used to say *"replace with a walk up the tree looking for `.git`, erroring
+cleanly if absent."* That was the wrong fix, for two reasons worth keeping written down:
+
+- **`.git` is the wrong marker.** It is a *file*, not a directory, in a `git worktree` or
+  a submodule; it is absent entirely from a release tarball or a Docker layer; and it
+  answers "am I in a git repo?" when the question was "where is the platform tree?".
+- **The search itself is the wrong shape.** Auto-discovery only makes sense in this
+  reference repo. A client runs the binary inside *their own* checkout, where neither
+  `.git`-relative nor `1-platform-catalog`-relative discovery gives the right answer. The
+  cwd default is the same contract as `terraform`, `npm`, and `kubectl apply -f .`, and
+  needs no explanation.
+
+The general lesson: a heuristic that guesses the caller's layout belongs in a dev wrapper,
+not compiled into a binary other people run. `git rev-parse --show-toplevel` already does
+the walk, correctly, and is one line of Make.
+
+### 5a-bis. ~~Output layout is monorepo-shaped~~ — NOT A DEFECT. Do not "fix" this.
+
+This item previously claimed the `{team}/apps/` prefix was wrong and proposed a
+`--layout monorepo|repo-per-kind` flag. Both were mistaken, and the mistake is worth
+recording so nobody re-opens it.
+
+`3-tenant-workloads/` is the **authoring** format. The production format is three repos
+per team, and the transformation already exists — it is `git subtree split`, whose
+prefixes this layout was designed around. Verified, not assumed:
+
+```console
+$ git subtree split --prefix=3-tenant-workloads/team-a/apps
+1f8a94e38604a7ff63e3e2d909fab5ecca8279af
+
+$ git ls-tree -r --name-only 1f8a94e3
+CODEOWNERS
+app-a/catalog-info.yaml
+app-a/go.mod
+app-a/main.go
+```
+
+The split strips the prefix. `team-a/apps/app-a/main.go` becomes `app-a/main.go`, and
+`CODEOWNERS` lands at the split repo's root — the only place GitHub honours it, which is
+the reason `onboard-team` writes it there. So `{team}/` and `apps/` exist in the view that
+needs them and disappear from the view where they would be redundant, with no code
+involved. A `--layout` flag would add a second code path to keep in sync and a mode for a
+user to get wrong, to reach a result git already produces.
+
+**What is genuinely not implemented:** a client running `add-service` *inside* an
+already-split repo such as `<org>/team-a-apps`. One invocation emits three repo kinds, so
+no single working directory is correct for all three. That is not a path-joining bug and
+no `filepath.Join` fixes it.
+
+**Decision: not planned.** That is a different product from this one. The authoring
+surface here is the platform monorepo, and CI/subtree fans out — a coherent model that
+plenty of platform teams run. If it is ever wanted, the answer is the Backstage
+`publish:github` one — the CLI opens a PR per repo and the developer never `cd`s anywhere
+— not a layout flag. Reopen only with that framing.
 
 ### 5b. ~~`GoldenPath.Delivery` is dead~~ — DONE
 

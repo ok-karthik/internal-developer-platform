@@ -235,7 +235,9 @@ func (r *Renderer) renderDestinations(bps []blueprint, cfg Config) error {
 // It reads nothing outside its parameters, so it is safe for any caller — CLI or API.
 func Resolve(spec *catalog.Catalog, goldenPath string, in Config) (Config, error) {
 	out := in
-	// Clone so appending below cannot write into the caller's backing array.
+	// Clone so appending and sorting below cannot write into the caller's
+	// backing array. See TestResolveDoesNotMutateInput — removing this line
+	// still returns the right value, and still corrupts the caller's slice.
 	out.Capabilities = slices.Clone(in.Capabilities)
 
 	if goldenPath != "" {

@@ -3,7 +3,7 @@ CLUSTER_PROVIDER ?= k3d
 CLUSTER_NAME ?= nexus-platform
 AWS_CREDS ?= ./aws-creds.ini
 
-.PHONY: help check-deps create-cluster delete-cluster install-argocd bootstrap configure-aws up setup clean destroy get-argocd-creds wait-for-apps
+.PHONY: help check-deps create-cluster delete-cluster install-argocd bootstrap configure-aws up setup clean destroy get-argocd-creds wait-for-apps install-scaffolder run-api demo-onboard-team demo-add-service
 
 # Default target: show help
 help:
@@ -195,5 +195,34 @@ install-scaffolder:
 
 run-api:
 	cd 2-idp-scaffolder/python && fastapi dev api.py
+
+# --- Go scaffolder demo ------------------------------------------------------
+#
+# The CLI defaults --output-root to the current directory and appends nothing to
+# it — correct for a client standing in their own repo. This repo's demo flow
+# wants the output under 3-tenant-workloads/, so that path is named HERE rather
+# than compiled into the binary. `git rev-parse --show-toplevel` is git's own
+# root-finder and works from any subdirectory.
+#
+# --catalog-root is passed too, so local edits to 1-platform-catalog/ take effect
+# without pushing; omit it and the CLI fetches the catalog from the main branch.
+REPO_ROOT = $$(git rev-parse --show-toplevel)
+DEMO_TEAM ?= payments
+DEMO_APP  ?= checkout-api
+DEMO_PATH ?= go-service-postgres
+
+demo-onboard-team:
+	cd 2-idp-scaffolder/golang && go run . onboard-team \
+	  --output-root  "$(REPO_ROOT)/3-tenant-workloads" \
+	  --catalog-root "$(REPO_ROOT)/1-platform-catalog" \
+	  --team-name    "$(DEMO_TEAM)"
+
+demo-add-service:
+	cd 2-idp-scaffolder/golang && go run . add-service \
+	  --output-root  "$(REPO_ROOT)/3-tenant-workloads" \
+	  --catalog-root "$(REPO_ROOT)/1-platform-catalog" \
+	  --team-name    "$(DEMO_TEAM)" \
+	  --app-name     "$(DEMO_APP)" \
+	  --golden-path  "$(DEMO_PATH)"
 
 
