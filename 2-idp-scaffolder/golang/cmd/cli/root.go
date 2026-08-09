@@ -34,18 +34,31 @@ var rootCmd = &cobra.Command{
 	// Unlike RunE (which runs command-specific logic), this runs BEFORE every subcommand
 	// to execute shared setup: setting default output path and fetching/loading the catalog.
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-		// 1. Where do we save the output?
+		// 1. Where do we save the output? The current directory, full stop — the
+		// same contract as terraform, npm, and `kubectl apply -f .`.
+		//
+		// A client running this binary is standing in their own checkout, so any
+		// cleverer default is a guess about THIS repo's layout that is simply wrong
+		// on their machine: matching a directory named "golang" silently scattered
+		// output into cmd/cli/ or internal/templater/, and walking up to a .git
+		// marker fails on a tarball or Docker layer while answering the wrong
+		// question anyway. `--output-root` covers everything else.
+		//
+		// The demo flow that relied on that guess now lives in the Makefile, which
+		// passes --output-root "$(git rev-parse --show-toplevel)/3-tenant-workloads"
+		// — git's own root-finder, and not something this binary should reimplement.
+		//
+		// Note there is no "3-tenant-workloads" segment appended below either. That
+		// directory is this repo's simulation wrapper, and splicing it into every
+		// caller's path meant a client scaffolding into <org>/payments-apps got a
+		// folder they never asked for. The binary writes where it is told; naming
+		// the destination is the caller's job.
 		if outputRoot == "" {
 			wd, err := os.Getwd()
 			if err != nil {
 				return err
 			}
-			// If running from inside 2-idp-scaffolder/golang, step up to repo root
-			if filepath.Base(wd) == "golang" || filepath.Base(wd) == "2-idp-scaffolder" {
-				outputRoot = filepath.Clean(filepath.Join(wd, "../.."))
-			} else {
-				outputRoot = wd
-			}
+			outputRoot = wd
 		}
 
 		if catalogRoot == "" {
@@ -84,7 +97,7 @@ var rootCmd = &cobra.Command{
 		renderer = &templater.Renderer{
 			CatalogFS: catalogFS,
 			Spec:      spec,
-			OutputDir: filepath.Join(outputRoot, "3-tenant-workloads"),
+			OutputDir: outputRoot,
 		}
 
 		return nil
@@ -105,7 +118,7 @@ func init() {
 	// Cobra supports persistent flags, which, if defined here,
 	// will be global for your application.
 
-	rootCmd.PersistentFlags().StringVar(&outputRoot, "output-root", "", "path to 3-tenant-workloads (default: auto-discovered)")
+	rootCmd.PersistentFlags().StringVar(&outputRoot, "output-root", "", "directory to write scaffolded files into (default: current directory)")
 	rootCmd.PersistentFlags().StringVar(&catalogRoot, "catalog-root", "", "path to 1-platform-catalog (default: auto-discovered)")
 	rootCmd.PersistentFlags().BoolVar(&dryRun, "dry-run", false, "print what would be written without writing it")
 }

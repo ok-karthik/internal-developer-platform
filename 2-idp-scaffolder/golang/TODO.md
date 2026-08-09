@@ -213,12 +213,59 @@ produces that tag's templates.
 
 ## Phase 5 — Smaller items
 
-### 5a. `outputRoot` discovery — `root.go:44`
+### 5a. ~~`outputRoot` discovery~~ — DONE (and the original instruction was wrong)
 
-`filepath.Base(wd) == "golang"` is a developer-machine heuristic. Replace with a walk up
-the tree looking for `.git`, erroring cleanly if absent.
-**Research:** "golang find git root walk up parent directory"; note `filepath.Dir`
-returns its own input at the filesystem root — that is the loop's termination condition.
+`outputRoot` now defaults to the current working directory, and the demo flow moved to
+`make demo-add-service` / `make demo-onboard-team`, which pass
+`--output-root "$(git rev-parse --show-toplevel)"`.
+
+This item used to say *"replace with a walk up the tree looking for `.git`, erroring
+cleanly if absent."* That was the wrong fix, for two reasons worth keeping written down:
+
+- **`.git` is the wrong marker.** It is a *file*, not a directory, in a `git worktree` or
+  a submodule; it is absent entirely from a release tarball or a Docker layer; and it
+  answers "am I in a git repo?" when the question was "where is the platform tree?".
+- **The search itself is the wrong shape.** Auto-discovery only makes sense in this
+  reference repo. A client runs the binary inside *their own* checkout, where neither
+  `.git`-relative nor `1-platform-catalog`-relative discovery gives the right answer. The
+  cwd default is the same contract as `terraform`, `npm`, and `kubectl apply -f .`, and
+  needs no explanation.
+
+The general lesson: a heuristic that guesses the caller's layout belongs in a dev wrapper,
+not compiled into a binary other people run. `git rev-parse --show-toplevel` already does
+the walk, correctly, and is one line of Make.
+
+### 5a-bis. Output layout is monorepo-shaped — `catalog.yaml` `destinations:`
+
+The `3-tenant-workloads` segment is gone from the binary: `OutputDir` is now exactly
+`--output-root`, and the Makefile names the demo path. But Mode B — a client scaffolding
+into their own checkout — is still not implemented. Running the binary in a would-be
+`<org>/payments-apps` today produces:
+
+```
+./payments/apps/checkout-api/main.go            <- want ./checkout-api/main.go
+./payments/gitops/apps/checkout-api/dev/...     <- belongs in <org>/payments-gitops
+./payments/infra/apps/checkout-api/dev/...      <- belongs in <org>/payments-infra
+```
+
+Two distinct problems, and neither is a path-joining bug:
+
+1. **The `{team}/` prefix is redundant** in a repo that already belongs to that team.
+2. **One `add-service` writes three repo kinds.** `apps`, `infra`, and `gitops` are
+   separate repos in production, so no single working directory is the right destination
+   for all three. This is the real blocker, and it is an architecture question, not a
+   flag: does `add-service` open three PRs (the Backstage `publish:github` model), get
+   run three times with `--kind`, or keep writing a monorepo tree that
+   `git subtree split` fans out?
+
+`destinations:` encodes the monorepo answer today. AGENTS.md already concedes the
+monorepo → polyrepo mapping is "documented rather than encoded"; this is where that
+concession comes due. Options: a `--layout monorepo|repo-per-kind` flag reading a second
+destinations table, or accepting that the local-write CLI is a demo affordance and that
+the production path is an API that opens PRs.
+
+Worth deciding before advertising Mode B as supported. The cwd default it needs is
+already in place, so nothing here is blocked on plumbing.
 
 ### 5b. ~~`GoldenPath.Delivery` is dead~~ — DONE
 
