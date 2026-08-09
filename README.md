@@ -71,8 +71,7 @@ The last row is the exception worth understanding: **the chart is never copied i
 One command shows the entire mapping better than any diagram:
 
 ```console
-$ scaffolder add-service --team-name payments --app-name checkout-api \
-    --golden-path go-service-postgres --catalog-root ./1-platform-catalog
+$ make demo-add-service DEMO_TEAM=payments DEMO_APP=checkout-api
 
 Generating app 'checkout-api' [Runtime: go, Capabilities: [postgres]]
 building-blocks/runtimes/go/go.mod.tmpl              --> payments/apps/checkout-api/go.mod
@@ -84,6 +83,29 @@ building-blocks/capabilities/postgres.tf.tmpl        --> payments/infra/apps/che
 ```
 
 Five files, three would-be repos, one command. Note what is absent: no `Chart.yaml`, no Helm packaging in `apps/`, and nothing written outside `dev/` — production requires a deliberate promotion PR.
+
+The CLI itself writes to the current directory and appends nothing to it, the same contract as `terraform` or `npm`. `make demo-add-service` passes `--output-root "$(git rev-parse --show-toplevel)/3-tenant-workloads"`, so the simulation path is named in the Makefile rather than compiled into a binary other people would run.
+
+### Monorepo authoring, polyrepo delivery
+
+`3-tenant-workloads/` is the **authoring** format. The production format is three repos per team, and the transformation is not a feature that needs writing — it is `git subtree split`, whose prefixes the layout was designed around:
+
+```console
+$ git subtree split --prefix=3-tenant-workloads/team-a/apps
+1f8a94e38604a7ff63e3e2d909fab5ecca8279af
+
+$ git ls-tree -r --name-only 1f8a94e3
+CODEOWNERS
+app-a/catalog-info.yaml
+app-a/go.mod
+app-a/main.go
+```
+
+Run it yourself. Those are real commits carrying the full history of that prefix, not a plan — though the SHA is derived from that history, so yours will differ once anything new lands under `team-a/apps/`. The tree listing is the part that matters.
+
+Notice what the split removes. In the monorepo the path is `team-a/apps/app-a/main.go`; in the resulting `<org>/team-a-apps` repo it is `app-a/main.go`. The `{team}/` and `apps/` segments exist in the view that needs them — telling teams and artifact kinds apart in one tree — and vanish from the view where they would be noise, because a repo that already *is* team-a's application code does not need to say so twice. `CODEOWNERS` lands at the split repo's root, which is the only place GitHub honours it.
+
+That is why there is no `--layout` flag. A second output mode would mean a second code path to keep in sync and a mode for a user to get wrong; the split gives the same result with neither.
 
 ---
 

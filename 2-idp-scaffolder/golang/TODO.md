@@ -235,37 +235,44 @@ The general lesson: a heuristic that guesses the caller's layout belongs in a de
 not compiled into a binary other people run. `git rev-parse --show-toplevel` already does
 the walk, correctly, and is one line of Make.
 
-### 5a-bis. Output layout is monorepo-shaped — `catalog.yaml` `destinations:`
+### 5a-bis. ~~Output layout is monorepo-shaped~~ — NOT A DEFECT. Do not "fix" this.
 
-The `3-tenant-workloads` segment is gone from the binary: `OutputDir` is now exactly
-`--output-root`, and the Makefile names the demo path. But Mode B — a client scaffolding
-into their own checkout — is still not implemented. Running the binary in a would-be
-`<org>/payments-apps` today produces:
+This item previously claimed the `{team}/apps/` prefix was wrong and proposed a
+`--layout monorepo|repo-per-kind` flag. Both were mistaken, and the mistake is worth
+recording so nobody re-opens it.
 
+`3-tenant-workloads/` is the **authoring** format. The production format is three repos
+per team, and the transformation already exists — it is `git subtree split`, whose
+prefixes this layout was designed around. Verified, not assumed:
+
+```console
+$ git subtree split --prefix=3-tenant-workloads/team-a/apps
+1f8a94e38604a7ff63e3e2d909fab5ecca8279af
+
+$ git ls-tree -r --name-only 1f8a94e3
+CODEOWNERS
+app-a/catalog-info.yaml
+app-a/go.mod
+app-a/main.go
 ```
-./payments/apps/checkout-api/main.go            <- want ./checkout-api/main.go
-./payments/gitops/apps/checkout-api/dev/...     <- belongs in <org>/payments-gitops
-./payments/infra/apps/checkout-api/dev/...      <- belongs in <org>/payments-infra
-```
 
-Two distinct problems, and neither is a path-joining bug:
+The split strips the prefix. `team-a/apps/app-a/main.go` becomes `app-a/main.go`, and
+`CODEOWNERS` lands at the split repo's root — the only place GitHub honours it, which is
+the reason `onboard-team` writes it there. So `{team}/` and `apps/` exist in the view that
+needs them and disappear from the view where they would be redundant, with no code
+involved. A `--layout` flag would add a second code path to keep in sync and a mode for a
+user to get wrong, to reach a result git already produces.
 
-1. **The `{team}/` prefix is redundant** in a repo that already belongs to that team.
-2. **One `add-service` writes three repo kinds.** `apps`, `infra`, and `gitops` are
-   separate repos in production, so no single working directory is the right destination
-   for all three. This is the real blocker, and it is an architecture question, not a
-   flag: does `add-service` open three PRs (the Backstage `publish:github` model), get
-   run three times with `--kind`, or keep writing a monorepo tree that
-   `git subtree split` fans out?
+**What is genuinely not implemented:** a client running `add-service` *inside* an
+already-split repo such as `<org>/team-a-apps`. One invocation emits three repo kinds, so
+no single working directory is correct for all three. That is not a path-joining bug and
+no `filepath.Join` fixes it.
 
-`destinations:` encodes the monorepo answer today. AGENTS.md already concedes the
-monorepo → polyrepo mapping is "documented rather than encoded"; this is where that
-concession comes due. Options: a `--layout monorepo|repo-per-kind` flag reading a second
-destinations table, or accepting that the local-write CLI is a demo affordance and that
-the production path is an API that opens PRs.
-
-Worth deciding before advertising Mode B as supported. The cwd default it needs is
-already in place, so nothing here is blocked on plumbing.
+**Decision: not planned.** That is a different product from this one. The authoring
+surface here is the platform monorepo, and CI/subtree fans out — a coherent model that
+plenty of platform teams run. If it is ever wanted, the answer is the Backstage
+`publish:github` one — the CLI opens a PR per repo and the developer never `cd`s anywhere
+— not a layout flag. Reopen only with that framing.
 
 ### 5b. ~~`GoldenPath.Delivery` is dead~~ — DONE
 
