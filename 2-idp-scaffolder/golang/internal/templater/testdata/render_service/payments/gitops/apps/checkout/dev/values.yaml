@@ -1,0 +1,49 @@
+# Per-environment values for checkout (payments).
+#
+# This file is the team's deployment API. It is the ONLY delivery artefact a team
+# edits, and the only one CI reads: CI renders the platform chart against exactly
+# this file, so `git diff` on it fully describes what will change in the cluster.
+# Promotion to prod is a PR copying this file into the prod/ folder.
+
+# Identity ------------------------------------------------------------------
+# nameOverride makes rendered resources come out as "checkout" rather than
+# "checkout-service" (the platform chart is generically named "service").
+nameOverride: "checkout"
+
+image:
+  repository: "ghcr.io/ok-karthik/internal-developer-platform/payments/checkout"
+  # CI renders whatever tag is pinned here — it never injects one. That keeps the
+  # rendered manifests a pure function of (chart, this file), which is what makes
+  # the git history an honest record of what is deployed. Swap for an immutable
+  # digest or a bot-updated tag when you want real image promotion.
+  tag: "latest"
+
+replicaCount: 1
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+# Observability -------------------------------------------------------------
+# Opts these pods into the OpenTelemetry Instrumentation resource the chart ships.
+podAnnotations:
+  instrumentation.opentelemetry.io/inject-sdk: "checkout-autoinstrumentation"
+
+podLabels:
+  team: "payments"
+
+# Networking ----------------------------------------------------------------
+# NOTE: the "-dev" suffix is hardcoded because Config has no Env field yet — the
+# scaffolder writes only dev/ today. Once Env exists this becomes checkout-{env}.
+ingress:
+  enabled: true
+  className: "traefik"
+  hosts:
+    - host: checkout-dev.local
+      paths:
+        - path: /
+          pathType: ImplementationSpecific

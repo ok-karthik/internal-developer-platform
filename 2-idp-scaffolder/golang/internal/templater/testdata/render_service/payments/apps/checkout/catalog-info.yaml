@@ -1,0 +1,12 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: checkout
+  annotations:
+    github.com/project-slug: acme-corp/payments-checkout
+spec:
+  type: service
+  lifecycle: production
+  owner: team-payments
+  # System is a Backstage RELATION, not a location — it groups services without
+  # dictating a directory level. Omitted when --system is not supplied.

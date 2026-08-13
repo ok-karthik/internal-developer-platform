@@ -294,11 +294,17 @@ Fine for one-shot CLI, impossible for `cmd/api/` serving concurrent requests. Bu
 per-invocation `Options` struct in `RunE` and keep cobra as a thin adapter over the same
 engine the HTTP handler calls. Much of this fell out of the `Resolve` extraction already.
 
+→ [Phase 7b](#7b-contextcontext-through-every-io-path) forces the issue: once `RunE`
+reads `cmd.Context()`, per-invocation state has somewhere to live.
+
 ### 5d. Logging — `render.go:112`
 
 `fmt.Println(srcPath, "-->", targetPath)` mixes logging into rendering. Inject an
 `io.Writer` or `*slog.Logger` on `Renderer` so tests can capture it and `cmd/api` can
 route to structured logs. Do it when Phase 3's `Writer` lands — same surgery.
+
+→ Expanded into [Phase 7d](#7d-logslog-instead-of-fmtprintln), which inventories every
+print in the codebase and adds the stdout/stderr split.
 
 ---
 
@@ -629,3 +635,268 @@ reader trusts it instead of the code.
 **Guard against the next drift:** most of these are quoted code that no test covers.
 Once Phase 2b lands, the golden-file `testdata` becomes the honest illustration for §4
 and the walkthrough can reference it instead of pasting a second copy of the truth.
+
+---
+
+## Phase 7 — Make it idiomatic Go
+
+Four separate habits, listed together because they share one motivation: `cmd/api/`.
+Everything below is invisible in a one-shot CLI and load-bearing the moment the same
+engine is called from an HTTP handler. Do them in the order given — 7a changes
+signatures that 7b and 7d then thread through, so the reverse order means touching
+every function twice.
+
+Overlaps by design: 7d is the full version of [5c](#5c-globals--rootgo16-25) and
+[5d](#5d-logging--rendergo112), and 7c is [Phase 2](#phase-2--finish-the-test-suite-half-a-day)
+looked at as a convention rather than as coverage. Land those first where they collide.
+
+### 7a. Wrapped errors — `%w`, `errors.Is`, `errors.As`
+
+**Where we already do it right:** `render.go:60,88,93,99,109,217,228` and
+`root.go:135,142` all wrap with `%w` and name the offending path. That is the standard
+the rest should meet.
+
+**The gaps, in file order:**
+
+| Where | What | Why it matters |
+|---|---|---|
+| `catalog.go:61` | `return nil, err` from `fs.ReadFile` | error says `open catalog.yaml: no such file` and never says *which catalog root* |
+| `catalog.go:67` | `return nil, err` from `yaml.Unmarshal` | a YAML syntax error arrives unattributed |
+| `render.go:68` | `os.MkdirAll(targetPath, 0755)` | bare `mkdir ...: permission denied`, no template context |
+| `render.go:120,125` | `renderPath` returns raw parse/execute errors | the caller at `render.go:60` wraps it, so this one is arguably fine — decide deliberately, don't leave it accidental |
+| `render.go:190` | `os.MkdirAll(infraTargetDir, 0755)` | same as above |
+
+**The larger point — nothing here is inspectable.** Every failure in this codebase is a
+`fmt.Errorf` string. `errors.Is` and `errors.As` have nothing to match on, so a caller
+cannot tell "user asked for a capability that doesn't exist" (400) from "disk is full"
+(500). That distinction is exactly what an HTTP handler needs and what a CLI wants for
+exit codes.
+
+Introduce two things in `internal/catalog` / `internal/templater`:
+
+```go
+// Sentinels for the yes/no cases.
+var (
+	ErrUnknownCapability = errors.New("unknown capability")
+	ErrUnknownRuntime    = errors.New("unknown runtime")
+	ErrUnknownGoldenPath = errors.New("golden path not found")
+	ErrRuntimeRequired   = errors.New("a runtime is required")
+)
+
+// A type where the caller wants the offending value back, not just the class.
+type ValidationError struct {
+	Field string // "capability", "runtime", "golden-path"
+	Value string
+	Err   error  // one of the sentinels above
+}
+
+func (e *ValidationError) Error() string { ... }
+func (e *ValidationError) Unwrap() error { return e.Err }
+```
+
+Then `Resolve` (`render.go:246,256,264`) and `RenderService` (`render.go:174,198`)
+return those instead of naked `fmt.Errorf`, keeping the *message* identical — the
+existing text is good, only the type is missing. Call sites that today do nothing
+gain the ability to branch:
+
+```go
+var ve *templater.ValidationError
+switch {
+case errors.As(err, &ve):
+	// CLI: exit 2 and print the offered values. API: 400 with ve.Field/ve.Value.
+default:
+	// exit 1 / 500
+}
+```
+
+**The trap:** wrapping is not free of consequence. `%w` makes the wrapped error part of
+your **public API** — once a caller writes `errors.Is(err, ErrUnknownCapability)`, you
+cannot stop returning it without breaking them. Use `%v` where you deliberately want the
+detail in the message but not in the chain. Knowing which you meant is the whole
+exercise; `errorlint` (already enabled in `.golangci.yml`) only catches the mechanical
+half.
+
+**Research:** the Go 1.13 error-values proposal; `errors.Join` (Go 1.20) for the
+capability loop, which today aborts on the first bad name — collecting all of them is
+strictly better UX for a scaffolder invoked with `--capabilities a,b,c`; why
+`errors.As` takes a `**ValidationError`.
+
+**Verify:** a test that asserts `errors.Is(err, ErrUnknownCapability)` on a bad
+`--capabilities`, not `strings.Contains(err.Error(), "unknown capability")`. The second
+form is why error strings become frozen APIs by accident.
+
+### 7b. `context.Context` through every I/O path
+
+**Current state: zero occurrences of `context` in the module.** Verified —
+`grep -rn context --include='*.go' .` returns nothing.
+
+Three real I/O paths, in order of how much cancellation actually buys:
+
+1. **`fetchRemoteCatalog` (`root.go:127-146`)** — the one that matters. `getter.Get` is
+   a network clone with no timeout and no cancellation: Ctrl-C during the spinner leaves
+   a half-populated `~/.scaffolder-cache/<ref>` that every later run happily reads. Swap
+   the package-level helper for the client form, which has a `Ctx` field:
+
+   ```go
+   client := &getter.Client{
+       Ctx:  ctx,
+       Src:  url,
+       Dst:  cacheDir,
+       Mode: getter.ClientModeAny,
+   }
+   if err := client.Get(); err != nil { ... }
+   ```
+
+   A partially-written cache directory is a bug on its own — clone to a temp dir and
+   rename into place, or delete on failure.
+
+2. **Cobra wiring** — `Execute()` (`root.go:109`) calls `rootCmd.Execute()`, which
+   supplies `context.Background()`. Use `signal.NotifyContext(context.Background(),
+   os.Interrupt, syscall.SIGTERM)` and `rootCmd.ExecuteContext(ctx)`; every `RunE` and
+   `PersistentPreRunE` then reads `cmd.Context()`. This is the whole reason cobra has
+   `ExecuteContext` — it is not extra plumbing, it is the plumbing that already exists
+   being left unused.
+
+3. **The render walk** — `walkAndRender`, `processSingleTemplate`, `RenderService`,
+   `RenderTenantFoundation`, `renderDestinations` take `ctx context.Context` as the
+   first parameter, and `handleFile` (`render.go:47`) starts with:
+
+   ```go
+   if err := ctx.Err(); err != nil {
+       return err
+   }
+   ```
+
+   `fs.WalkDir` has no cancellation of its own; returning an error from the callback is
+   how you stop it. Local disk writes are fast, so this is mostly about the API case,
+   where a client disconnecting should not leave the server rendering a tree nobody will
+   read.
+
+**Rules to follow, since this is the part people get wrong:** `ctx` is always the first
+parameter and always named `ctx`; never store it in a struct — that means **not** a
+`Renderer.Ctx` field, even though it looks tidier than threading it; `context.TODO()` is
+for a migration in progress, not a resting state.
+
+**Deliberately out of scope:** `Resolve` (`render.go:236`) is pure — no I/O, no
+blocking. Giving it a `ctx` would be cargo cult. The doc comment already says it "reads
+nothing outside its parameters"; keep that true.
+
+**Research:** `context.Context` docs (the "do not store in a struct" rule and its
+reasoning); `signal.NotifyContext`; cobra `ExecuteContext`; `errors.Is(err,
+context.Canceled)` vs `context.DeadlineExceeded` — the CLI should exit quietly on the
+first and loudly on the second.
+
+**Verify:**
+
+```bash
+# Ctrl-C during the fetch must leave no cache directory behind
+rm -rf ~/.scaffolder-cache
+go run . add-service -t payments -a checkout --golden-path go-service-postgres &
+sleep 1; kill -INT %1
+ls ~/.scaffolder-cache            # want: absent, or complete — never partial
+```
+
+Plus a unit test that cancels a context before calling `RenderService` and asserts
+`errors.Is(err, context.Canceled)` **and zero files written** — the same two-part
+assertion as [2c](#2c-error-path-test).
+
+### 7c. Table-driven tests as the default shape
+
+`resolve_test.go` and `catalog_test.go` are already table-driven and are the model:
+a `[]struct` with a `name` field, `t.Run(tc.name, ...)`, and — the part most people
+skip — cases that assert *failure* as carefully as success.
+
+What is missing is not style but coverage; that is [Phase 2](#phase-2--finish-the-test-suite-half-a-day),
+and there is no point restating it here. What belongs in *this* phase is making the
+convention explicit so the next test written follows it:
+
+- one table per behaviour, not one table per function
+- `name` reads as a sentence describing the case, because it is what `-run` matches
+  and what a failure prints
+- for error cases assert the sentinel from 7a with `errors.Is`, never the message text
+- no shared mutable state between cases; anything expensive goes in the table, not in
+  package-level `var`s
+- `t.Parallel()` in both the outer function and inside `t.Run` once cases are
+  independent — and they are only independent once `t.TempDir()` and the `Writer` seam
+  from Phase 3 have removed the shared filesystem
+
+Write this down in `.agents/AGENTS.md` alongside the other decisions rather than leaving
+it as folklore in two files that happen to do it right.
+
+**Research:** `t.Parallel()` and the loop-variable capture that used to break it (fixed
+by the Go 1.22 per-iteration semantics — know that the old `tc := tc` line is now
+unnecessary, and why you will still see it everywhere); `t.Cleanup` vs `defer`;
+`testing.T.Setenv` and why it forbids `t.Parallel()`.
+
+### 7d. `log/slog` instead of `fmt.Println`
+
+**Every print in the codebase, in file order:**
+
+| Where | What it prints | Should be |
+|---|---|---|
+| `render.go:112` | `srcPath --> targetPath` | `logger.Debug` — per-file progress is noise at default level |
+| `render.go:213` | `Adding infrastructure capability: %s` | `logger.Info` with `slog.String("capability", name)` |
+| `root.go:83` | `✅ Templates fetched!` | `logger.Info` with the resolved ref (Phase 4) as an attribute |
+| `root.go:85` | `📁 Using local catalog from: %s` | `logger.Info` with `slog.String("catalog_root", ...)` |
+
+Two structural problems behind those four lines.
+
+**First, it all goes to stdout.** Progress chatter and machine-readable output share one
+stream, so `scaffolder ... > files.txt` captures the emoji too. Human-facing logs belong
+on **stderr**; stdout is reserved for output a caller might parse. The spinner
+(`root.go:66`) has the same issue and needs disabling when stderr is not a TTY.
+
+**Second, `render.go` prints at all.** A library that writes to a global stream cannot
+be tested for its output and cannot be embedded in a server. Give `Renderer` a
+`Logger *slog.Logger` field, defaulting to `slog.Default()` if nil so existing
+construction sites keep compiling. This is the same surgery as Phase 3's `Writer` — do
+both in one pass.
+
+**The wiring**, in `root.go`:
+
+```go
+var handler slog.Handler
+switch logFormat {
+case "json": // what cmd/api will want
+	handler = slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: level})
+default:     // human default
+	handler = slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level})
+}
+logger := slog.New(handler)
+```
+
+Add `--log-level` (default `info`) and `--log-format` (default `text`) as persistent
+flags. Then `--dry-run`'s `[WOULD WRITE]` and Phase 3's `[SKIP]` become log records with
+attributes rather than `fmt.Printf` — which is what makes them assertable in a test
+via a handler writing to a `bytes.Buffer`.
+
+**The trap:** `slog` is structured logging, so `logger.Info("rendered " + path)` throws
+away the entire point. The message is a constant; everything variable is an attribute.
+That is what lets `cmd/api` filter by team or capability later.
+
+**Also worth doing here:** `logger.With(slog.String("team", cfg.TeamName),
+slog.String("app", cfg.AppName))` once in `RenderService`, so every record beneath it
+carries the identifiers without repeating them at each call.
+
+**Research:** `log/slog` package docs; `slog.HandlerOptions` and dynamic level via
+`slog.LevelVar`; `slog.SetDefault` and why a *library* should never call it; the
+`context`-aware `logger.InfoContext` variants, which pair with 7b once tracing is on the
+table.
+
+**Verify:**
+
+```bash
+# stdout stays clean; logs go to stderr
+go run . add-service --catalog-root $CAT --output-root /tmp/o \
+    -t payments -a checkout --golden-path go-service-postgres 2>/dev/null
+# want: no emoji, no --> lines
+
+go run . add-service ... --log-format json 2>&1 >/dev/null | head -1
+# want: {"time":"...","level":"INFO","msg":"...","team":"payments",...}
+
+go run . add-service ... --log-level debug 2>&1 | grep -c '"msg":"rendered file"'
+```
+
+**Done when:** `grep -rn 'fmt.Print' --include='*.go' internal/` returns nothing.
+`cmd/cli/` may keep `fmt.Print` for genuine user-facing output — the distinction between
+"output" and "logs" is the thing being learned.
