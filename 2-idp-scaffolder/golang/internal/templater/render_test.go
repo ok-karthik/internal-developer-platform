@@ -3,9 +3,11 @@ package templater
 import (
 	"bytes"
 	"flag"
+	"maps"
 	"os"
 	"path/filepath"
 	"scaffolder/internal/catalog"
+	"slices"
 	"testing"
 )
 
@@ -103,10 +105,14 @@ func copyFile(src, dst string) error {
 	return os.WriteFile(dst, content, 0644)
 }
 
-func compareGolden(t *testing.T, actualDir, goldenDir string) {
+// collectFiles reads every file under dir into a map keyed by its path relative
+// to dir. Loading both trees up front is what lets compareGolden check the set of
+// paths in both directions, not just golden -> actual.
+func collectFiles(t *testing.T, dir string) map[string][]byte {
 	t.Helper()
 
-	if err := filepath.WalkDir(goldenDir, func(expectedPath string, d os.DirEntry, err error) error {
+	files := map[string][]byte{}
+	if err := filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -114,34 +120,52 @@ func compareGolden(t *testing.T, actualDir, goldenDir string) {
 			return nil
 		}
 
-		rel, err := filepath.Rel(goldenDir, expectedPath)
+		rel, err := filepath.Rel(dir, path)
 		if err != nil {
 			return err
 		}
 
-		actualPath := filepath.Join(actualDir, rel)
-		if _, err := os.Stat(actualPath); os.IsNotExist(err) {
-			t.Errorf("Missing file in actual output: %s", rel)
-			return nil
-		}
-
-		expectedContent, err := os.ReadFile(expectedPath)
+		content, err := os.ReadFile(path)
 		if err != nil {
 			return err
 		}
 
-		actualContent, err := os.ReadFile(actualPath)
-		if err != nil {
-			return err
-		}
-
-		if !bytes.Equal(expectedContent, actualContent) {
-			t.Errorf("File mismatch: %s", rel)
-		}
-
+		files[rel] = content
 		return nil
 	}); err != nil {
 		t.Fatalf("filepath.WalkDir failed: %v", err)
+	}
+
+	return files
+}
+
+func compareGolden(t *testing.T, actualDir, goldenDir string) {
+	t.Helper()
+
+	expected := collectFiles(t, goldenDir)
+	actual := collectFiles(t, actualDir)
+
+	// Sorted so a failing run reports the same paths in the same order every
+	// time; map iteration order would shuffle the output between runs.
+	for _, rel := range slices.Sorted(maps.Keys(expected)) {
+		actualContent, ok := actual[rel]
+		if !ok {
+			t.Errorf("Missing file in actual output: %s", rel)
+			continue
+		}
+		if !bytes.Equal(expected[rel], actualContent) {
+			t.Errorf("File mismatch: %s", rel)
+		}
+	}
+
+	// The direction a walk over goldenDir alone cannot see: a file the renderer
+	// emits that has no golden counterpart. Letting that pass would defeat the
+	// point of pinning a scaffolder's output — a stray template or a destination
+	// key writing somewhere new is exactly the regression this test exists for.
+	for _, rel := range slices.Sorted(maps.Keys(actual)) {
+		if _, ok := expected[rel]; !ok {
+			t.Errorf("Unexpected file in actual output: %s", rel)
+		}
 	}
 }
 

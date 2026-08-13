@@ -74,20 +74,7 @@ func TestResolve(t *testing.T) {
 			in:         Config{},
 			wantErr:    true,
 		},
-		// TODO(you): add these three.
-		//
-		// 1. "duplicates are collapsed" — golden path go-service-postgres plus
-		//    in.Capabilities of {"postgres", "iam", "postgres"}. Expect
-		//    {"iam", "postgres"}: sorted, each appearing once. This is the case
-		//    that broke when the dedup was first rewritten.
-		//
-		// 2. "no runtime and no golden path is an error" — goldenPath "" and an
-		//    empty Config. The CLI blocks this with MarkFlagsOneRequired, but
-		//    Resolve is exported and cmd/api will not go through cobra.
-		//
-		// 3. "capabilities are sorted deterministically" — pass them out of order
-		//    and assert the resolved order is stable. Sorting is what makes the
-		//    rendered output diffable across runs.
+		// This is the case that broke when the dedup was first rewritten.
 		{
 			name:        "duplicates are collapsed",
 			goldenPath:  "go-service-postgres",
@@ -95,12 +82,15 @@ func TestResolve(t *testing.T) {
 			wantRuntime: "go",
 			wantCaps:    []string{"iam", "postgres"}, // capabilities has to come de-duplicated and sorted
 		},
+		// The CLI blocks this with MarkFlagsOneRequired, but Resolve is exported
+		// and cmd/api will not go through cobra.
 		{
 			name:       "no runtime and no golden path is an error",
 			goldenPath: "",
 			in:         Config{},
 			wantErr:    true,
 		},
+		// Sorting is what makes the rendered output diffable across runs.
 		{
 			name:        "capabilities are sorted deterministically",
 			goldenPath:  "python-worker-s3",
@@ -142,15 +132,8 @@ func TestResolve(t *testing.T) {
 // caller — but a struct copy shares the *backing array* of any slice field, so an
 // append inside Resolve could write through into the caller's slice.
 //
-// TODO(you): this test currently asserts nothing. Fill it in:
-//   - build a Config whose Capabilities has spare capacity, e.g.
-//     caps := make([]string, 1, 4); caps[0] = "iam"
-//   - call Resolve with a golden path that contributes more capabilities
-//   - assert caps is still exactly []string{"iam"} afterwards
-//
-// Then delete the slices.Clone line in Resolve and watch this test fail. That
-// failure is the whole lesson — the aliasing bug it prevents is invisible
-// otherwise, and no compiler or linter will point at it.
+// To see what it protects: delete the slices.Clone line in Resolve and watch this
+// fail. Nothing else catches that aliasing bug — no compiler, no linter.
 func TestResolveDoesNotMutateInput(t *testing.T) {
 	// The setup needs three properties at once, and dropping any one of them
 	// makes the bug invisible and the test worthless:
