@@ -17,6 +17,7 @@ var (
 	outputRoot  string
 	catalogRoot string
 	dryRun      bool
+	force       bool
 
 	// cfg holds the CLI flags (--team-name, --app-name, etc)
 	cfg templater.Config
@@ -93,11 +94,18 @@ var rootCmd = &cobra.Command{
 			return err
 		}
 
+		var w templater.Writer = templater.OSWriter{}
+		if dryRun {
+			w = templater.DryRunWriter{}
+		}
+
 		// 4. Initialize the Renderer
 		renderer = &templater.Renderer{
 			CatalogFS: catalogFS,
 			Spec:      spec,
 			OutputDir: outputRoot,
+			Writer:    w,
+			Force:     force,
 		}
 
 		return nil
@@ -121,6 +129,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&outputRoot, "output-root", "", "directory to write scaffolded files into (default: current directory)")
 	rootCmd.PersistentFlags().StringVar(&catalogRoot, "catalog-root", "", "path to 1-platform-catalog (default: auto-discovered)")
 	rootCmd.PersistentFlags().BoolVar(&dryRun, "dry-run", false, "print what would be written without writing it")
+	rootCmd.PersistentFlags().BoolVar(&force, "force", false, "force overwrite of existing files")
 }
 
 // This downloads the catalog from GitHub into a temporary folder

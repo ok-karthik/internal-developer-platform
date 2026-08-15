@@ -8,7 +8,6 @@ import (
 	"path"
 	"path/filepath"
 	"scaffolder/internal/catalog"
-	"slices"
 	"strings"
 	"text/template"
 )
@@ -28,6 +27,8 @@ type Renderer struct {
 	CatalogFS fs.FS
 	Spec      *catalog.Catalog
 	OutputDir string
+	Writer    Writer // The interface for writing files and directories
+	Force     bool   // Whether to force the overwrite of existing files
 }
 
 type CapabilityView struct {
@@ -65,7 +66,7 @@ func (r *Renderer) walkAndRender(sourceDir string, targetDir string, cfg Config)
 
 		// If current item is a directory, create it on disk and continue walking
 		if d.IsDir() {
-			return os.MkdirAll(targetPath, 0755)
+			return r.writer().MkdirAll(targetPath)
 		}
 
 		// If current item is a file, parse the template and write the rendered output to targetPath
@@ -80,6 +81,15 @@ func (r *Renderer) walkAndRender(sourceDir string, targetDir string, cfg Config)
 func (r *Renderer) processSingleTemplate(srcPath string, targetPath string, data any) error {
 	// Strip .tmpl extension for the output file
 	targetPath = strings.TrimSuffix(targetPath, ".tmpl")
+
+	// Skip existing files unless --force is passed
+	// Skip check lives ABOVE the Writer so dry-run reports skips too!
+	if !r.Force {
+		if _, err := os.Stat(targetPath); err == nil {
+			fmt.Printf("[SKIP] %s (exists; use --force to overwrite)\n", targetPath)
+			return nil
+		}
+	}
 
 	// Parse and execute template from source path to outFile
 	// 1. Read & compile the template file at 'srcPath'
@@ -100,18 +110,20 @@ func (r *Renderer) processSingleTemplate(srcPath string, targetPath string, data
 	}
 
 	// 3. Write the output file on disk.
-	//
-	// os.WriteFile rather than Create + WriteTo + deferred Close: a deferred
-	// Close discards its error, and closing a file we just wrote to is exactly
-	// where a buffered write can still fail (full disk, network filesystem).
-	// That would report success having lost bytes. One call, one error.
-	if err := os.WriteFile(targetPath, buf.Bytes(), 0644); err != nil {
+	if err := r.writer().WriteFile(targetPath, buf.Bytes()); err != nil {
 		return fmt.Errorf("failed to write output file %s: %w", targetPath, err)
 	}
 
 	fmt.Println(srcPath, "-->", targetPath)
 
 	return nil
+}
+
+func (r *Renderer) writer() Writer {
+	if r.Writer != nil {
+		return r.Writer
+	}
+	return OSWriter{}
 }
 
 // renderPath takes a path string like "[[ .TeamName ]]/app" and evaluates the template variables inside it
@@ -187,7 +199,7 @@ func (r *Renderer) RenderService(cfg Config) error {
 
 	// Render Infrastructure Capabilities
 	infraTargetDir := r.resolveDestination(r.Spec.Destinations["building-blocks/capabilities"], cfg)
-	if err := os.MkdirAll(infraTargetDir, 0755); err != nil {
+	if err := r.writer().MkdirAll(infraTargetDir); err != nil {
 		return err
 	}
 
@@ -229,46 +241,4 @@ func (r *Renderer) renderDestinations(bps []blueprint, cfg Config) error {
 		}
 	}
 	return nil
-}
-
-// Resolve merges a golden path with explicit overrides into the final Config.
-// It reads nothing outside its parameters, so it is safe for any caller — CLI or API.
-func Resolve(spec *catalog.Catalog, goldenPath string, in Config) (Config, error) {
-	out := in
-	// Clone so appending and sorting below cannot write into the caller's
-	// backing array. See TestResolveDoesNotMutateInput — removing this line
-	// still returns the right value, and still corrupts the caller's slice.
-	out.Capabilities = slices.Clone(in.Capabilities)
-
-	if goldenPath != "" {
-		gp, found := spec.FindGoldenPath(goldenPath)
-		if !found {
-			return Config{}, fmt.Errorf("golden path '%s' not found in catalog", goldenPath)
-		}
-		// An explicit --runtime wins over the golden path's.
-		if out.Runtime == "" {
-			out.Runtime = gp.Runtime
-		}
-		out.Capabilities = append(out.Capabilities, gp.Capabilities...)
-	}
-
-	if out.Runtime == "" {
-		return Config{}, fmt.Errorf("a runtime is required: pass --runtime or --golden-path")
-	}
-
-	// Golden-path runtimes are checked at catalog load, but an explicit --runtime
-	// never passes through that check — so it is verified here against the same
-	// declared set. A directory on disk that the catalog does not offer stays
-	// deliberately unreachable.
-	if _, ok := spec.Runtimes[out.Runtime]; !ok {
-		return Config{}, fmt.Errorf("unknown runtime %q (offered: %s)",
-			out.Runtime, strings.Join(spec.GetRuntimeNames(), ", "))
-	}
-
-	// Sort makes output deterministic; Compact then drops the duplicates
-	// Sort has made adjacent.
-	slices.Sort(out.Capabilities)
-	out.Capabilities = slices.Compact(out.Capabilities)
-
-	return out, nil
 }

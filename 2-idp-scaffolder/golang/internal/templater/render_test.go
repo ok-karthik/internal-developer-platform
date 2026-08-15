@@ -215,3 +215,109 @@ func TestRenderService_BadRuntimeErrorPath(t *testing.T) {
 		t.Errorf("RenderService() wrote %d files on error path, want 0", fileCount)
 	}
 }
+
+func TestRenderService_DryRun(t *testing.T) {
+	spec, err := catalog.LoadCatalog(os.DirFS(catalogDir))
+	if err != nil {
+		t.Fatalf("LoadCatalog failed: %v", err)
+	}
+
+	tmpOut := t.TempDir()
+
+	r := &Renderer{
+		CatalogFS: os.DirFS(catalogDir),
+		Spec:      spec,
+		OutputDir: tmpOut,
+		Writer:    DryRunWriter{},
+	}
+
+	cfg, err := Resolve(spec, "go-service-postgres", Config{
+		TeamName: "payments",
+		AppName:  "checkout",
+		Env:      "dev",
+	})
+	if err != nil {
+		t.Fatalf("Resolve failed: %v", err)
+	}
+
+	if err := r.RenderService(cfg); err != nil {
+		t.Fatalf("RenderService failed: %v", err)
+	}
+
+	fileCount := 0
+	_ = filepath.WalkDir(tmpOut, func(path string, d os.DirEntry, err error) error {
+		if err == nil && !d.IsDir() {
+			fileCount++
+		}
+		return nil
+	})
+
+	if fileCount != 0 {
+		t.Errorf("DryRunWriter wrote %d files to disk, expected 0", fileCount)
+	}
+}
+
+func TestRenderService_SkipIfExists(t *testing.T) {
+	spec, err := catalog.LoadCatalog(os.DirFS(catalogDir))
+	if err != nil {
+		t.Fatalf("LoadCatalog failed: %v", err)
+	}
+
+	tmpOut := t.TempDir()
+
+	r := &Renderer{
+		CatalogFS: os.DirFS(catalogDir),
+		Spec:      spec,
+		OutputDir: tmpOut,
+		Writer:    OSWriter{},
+		Force:     false,
+	}
+
+	cfg, err := Resolve(spec, "go-service-postgres", Config{
+		TeamName: "payments",
+		AppName:  "checkout",
+		Env:      "dev",
+	})
+	if err != nil {
+		t.Fatalf("Resolve failed: %v", err)
+	}
+
+	// First render: creates files
+	if err := r.RenderService(cfg); err != nil {
+		t.Fatalf("First RenderService failed: %v", err)
+	}
+
+	// Hand edit main.go
+	mainGoPath := filepath.Join(tmpOut, "payments", "apps", "checkout", "main.go")
+	handEdit := []byte("// hand edit\n")
+	if err := os.WriteFile(mainGoPath, handEdit, 0644); err != nil {
+		t.Fatalf("Failed writing hand edit: %v", err)
+	}
+
+	// Second render with Force: false (should skip existing files)
+	if err := r.RenderService(cfg); err != nil {
+		t.Fatalf("Second RenderService failed: %v", err)
+	}
+
+	gotContent, err := os.ReadFile(mainGoPath)
+	if err != nil {
+		t.Fatalf("Failed reading main.go: %v", err)
+	}
+	if !bytes.Equal(gotContent, handEdit) {
+		t.Errorf("RenderService overwritten hand-edited file without --force")
+	}
+
+	// Third render with Force: true (should overwrite existing files)
+	r.Force = true
+	if err := r.RenderService(cfg); err != nil {
+		t.Fatalf("Third RenderService failed: %v", err)
+	}
+
+	gotContentAfterForce, err := os.ReadFile(mainGoPath)
+	if err != nil {
+		t.Fatalf("Failed reading main.go: %v", err)
+	}
+	if bytes.Equal(gotContentAfterForce, handEdit) {
+		t.Errorf("RenderService failed to overwrite file even with --force")
+	}
+}
