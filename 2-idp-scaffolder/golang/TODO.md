@@ -61,9 +61,9 @@ caught the first time the command runs.
 
 ---
 
-## Phase 2 — Finish the test suite (half a day)
+## ~~Phase 2 — Finish the test suite~~ ✅ DONE
 
-### 2a. Complete `resolve_test.go`
+### ~~2a. Complete `resolve_test.go`~~ ✅ DONE
 
 Three TODOs are already in the table; each is a five-line struct literal.
 
@@ -79,7 +79,7 @@ it fail — that failure is the lesson.
 **Research:** Go slice internals (pointer/len/cap); why struct assignment copies a slice
 *header* but shares the backing array.
 
-### 2b. Golden-file test for the rendered tree
+### ~~2b. Golden-file test for the rendered tree~~ ✅ DONE
 
 Automates the `git worktree` + `diff -r` loop used to verify the refactor by hand.
 
@@ -99,7 +99,7 @@ Cases worth pinning: golden-path-only service (catches bug 5), full `onboard-tea
 **Research:** "golang golden file testing"; `testing.T.TempDir`; `fs.WalkDir` vs
 `filepath.WalkDir` — the code uses both, know why.
 
-### 2c. Error-path test
+### ~~2c. Error-path test~~ ✅ DONE
 
 Bad runtime → non-nil error **and zero files written**. Pins the "no half-scaffolded
 service" property that bug 3 violated. Assert both halves; the file count is the half
@@ -109,7 +109,7 @@ that actually catches it.
 
 ---
 
-## Phase 3 — Overwrite protection + `--dry-run` (the main event)
+## ~~Phase 3 — Overwrite protection + `--dry-run` (the main event)~~ ✅ DONE
 
 Both touch `processSingleTemplate`, so do them together, overwrite first.
 
