@@ -6,6 +6,11 @@ module "aws-vpc" {
   vpc_cidr  = "10.0.0.0/16"
 }
 
+# This is where per-namespace IRSA/Pod Identity trust-policy scoping attaches
+# once a real EKS cluster's OIDC issuer exists (4-platform-engineering/clusters/
+# is k3d-only today). See "IRSA / Pod Identity is the missing fourth wall of
+# the tenancy model" in .agents/AGENTS.md — it is the AWS-side counterpart to
+# the AppProject/NetworkPolicy/RBAC boundary this blueprint already creates.
 module "aws-iam" {
   source    = "git::https://github.com/ok-karthik/internal-developer-platform.git//4-platform-engineering/cloud-services-terraform-modules/aws-iam?ref=v1.1.0"
   team_name = "team-a"

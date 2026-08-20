@@ -1,0 +1,31 @@
+# ACK IAM controller — reconciles iam.services.k8s.aws/Role CRs continuously,
+# no plan step. Cheap, recreatable, per-app — see the `provisioner` comment in
+# 1-platform-catalog/catalog.yaml for why IAM roles are ACK and Postgres is not.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ack-iam-controller
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: 'oci://public.ecr.aws/aws-controllers-k8s/iam-chart'
+    targetRevision: '1.3.13'
+    chart: iam-chart
+    helm:
+      values: |
+        aws:
+          region: eu-central-1
+        # Scoped per-namespace via IRSA/Pod Identity on the controller's own
+        # service account, not per-tenant — the tenant boundary is enforced by
+        # which namespaces are allowed to create Role CRs (AppProject + RBAC),
+        # not by which AWS credentials the controller process holds.
+  destination:
+    server: 'https://kubernetes.default.svc'
+    namespace: ack-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

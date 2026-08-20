@@ -42,3 +42,7 @@ spec:
       kind: "Rollout"
     - group: "argoproj.io"
       kind: "AnalysisTemplate"
+    - group: "s3.services.k8s.aws"
+      kind: "Bucket"
+    - group: "iam.services.k8s.aws"
+      kind: "Role"

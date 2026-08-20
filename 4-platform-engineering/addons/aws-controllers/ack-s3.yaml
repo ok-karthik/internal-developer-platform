@@ -1,0 +1,32 @@
+# ACK S3 controller — reconciles s3.services.k8s.aws/Bucket CRs continuously,
+# no plan step. That is the tradeoff that makes ACK the right provisioner for
+# cheap, recreatable, per-app resources (see the `provisioner` comment in
+# 1-platform-catalog/catalog.yaml) and the wrong one for anything stateful.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ack-s3-controller
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: 'oci://public.ecr.aws/aws-controllers-k8s/s3-chart'
+    targetRevision: '1.0.26'
+    chart: s3-chart
+    helm:
+      values: |
+        aws:
+          region: eu-central-1
+        # Scoped per-namespace via IRSA/Pod Identity on the controller's own
+        # service account, not per-tenant — the tenant boundary is enforced by
+        # which namespaces are allowed to create Bucket CRs (AppProject +
+        # RBAC), not by which AWS credentials the controller process holds.
+  destination:
+    server: 'https://kubernetes.default.svc'
+    namespace: ack-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
