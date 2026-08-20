@@ -169,7 +169,7 @@ This blueprint integrates best-in-class cloud-native tooling to form a cohesive 
 | :--- | :--- | :--- |
 | **Local Cluster** | **K3d (K3s)** | Lightweight, ephemeral Kubernetes environment optimized for ARM64/Silicon. |
 | **GitOps Engine** | **Argo CD** | Declarative CD, state reconciliation, and multi-tenant auto-discovery. |
-| **Infra as Code** | **Crossplane** | Abstracts AWS/Azure infrastructure into higher-level Kubernetes `Claims`. |
+| **Infra as Code** | **Terraform** | Version-pinned modules (`4-platform-engineering/cloud-services-terraform-modules/`), claimed per-capability via `catalog.yaml` and scaffolded into each service's `infra/apps/<app>/<env>/`. |
 | **Policy as Code** | **Kyverno** | Admission control. Enforces cluster security boundaries and standards. |
 | **Prog. Delivery** | **Argo Rollouts** | Automated Canary & Blue-Green deployments integrated with edge routing. |
 | **Edge Gateway** | **Traefik** | L7 ingress, API gateway, rate-limiting, and middleware injection. |
@@ -178,6 +178,17 @@ This blueprint integrates best-in-class cloud-native tooling to form a cohesive 
 | **Dep. Management**| **Renovate** | Automated dependency bumps. `go.mod` and `pyproject.toml` are covered by the built-in managers; one custom regex manager handles the version pins in `catalog.yaml`, which no package manager understands. |
 
 ---
+
+> **Known gap — infrastructure is an open loop.** `add-service --capabilities postgres`
+> scaffolds `3-tenant-workloads/<team>/infra/apps/<app>/<env>/postgres.tf`, but nothing in
+> this repo ever runs `terraform apply` against it. CI
+> (`.github/workflows/tenant-workloads-ci-cd.yaml`) builds images and runs `helm template`
+> only — there is no Terraform runner, no state backend, and no plan/apply gate. App
+> delivery (the GitOps path) is a closed loop; infrastructure delivery is not. A developer
+> asking for a database today receives a text file, not a database. Closing this loop —
+> either a Terraform runner (plan-on-PR, apply-on-merge) or moving cheap/recreatable
+> capabilities to a continuously-reconciling controller — is the next infrastructure
+> milestone.
 
 ## 🚀 Deployment Guide (Local Demo Mode)
 
