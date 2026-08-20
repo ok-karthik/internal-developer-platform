@@ -1,0 +1,33 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: team-a-developer
+  namespace: team-a
+rules:
+  - apiGroups: ["", "apps", "batch", "networking.k8s.io", "argoproj.io"]
+    resources: ["*"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods/log", "pods/portforward"]
+    verbs: ["get", "list", "create"]
+  # Deliberately absent: pods/exec, secrets read, and every write verb.
+  # pods/exec bypasses every guardrail above — it can read mounted secrets,
+  # mutate running state, and leaves no git trail. Break-glass belongs in a
+  # separate, time-bound, audited role, not in the default developer role.
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: team-a-developer
+  namespace: team-a
+subjects:
+  # Bind to a GROUP from the IdP, never to individual users — otherwise
+  # onboarding a person becomes a platform-team ticket, which is exactly the
+  # toil an IDP exists to remove.
+  - kind: Group
+    name: "oidc:team-a"
+    apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: Role
+  name: team-a-developer
+  apiGroup: rbac.authorization.k8s.io

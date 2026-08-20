@@ -11,6 +11,10 @@ spec:
     - server: "https://kubernetes.default.svc"
       namespace: "[[ .TeamName ]]"
   clusterResourceWhitelist: []
+  # namespaceResourceWhitelist is the tenant-facing API surface: every kind the
+  # platform offers a team must appear here, or ArgoCD refuses to sync it even
+  # though the manifest rendered correctly. Adding a capability (a chart
+  # feature, an addon) is incomplete until its kind is added here too.
   namespaceResourceWhitelist:
     - group: "apps"
       kind: "Deployment"
@@ -34,3 +38,7 @@ spec:
       kind: "Job"
     - group: "batch"
       kind: "CronJob"
+    - group: "argoproj.io"
+      kind: "Rollout"
+    - group: "argoproj.io"
+      kind: "AnalysisTemplate"

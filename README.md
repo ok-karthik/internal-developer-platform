@@ -141,6 +141,30 @@ graph TD
 ### 2. Zero-Touch Multi-Tenant Auto-Discovery
 To scale across hundreds of microservices, we utilize **Argo CD ApplicationSets**. Instead of manually mapping each microservice to an Argo CD `Application` resource, discovery is two-level: a cluster-wide bootstrap ApplicationSet globs `3-tenant-workloads/*/gitops/platform/applicationsets` to apply each team's system ApplicationSets, and each of those in turn globs `3-tenant-workloads/<team>/gitops/apps/*/*` (app × env) to provision and isolate tenant applications on the fly.
 
+### 3. Multi-Tenancy: What the Boundary Is, and Isn't
+
+The design premise is **namespace-per-team in a shared cluster** — what almost every
+company below hyperscale actually runs. `onboard-team` renders a full control stack per
+namespace: an ArgoCD `AppProject` (what ArgoCD may deploy), a `NetworkPolicy` set (what
+pods may talk to), a `ResourceQuota` + `LimitRange` (what may be consumed), Pod Security
+Admission at `restricted` (what a pod may do to the node), and an RBAC `Role`/`RoleBinding`
+(what a human may do with `kubectl` — read and debug only; writes go through git, which is
+the entire point of the reconciliation loop).
+
+**Namespaces are a cooperative boundary, not a security boundary.** Every tenant shares a
+kernel, a control plane, and nodes. The controls above are correct and sufficient for
+*internal teams who are not adversaries*, which is the realistic case for almost every
+organization that will ever run this platform. They are not sufficient for hostile
+multi-tenancy (e.g. running untrusted third-party code).
+
+The escalation ladder, named without being implemented, because none of it is justified
+below roughly 1000 engineers:
+
+1. Node pools with per-tenant taints/tolerations — cheapest, still shared kernel.
+2. gVisor / Kata Containers — kernel-level isolation, same cluster.
+3. vCluster — isolated control plane, shared nodes.
+4. Separate clusters — full isolation, full operational cost.
+
 ---
 
 ## 🔬 One Catalog, Two Engines
