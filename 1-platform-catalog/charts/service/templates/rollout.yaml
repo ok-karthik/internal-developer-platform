@@ -1,6 +1,6 @@
-{{- if not .Values.rollout.enabled }}
-apiVersion: apps/v1
-kind: Deployment
+{{- if .Values.rollout.enabled }}
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
 metadata:
   name: {{ include "app.fullname" . }}
   labels:
@@ -12,6 +12,10 @@ spec:
   selector:
     matchLabels:
       {{- include "app.selectorLabels" . | nindent 6 }}
+  strategy:
+    canary:
+      steps:
+        {{- toYaml .Values.rollout.canary.steps | nindent 8 }}
   template:
     metadata:
       {{- with .Values.podAnnotations }}

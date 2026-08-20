@@ -1,0 +1,50 @@
+# Per-environment values for app-a (team-a) — prod.
+#
+# Promoted from dev/values.yaml via a PR that copies the file and edits only the
+# values that legitimately differ between environments. This IS the promotion gate
+# described in README.md — CI reacts to this commit by rendering the platform
+# chart into manifests/, and the team ApplicationSet (which globs
+# gitops/apps/*/*) picks the new prod/ directory up with no scaffolder or
+# ApplicationSet edit required.
+
+# Identity ------------------------------------------------------------------
+# nameOverride makes rendered resources come out as "app-a" rather than
+# "app-a-service" (the platform chart is generically named "service").
+nameOverride: "app-a"
+
+image:
+  repository: "ghcr.io/ok-karthik/internal-developer-platform/team-a/app-a"
+  # CI renders whatever tag is pinned here — it never injects one. That keeps the
+  # rendered manifests a pure function of (chart, this file), which is what makes
+  # the git history an honest record of what is deployed. Swap for an immutable
+  # digest or a bot-updated tag when you want real image promotion.
+  tag: "latest"
+
+# Prod runs more replicas than dev's single pod.
+replicaCount: 3
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 256Mi
+  limits:
+    cpu: "1"
+    memory: 1Gi
+
+# Observability -------------------------------------------------------------
+# Opts these pods into the OpenTelemetry Instrumentation resource the chart ships.
+podAnnotations:
+  instrumentation.opentelemetry.io/inject-sdk: "app-a-autoinstrumentation"
+
+podLabels:
+  team: "team-a"
+
+# Networking ----------------------------------------------------------------
+ingress:
+  enabled: true
+  className: "traefik"
+  hosts:
+    - host: app-a.local
+      paths:
+        - path: /
+          pathType: ImplementationSpecific
