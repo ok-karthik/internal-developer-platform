@@ -31,7 +31,7 @@ To make it easier to understand how this platform operates from end-to-end, the 
 4. **`3-tenant-workloads/` (Simulated Monorepo)**  
    The generated output, organised tenant-first as `<team>/{apps,infra,gitops}/` — each of those three maps to a standalone repo in production. `apps/` always means team-owned per-service content; the enclosing repo kind says whether that is source code, Terraform, or Helm values. There is no `<system>/` directory level — Backstage's System grouping lives in `catalog-info.yaml` instead. Inside `infra/` and `gitops/`, `platform/` is platform-owned, and a CODEOWNERS at each of the three roots makes that enforceable. ArgoCD monitors the CI-rendered `manifests/` directories for automatic deployment.
 5. **`4-platform-engineering/` (Platform Infrastructure & Control Plane)**  
-   Contains reusable AWS Terraform modules (`cloud-services-terraform-modules/`), ArgoCD App-of-Apps declarations (`argocd-apps/`), Traefik ingress controller setup, and OpenTelemetry observability configurations.
+   Contains reusable AWS Terraform modules (`cloud-services-terraform-modules/`), the cluster definition (`clusters/`), and ArgoCD App-of-Apps declarations plus the addon resources they deploy (`addons/`) — Traefik ingress, OpenTelemetry, observability, and security/governance.
 
 ---
 
@@ -229,7 +229,7 @@ make install-argocd
 ```
 
 ### 3. Bootstrap the Platform
-The `bootstrap.yaml` file acts as the root of the "App of Apps" pattern. It points Argo CD to the `4-platform-engineering/argocd-apps/` directory to deploy all cluster add-ons simultaneously.
+The `bootstrap.yaml` file acts as the root of the "App of Apps" pattern. It points Argo CD to the `4-platform-engineering/addons/` directory to deploy all cluster add-ons simultaneously.
 ```bash
 make bootstrap
 ```

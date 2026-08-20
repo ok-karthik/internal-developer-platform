@@ -46,10 +46,16 @@ platform-engineering-idp-gitops-reference-architecture/
 │           │   └── applicationsets/    # One <team>.yaml ApplicationSet per team
 │           └── apps/<app>/<env>/       # Team-owned values.yaml + CI-rendered manifests/
 └── 4-platform-engineering/             # Platform Control Plane Infrastructure
-    ├── cloud-services-terraform-modules/ # Reusable AWS Terraform modules (networking, iam, s3, postgres)
-    ├── argocd-apps/                     # ArgoCD App-of-Apps declarations
+    ├── clusters/                        # Cluster definition. k3d today (Makefile-driven,
+    │                                     # no committed config); EKS Terraform later.
+    ├── addons/                          # ArgoCD App-of-Apps declarations (App manifests
+    │                                     # per addon) merged with the raw resources some
+    │                                     # of them deploy, e.g. addons/traefik/,
+    │                                     # addons/otel/ — one concept, one directory.
+    ├── apis/                            # Platform API definitions (KRO RGDs / Crossplane
+    │                                     # XRDs). Empty with a README until Phase 5.
     ├── bootstrap.yaml                   # Root of the App-of-Apps pattern
-    └── cluster-addons/{otel,traefik}/   # OpenTelemetry collector, Traefik ingress
+    └── cloud-services-terraform-modules/ # Reusable AWS Terraform modules (networking, iam, s3, postgres)
 ```
 
 ---
