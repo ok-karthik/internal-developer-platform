@@ -183,7 +183,10 @@ func (r *Renderer) RenderService(cfg Config) error {
 	// empty segments, so an empty Runtime would silently point the walk at
 	// building-blocks/runtimes and render EVERY runtime into the one app directory.
 	if cfg.Runtime == "" {
-		return fmt.Errorf("cfg.Runtime is required")
+		return &ValidationError{
+			Field: "runtime",
+			Err:   ErrRuntimeRequired,
+		}
 	}
 
 	buildingBlocks := []blueprint{
@@ -207,7 +210,11 @@ func (r *Renderer) RenderService(cfg Config) error {
 		// 1. Look up the capability's details from the catalog
 		spec, ok := r.Spec.Capabilities[capName]
 		if !ok {
-			return fmt.Errorf("unknown capability: %s", capName)
+			return &ValidationError{
+				Field: "capability",
+				Value: capName,
+				Err:   ErrUnknownCapability,
+			}
 		}
 
 		// 2. Construct the focused view for this specific template

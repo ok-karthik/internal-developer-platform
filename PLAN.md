@@ -7,6 +7,10 @@ Work the phases in order. Phase 0 and 1 are the ones that make the platform *tru
 everything after that makes it *more capable*. Do not skip ahead — Phase 3 depends on
 the tenancy work in Phase 1 (the ArgoCD `AppProject` whitelist gates what ACK can deploy).
 
+Phases 0–3 are complete as of commit `020cfe1`. **Phases 4 onward were re-ranked on
+2026-08-21 against measured job-market demand — read the Interlude before Phase 4 for
+why the order changed and why Backstage moved from Phase 4 to Phase 8.**
+
 ---
 
 ## Scope
@@ -477,39 +481,259 @@ explicitly in the README instead of leaving the loop half-open and undescribed.
 
 ---
 
-## Phase 4 — Backstage (highest market value)
+## Interlude — how Phases 4+ were ranked (read before picking one)
 
-Rationale, briefly: Backstage/Humanitec/Port are the most-adopted IDP frameworks in DACH,
-and Zalando's platform *Sunrise* — the flagship Berlin platform-engineering story, at a
-company that hires in English — is built on Backstage.
+Phases 0–3 were ranked on *architectural truth*: the repo claimed things it did not do.
+That work is done. From here the ranking criterion changes to **demand in the market
+this repo is a portfolio piece for** — English-speaking Platform/SRE/DevOps roles in
+Germany.
 
-The repo is closer to this than it looks: `add-service` already emits
-`catalog-info.yaml` per service, which is Backstage's ingestion format.
+The numbers below all come from one population — NOW-track, **n=577** — in
+`~/github/karthik-job-market-radar/stats_and_learning_plan.md`, so they are comparable
+to each other. `Req%` counts only postings where the surrounding sentence reads as a
+requirement rather than a list item; it is the column that matters.
 
-1. Add a Backstage instance to the local stack (a `Makefile` target alongside
-   `install-argocd`).
-2. Point its catalog at `3-tenant-workloads/*/apps/*/catalog-info.yaml`.
-3. Wrap the scaffolder in a Backstage Software Template so the golden paths are
-   selectable from a UI. **The template calls the existing CLI — do not reimplement
-   scaffolding logic inside Backstage.**
-4. Add the ArgoCD and Kubernetes plugins so a service's deployment state is visible from
-   its catalog entry.
+| Capability | Mentioned | Req% | Where it lands |
+|---|---|---|---|
+| Incident Response | **29.8%** (172) | — | **Phase 4** — repo has none |
+| Observability (operated, not installed) | 34% | **15%** | **Phase 4** |
+| IAM | 21.1% (122) | — | **Phase 5** |
+| AWS (multi-account + VPC depth) | 53.2% | **27%** | **Phase 5** |
+| Vault / secrets management | 3.5% | — | Phase 7 |
+| Backstage | **1.2%** (7) | — | **Phase 8** (demoted) |
+| kro / ACK / Kargo / Crossplane | ≈0–1% | — | Phase 9 (optional) |
 
-Update the README roadmap: Backstage moves from "future" to "done", and the
-"migrate the Python CLI into Backstage" framing is wrong — Backstage *calls* the CLI, it
-does not replace it.
+**Correction recorded deliberately.** An earlier revision of this file called Backstage
+"highest market value" on the strength of DACH adoption anecdotes (Zalando, Humanitec,
+Port). Measured against the corpus it is **7 postings out of 577**. That is the same
+order of magnitude as Crossplane, which this plan tells you to skip. Applying market
+data to one tool and vibes to another is how the same corpus previously produced a
+recommendation to study Kubeflow — 1 posting out of 577 — at a cost of one to two
+months. Backstage stays in the plan because it has real learning value (see Phase 8),
+but it is **not** the highest-ROI work and must not displace Phases 4–5.
 
 ---
 
-## Phase 5 — Composition engine (optional, do last)
+## Phase 4 — Operate the observability stack (highest market value)
 
-Only after Phases 0–4 are genuinely finished.
+**The gap.** `4-platform-engineering/addons/observability/` runs Prometheus, Loki, Tempo
+and Promtail; `addons/otel/` wires OpenTelemetry and Grafana datasources; the service
+chart emits an `Instrumentation`. And there is **not one `PrometheusRule` in the repo.**
+
+So the platform *collects* telemetry and never *acts* on it. Nobody is ever paged. That
+is the difference between having installed observability and having operated it — and it
+is precisely the Senior→Staff line an interviewer probes.
+
+This phase is worth more than everything below it combined: Incident Response is the #8
+most-mentioned skill in the entire corpus (29.8%), and Observability carries a 15% Req —
+the highest of any capability this repo does not yet evidence.
+
+### 4.1 — Define SLOs for the sample service
+
+Create `4-platform-engineering/addons/observability/slo/app-a-slo.yaml`. Two SLIs, both
+derivable from what the OTel/Prometheus stack already scrapes:
+
+- **Availability** — `1 - (rate(5xx) / rate(all))`, target 99.9% over 30 days
+- **Latency** — proportion of requests under a threshold, target 99% under 500ms
+
+Put the *error budget* in a comment beside each target (99.9% over 30d ≈ 43m 12s). The
+budget is what makes the next task non-arbitrary.
+
+### 4.2 — Multi-window, multi-burn-rate alerts
+
+Create `4-platform-engineering/addons/observability/slo/app-a-alerts.yaml` as a
+`monitoring.coreos.com/v1 PrometheusRule`.
+
+**Do not write a static threshold alert.** `rate(5xx) > 0.01 for 5m` is the alert every
+portfolio repo ships and it is why on-call rotations burn out. Implement burn rate
+against the error budget instead, the Google SRE workbook shape:
+
+| Severity | Burn rate | Long window | Short window | Budget consumed |
+|---|---|---|---|---|
+| `page` | 14.4× | 1h | 5m | 2% in 1h |
+| `page` | 6× | 6h | 30m | 5% in 6h |
+| `ticket` | 3× | 1d | 2h | 10% in 1d |
+| `ticket` | 1× | 3d | 6h | 10% in 3d |
+
+The short window is what stops an alert firing for an incident that already recovered.
+Every rule carries `severity`, `runbook_url`, and a `summary` naming the user-visible
+symptom — never the cause. **"Checkout is failing for 3% of users"**, not
+"CPU is high".
+
+### 4.3 — Alertmanager routing
+
+Add Alertmanager config to the Prometheus addon: `severity: page` and `severity: ticket`
+route to different receivers, grouped by `alertname` + `namespace`, with an inhibition
+rule so a firing `page` suppresses the matching `ticket`.
+
+A local webhook receiver is fine — the routing tree is the artefact, not the integration.
+Add a `Makefile` target that fires a synthetic alert through it so the path is
+demonstrable in under a minute.
+
+### 4.4 — A runbook per alert
+
+Create `docs/runbooks/`, one file per alert, each linked from its `runbook_url`. Fixed
+structure: **Symptom → Impact → Diagnose (exact commands) → Mitigate → Escalate.**
+
+The diagnostic commands must be real and runnable against this platform — the Loki query
+for the service's logs, the Tempo trace lookup, `kubectl` calls scoped to what the
+Phase 1.1 developer Role actually permits. An unrunnable runbook is worse than none.
+
+Note the constraint explicitly in the runbooks: the developer Role has **no `pods/exec`**
+(Phase 1.1), so mitigation is a git revert plus an ArgoCD sync, not a shell on a pod.
+That is the GitOps loop being load-bearing under pressure, which is a strong interview
+answer on its own.
+
+### 4.5 — One worked postmortem
+
+Write `docs/incidents/2026-XX-XX-<slug>.md` covering a real failure from building this
+repo — the Traefik NetworkPolicy bug from Phase 0.1 is ideal, and it genuinely happened.
+
+Blameless format: timeline, impact, detection, root cause, contributing factors,
+**what would have caught this earlier**, action items with owners. Then close the loop
+honestly: name which Phase 4 alert would have caught it, or state plainly that none
+would and what you added as a result.
+
+**Verify:**
+```bash
+kubectl apply --dry-run=client -f 4-platform-engineering/addons/observability/slo/
+promtool check rules 4-platform-engineering/addons/observability/slo/app-a-alerts.yaml
+# every runbook_url resolves to a file that exists
+grep -rho 'runbook_url:.*' 4-platform-engineering/addons/observability/slo/
+```
+
+---
+
+## Phase 5 — Hub → spoke multi-account (the AWS depth phase)
+
+**Why here.** AWS is 53.2% mentioned and **27% Req** — the hardest gate in the corpus.
+IAM alone is 21.1% (122 postings). The learning plan's own verdict on the cloud row is
+*"multi-account + VPC depth (NOT the cert)"*. This repo is currently single-account, so
+it evidences none of that depth.
+
+This is also the one structurally good idea in the AWS workshop architecture: a **hub**
+cluster in a central account provisioning into **spoke** tenant accounts.
+
+### 5.1 — Model the two accounts
+
+Add `4-platform-engineering/clusters/` documentation (or Terraform, if budget allows) for:
+
+- **Hub account** — EKS cluster, ArgoCD, ACK controllers, the observability stack
+- **Spoke account** — tenant AWS resources only; no cluster required to make the point
+
+### 5.2 — Cross-account IAM for ACK
+
+The real content. ACK controllers run in the hub and must create resources in the spoke:
+
+1. Spoke defines a role trusting the hub account's ACK controller role
+2. Hub's ACK controller role is granted `sts:AssumeRole` on it
+3. ACK is pointed at it per-namespace via the `services.k8s.aws/owner-account-id`
+   annotation and a `CARM` ConfigMap entry
+
+Document the trust-policy direction explicitly — *the spoke trusts the hub, never the
+reverse* — and why the `ExternalId` condition belongs there. Being able to draw this on
+a whiteboard is the thing 122 postings are asking for.
+
+### 5.3 — Tie it back to the tenancy model
+
+Extend the Phase 3.5 IRSA note: namespace → IRSA role → assumed spoke role → blast radius
+is one tenant's account. That is the fourth wall of the tenancy model, now with a real
+account boundary behind it rather than an IAM policy condition.
+
+---
+
+## Phase 6 — DORA metrics
+
+Not a keyword — **0 postings name it**. It is in the plan because it is the framing that
+makes every other phase legible as a *product* rather than a pile of YAML, and because
+"how do you know your platform is working?" is a standard staff-level interview question
+that most candidates answer with anecdote.
+
+All four metrics are derivable from data this repo already produces:
+
+| Metric | Source |
+|---|---|
+| Deployment frequency | ArgoCD sync history / git commits to `gitops/apps/**` |
+| Lead time for change | commit timestamp → ArgoCD `syncedAt` |
+| Change failure rate | Phase 4.2 alerts firing within 1h of a sync |
+| MTTR | alert `firing` → `resolved` duration |
+
+Ship it as a Grafana dashboard JSON in `4-platform-engineering/addons/observability/`.
+**Change failure rate and MTTR are only computable because Phase 4 exists** — say so in
+the README. It is the cleanest justification for why Phase 4 came first.
+
+---
+
+## Phase 7 — Secrets and identity (small, high leverage)
+
+### 7.1 — External Secrets Operator
+
+The repo ships `addons/security-governance/sealed-secrets.yaml`. Sealed Secrets is fine
+but it is not what AWS shops run — **External Secrets Operator + AWS Secrets Manager** is,
+and it is roughly one addon manifest plus a `ClusterSecretStore`.
+
+Add ESO alongside Sealed Secrets, add `external-secrets.io/ExternalSecret` to the
+`AppProject` whitelist (Phase 1.5), and write two paragraphs in the README on the
+trade-off: Sealed Secrets keeps the ciphertext in git (auditable, works offline, rotation
+is a re-seal); ESO keeps only a *reference* in git and resolves at runtime via IRSA
+(rotation is free, but the cluster now depends on AWS being reachable). Holding both and
+explaining when each wins is a better answer than having picked one.
+
+### 7.2 — Keycloak (only worth it for this reason)
+
+Phase 1.1 binds the developer Role to `Group: oidc:<team>`. **That group exists nowhere.**
+The RBAC is currently aspirational.
+
+Keycloak as an OIDC provider for the API server makes it real: a group claim, mapped to
+the RoleBinding, demonstrable with `kubectl auth can-i --as-group=oidc:team-a`. Okta is
+1.7% and Keycloak is unmeasured, so do not do this for the keyword — do it because it
+closes a loop this plan already opened.
+
+---
+
+## Phase 8 — Backstage (demoted — read the Interlude first)
+
+**7 of 577 postings, 1.2%.** Do this when Phases 4–6 are finished, or when you want the
+visual demo for interviews, and **not before**.
+
+What it genuinely buys you, keyword aside: it is the only phase that makes the platform
+*look* like a product to a non-engineer, it forces the service catalog to be real rather
+than a `catalog-info.yaml` nobody consumes, and "I built a developer portal" is a
+sentence a hiring manager understands without you explaining GitOps first.
+
+The repo is closer than it looks — `add-service` already emits `catalog-info.yaml`, which
+is Backstage's native ingestion format.
+
+1. Backstage instance in the local stack (a `Makefile` target beside `install-argocd`)
+2. Point the catalog at `3-tenant-workloads/*/apps/*/catalog-info.yaml`
+3. Wrap the scaffolder in a Software Template. **The template calls the existing CLI —
+   do not reimplement scaffolding logic inside Backstage.**
+4. Add the ArgoCD and Kubernetes plugins so deployment state shows on the catalog entry
+
+**Timebox this to two days.** Backstage is a TypeScript monorepo with a plugin system
+that will absorb unlimited time; steps 1–2 deliver most of the demo value in a few hours,
+and step 3 is where the schedule goes to die. If you hit the box, ship what works.
+
+Update the README roadmap: the "migrate the Python CLI into Backstage" framing is wrong —
+Backstage *calls* the CLI, it does not replace it.
+
+---
+
+## Phase 9 — Composition engine (optional, do last)
+
+Only after Phases 0–6 are genuinely finished. Every option here measures ≈0–1% in the
+target market; this phase is for your own understanding, not for your CV.
 
 Pick **one**. Crossplane by a narrow margin: it graduated CNCF in October 2025, shipped
 v2.0, and has enterprise adopters including SAP and IBM, versus kro which is still not
 GA. But the margin is thin enough that **"whichever you will actually finish" is the
 better tiebreak** — two half-built composition engines are worth less than one working
 loop.
+
+Remember the layering (this is the most common confusion): **ACK is the provider layer**
+— one CR, one AWS resource. **kro and Crossplane are the composition layer** — one custom
+CR fanning out into many resources. kro composes but cannot talk to AWS, so it needs ACK
+underneath. Crossplane spans both, so choosing it makes ACK redundant.
 
 If Crossplane: restore from git history (`git log -- archived/crossplane/`), modernize to
 v2, and put the XRDs in `4-platform-engineering/apis/`. If kro: `ResourceGraphDefinition`
@@ -592,6 +816,6 @@ did not run.
 
 ## Commit strategy
 
-One commit per phase, or per task for Phases 3–5. Work on a branch —
+One commit per phase, or per task for Phases 3–9. Work on a branch —
 `main` is the default branch here and the owner has separate work in flight on the Go
 scaffolder. Do not commit anything under `2-idp-scaffolder/golang/`.

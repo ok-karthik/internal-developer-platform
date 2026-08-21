@@ -650,7 +650,7 @@ Overlaps by design: 7d is the full version of [5c](#5c-globals--rootgo16-25) and
 [5d](#5d-logging--rendergo112), and 7c is [Phase 2](#phase-2--finish-the-test-suite-half-a-day)
 looked at as a convention rather than as coverage. Land those first where they collide.
 
-### 7a. Wrapped errors — `%w`, `errors.Is`, `errors.As`
+### ~~7a. Wrapped errors — `%w`, `errors.Is`, `errors.As`~~ ✅ DONE
 
 **Where we already do it right:** `render.go:60,88,93,99,109,217,228` and
 `root.go:135,142` all wrap with `%w` and name the offending path. That is the standard

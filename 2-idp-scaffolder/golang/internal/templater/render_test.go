@@ -245,12 +245,18 @@ func TestRenderService_DryRun(t *testing.T) {
 	}
 
 	fileCount := 0
-	_ = filepath.WalkDir(tmpOut, func(path string, d os.DirEntry, err error) error {
-		if err == nil && !d.IsDir() {
+	err = filepath.WalkDir(tmpOut, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() {
 			fileCount++
 		}
 		return nil
 	})
+	if err != nil {
+		t.Fatalf("filepath.WalkDir failed: %v", err)
+	}
 
 	if fileCount != 0 {
 		t.Errorf("DryRunWriter wrote %d files to disk, expected 0", fileCount)

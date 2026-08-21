@@ -58,13 +58,13 @@ func LoadCatalog(catalogFS fs.FS) (*Catalog, error) {
 	// 1. Read the raw bytes from the file
 	data, err := fs.ReadFile(catalogFS, "catalog.yaml")
 	if err != nil {
-		return nil, err // Return the error if file doesn't exist
+		return nil, fmt.Errorf("reading catalog.yaml: %w", err)
 	}
 
 	var catalog Catalog
 	// 2. Unmarshal converts the raw YAML bytes into our Go struct
 	if err := yaml.Unmarshal(data, &catalog); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("parsing catalog.yaml: %w", err)
 	}
 
 	// 3. Fail at load, where the error can still name the offending key, rather
