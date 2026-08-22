@@ -390,7 +390,9 @@ other repos.
 > the `modules/` rename was skipped to avoid breaking version pins. **Phase 3.8 now
 > replaces this target layout entirely**, including that rename, and does it with the
 > sequencing and version bump that make it safe. Read 3.8, not this block, for the
-> current target. Kept here for the history of why the first attempt stopped short.
+> current target — and 3.9 for the matching rename on the `1-platform-catalog/` side,
+> which is blocked on a different branch. Kept here for the history of why the first
+> attempt stopped short.
 
 It currently mixes AWS Terraform modules with cluster addons, and is missing the cluster
 itself. Target:
@@ -611,57 +613,93 @@ not assume one is vestigial.
 every pin should read `v1.1.0` or later, and every one should be covered by a Renovate
 pattern.
 
-### 3.8 — Rename for a taxonomy that survives a second cloud
+### 3.8 — Rename `4-platform-engineering/` so the tree explains itself
 
-**The problem with the current names.** `addons/` collides with **EKS add-ons**, which is
-a specific AWS product (vpc-cni, coredns, kube-proxy, ebs-csi). A reader lands on that
-directory expecting managed EKS components and finds ArgoCD Applications.
-`cloud-services-terraform-modules/` names the *tool* in the directory, which is precisely
-the thing that has to change if this platform ever runs somewhere else. `clusters/` is
-too narrow for what belongs there — an account and a VPC are not a cluster.
+**The test a name has to pass.** Someone who has never seen this repo opens the
+directory listing and can say, for each entry, *who writes it, what consumes it, and
+when it runs* — without opening a file and without reading `catalog.yaml`. Every current
+name fails that test, and so did the first version of this plan.
 
-**Rename on one principle: name the layer, never the tool.** Tool-named directories are
-what make a platform look AWS-shaped even when its abstractions are not.
+**What is wrong with the names today:**
+
+| Name | Why it fails |
+|---|---|
+| `addons/` | Collides with **EKS add-ons**, a specific AWS product (vpc-cni, coredns, kube-proxy, ebs-csi). A reader expects managed EKS components and finds ArgoCD `Application` manifests. |
+| `cloud-services-terraform-modules/` | Names the *tool* (`terraform`) — precisely the thing that must change if this platform ever runs elsewhere. Also says nothing about who consumes it. |
+| `clusters/` | Too narrow. An AWS account, an Organization and a VPC are not clusters. |
+| `apis/` | Too broad. Every directory in a platform repo is arguably an API. |
+
+**What was wrong with this plan's first attempt** (`foundation/` + `infrastructure/`):
+those two words are near-synonyms. Nothing in either name tells you that one is applied
+by the platform team before anything else exists, and the other is consumed by *tenants*
+through the catalog. A name that requires a paragraph to disambiguate is a failed name.
+
+**Rename on two principles.** Name the *layer*, never the tool — tool-named directories
+are what make a platform look AWS-shaped even when its abstractions are not. And where
+two layers are genuinely adjacent, let the name carry **who consumes it**, because that
+is the distinction a reader cannot infer from the contents.
 
 ```
 4-platform-engineering/
-├── foundation/         # was clusters/ — the substrate the platform sits ON:
-│   ├── aws/            #   cluster, cloud account, network. Terraform.
-│   │   ├── eks/        #   ← THE TARGET. Real EKS Terraform, held to `plan`-clean.
-│   │   ├── network/    #   VPC, subnets, NAT
-│   │   ├── access/     #   Access Entries + Identity Center (Phase 7.2b)
-│   │   ├── identity/   #   Pod Identity / IRSA seam (Phase 7.2c)
-│   │   └── org/        #   Organizations, OUs, SCPs (Phase 5.4)
-│   └── local/          #   k3d config. A TEST HARNESS — never the reference.
-├── infrastructure/     # was cloud-services-terraform-modules/ — reusable
-│   └── aws/            #   cloud-resource modules, now nested BY PROVIDER
-│       ├── postgres/   #   (was aws-postgres/ — prefix is redundant under aws/)
-│       ├── s3/
-│       ├── iam/
+├── bootstrap.yaml            # root of the App-of-Apps — stays put
+│
+├── 1-cloud-foundation/       # Terraform the PLATFORM TEAM applies, BEFORE a cluster exists.
+│   ├── aws/                  #   Provider-specific by nature → nested by provider.
+│   │   ├── organization/     #   Organizations, OUs, SCPs         (Phase 5.4)
+│   │   ├── network/          #   VPC, subnets, NAT
+│   │   ├── cluster/          #   ← THE TARGET. EKS. Held to `plan`-clean.
+│   │   ├── cluster-access/   #   Access Entries + Identity Center (Phase 7.2b)
+│   │   └── workload-identity/#   Pod Identity / IRSA seam         (Phase 7.2c)
+│   └── local/                #   k3d. A TEST HARNESS — never the reference.
+│
+├── 2-cluster-services/       # ArgoCD Applications the PLATFORM TEAM reconciles, AFTER
+│                             #   the cluster exists. Portable Kubernetes → NOT nested
+│                             #   by provider. This is what makes a cluster a platform.
+│
+├── 3-capability-modules/     # Terraform modules TENANTS consume, resolved from
+│   └── aws/                  #   catalog.yaml `capabilities:`. Nobody here applies these
+│       ├── postgres/         #   — they are rendered into tenant repos and applied there.
+│       ├── s3/               #   (was aws-postgres/ etc — the prefix is redundant
+│       ├── iam/              #    once the directory is already `aws/`)
 │       └── networking/
-├── cluster-services/   # was addons/ — what runs IN the cluster to make it a
-│                       #   platform. Reconciled by ArgoCD. Cloud-agnostic.
-└── platform-apis/      # was apis/ — the custom APIs tenants consume (Phase 9)
+│
+└── 4-platform-apis/          # CRDs / kro RGDs — the custom APIs tenants call (Phase 9)
 ```
 
-Note the asymmetry, and write it in the directory's README: **`foundation/` is nested by
-provider because it is provider-specific by nature; `cluster-services/` is not nested
-because it is portable Kubernetes.** That split *is* the Phase 10 portability story made
-visible in the tree — the size of `foundation/aws/` relative to `cluster-services/` is the
-honest measure of how cloud-coupled this platform actually is.
+**Why the numeric prefixes.** The repo already numbers its top level (`1-platform-catalog`
+… `4-platform-engineering`), so this is the existing convention applied one level down.
+More importantly it fixes an ordering problem: alphabetically these sort as
+*capability-modules, cloud-foundation, cluster-services, platform-apis*, which puts the
+thing tenants consume above the thing that has to exist first. The numbers make the
+listing read in **order of operations**, which is the single most common question a
+newcomer has.
 
-`foundation/local/` sits below `foundation/aws/` alphabetically and in importance. Do not
-let the k3d config become the file people read first.
+**Why `aws/cluster/` and not `aws/eks/`.** Same rule that turns `aws-postgres/` into
+`aws/postgres/`: once the parent directory is `aws/`, saying EKS again is redundant. It
+also buys the Phase 10 payoff — `1-cloud-foundation/azure/cluster/` sits directly beside
+`1-cloud-foundation/aws/cluster/`, and the diff between those two directories *is* the
+portability story, legible at a glance. Put "This is Amazon EKS." in the first line of
+`aws/cluster/README.md`; that is where the product name belongs.
 
-It reads top-to-bottom as a stack, no name collides with a vendor product term, and
-`infrastructure/aws/` has an obvious sibling slot for Phase 10.
+**Why `1-cloud-foundation/` is nested by provider and `2-cluster-services/` is not.**
+Write this in both directories' READMEs. It is not an inconsistency — it is the
+portability boundary made visible in the tree, and **the size of `1-cloud-foundation/aws/`
+relative to `2-cluster-services/` is the honest measure of how cloud-coupled this
+platform actually is.** `local/` sorts below `aws/`; do not let the k3d config become the
+file people read first.
+
+**Every one of the four gets a `README.md` whose first line is one sentence answering
+"what is in here, who writes it, what consumes it."** This is not optional polish — the
+complaint that prompted this rename was *"every time I have to go inside those folders to
+check what the content is."* A name plus one sentence fixes that permanently; a name
+alone does not.
 
 **The catalog change is data-only — no scaffolder edit needed.** The capability templates
 already render `source = "[[ .CapabilitiesSourceBase ]]/[[ .Module ]]?ref=[[ .Version ]]"`,
 so a slash inside `module:` just works — `git::` sources support subdirectory paths:
 
 ```yaml
-capabilities_source_base: "git::https://github.com/ok-karthik/internal-developer-platform.git//4-platform-engineering/infrastructure"
+capabilities_source_base: "git::https://github.com/ok-karthik/internal-developer-platform.git//4-platform-engineering/3-capability-modules"
 
 capabilities:
   postgres:
@@ -681,19 +719,144 @@ level deeper.
 2. Update `capabilities_source_base` and every `module:` in `catalog.yaml`
 3. Update the two hardcoded sources in `blueprints/team/infra/platform/team-iam.tf.tmpl`
    → `aws/networking`, `aws/iam`
-4. Update `bootstrap.yaml`'s `path:` → `4-platform-engineering/cluster-services`
+4. Update `bootstrap.yaml`'s `path:` → `4-platform-engineering/2-cluster-services`
 5. Update the comment in `1-platform-catalog/building-blocks/capabilities/s3.yaml.tmpl`
    that references the old `aws-s3/main.tf` path
 6. Update `renovate.json` (path in the description, plus 3.7(d)'s widened patterns)
 7. Update `README.md:33-34`, `README.md:196`, `README.md:232`, `README.md:285`, and the
    directory tree in `.agents/AGENTS.md`
-8. Re-render `3-tenant-workloads/team-a/` so the rendered `.tf` files match
-9. **Tag `v1.2.0`** — old pins keep resolving against old tags, so nothing breaks
-   retroactively, but nothing new resolves until the tag exists
+8. Write the four `README.md` files described above
+9. Re-render `3-tenant-workloads/team-a/` so the rendered `.tf` files match
+10. **Tag `v1.2.0`** — old pins keep resolving against old tags, so nothing breaks
+    retroactively, but nothing new resolves until the tag exists
 
-**Do all nine or none.** A half-applied rename leaves Terraform sources pointing at paths
+**Do all ten or none.** A half-applied rename leaves Terraform sources pointing at paths
 that exist in no tag, and the failure surfaces at `terraform init` in CI, far from the
 cause.
+
+---
+
+### 3.9 — Rename `1-platform-catalog/` so a directory predicts its own output
+
+> **⛔ DO NOT EXECUTE ON THIS BRANCH — read the blocker at the end of this section
+> first.** The design is settled and written here so it is ready to go; the *execution*
+> belongs to the branch where `2-idp-scaffolder/golang/` is in scope.
+
+**The problem.** `blueprints/` and `building-blocks/` are both generic template words.
+They alliterate, they are the same length, and neither encodes the one fact that actually
+distinguishes them:
+
+> `blueprints/` is rendered **once per team**, by `onboard-team`.
+> `building-blocks/` is rendered **once per service**, by `add-service`.
+
+That is the whole distinction, and no reader can recover it from the names. Worse, the
+answer currently lives in `catalog.yaml`'s `destinations:` map — so "what does this
+directory produce?" costs a file open and a mental join. **The directory names should
+carry it.**
+
+**Rename to the cardinality, then mirror the output tree underneath it:**
+
+```
+1-platform-catalog/
+├── catalog.yaml
+│
+├── per-team/                    # was blueprints/team/ — `onboard-team` renders this ONCE
+│   ├── apps/                    #   → 3-tenant-workloads/{team}/apps/
+│   ├── infra/                   #   → 3-tenant-workloads/{team}/infra/
+│   └── gitops/                  #   → 3-tenant-workloads/{team}/gitops/
+│
+├── per-service/                 # was building-blocks/ — `add-service` renders this EACH TIME
+│   ├── apps/                    #   → {team}/apps/{app}/
+│   │   ├── runtimes/<lang>/     #     one is picked by `runtime:`
+│   │   └── service-meta/        #     always rendered
+│   ├── infra/                   #   → {team}/infra/apps/{app}/{env}/
+│   │   └── capabilities/        #     *.tf.tmpl — provisioner: terraform
+│   └── gitops/                  #   → {team}/gitops/apps/{app}/{env}/
+│       ├── capabilities/        #     *.yaml.tmpl — provisioner: ack
+│       └── release/             #     per-env values.yaml
+│
+└── chart/service/               # NEVER scaffolded. No destinations key. CI renders it
+                                 #   and only the output reaches 3-tenant-workloads/
+```
+
+Three things fall out of this that are worth more than the readability:
+
+**(a) The second path segment now matches on both sides.** `per-team/gitops/` →
+`{team}/gitops/`. `per-service/gitops/` → `{team}/gitops/apps/{app}/{env}/`. The prefix
+tells you the *cardinality*, the segment after it tells you the *destination tree*. That
+is the mapping asked for — readable without opening `catalog.yaml`, which stays as the
+authority, not the lookup table of first resort.
+
+**(b) It deletes a real defect.** `catalog.yaml` currently declares a destinations key
+`building-blocks/capabilities-ack` for which **no directory exists** — a phantom key. It
+exists because ACK `.yaml.tmpl` and Terraform `.tf.tmpl` capability templates share one
+directory, so the renderer would have to dispatch on *file extension* to route between
+two destinations. That dispatch is unbuilt in both engines and documented as a follow-up.
+Splitting them into `per-service/infra/capabilities/` and `per-service/gitops/capabilities/`
+makes the **directory** the router, exactly like every other key. The phantom key
+disappears, the extension-sniffing is never needed, and `provisioner:` routing becomes a
+data fact instead of pending code.
+
+**(c) `blueprints/team/` loses a redundant level.** The word "team" appeared twice in
+`blueprints/team/apps` and once again in the destination `{team}/apps/`.
+
+**Also worth doing while in here (smaller, same spirit):** `per-team/gitops/platform/team/`
+holds the tenancy boundary — AppProject, Namespace, NetworkPolicy, RBAC, PolicyException.
+`platform/team/` is vague; `platform/tenancy/` says what those five files collectively
+are. Low value on its own, so fold it into this change or skip it — do not make it a
+separate breaking change.
+
+#### The blocker — why this is not a `git mv` plus a YAML edit
+
+**These directory names are hardcoded in both scaffolder engines.** Unlike 3.8, this
+rename cannot be done in data. Verified sites:
+
+| File | Lines | What is hardcoded |
+|---|---|---|
+| `golang/internal/catalog/catalog.go` | 43–49 | the `requiredDestinations` literal list |
+| `golang/internal/catalog/catalog.go` | 127–128 | `path.Join("building-blocks/runtimes", …)` + the error string |
+| `golang/internal/templater/render.go` | 181–183 | `blueprints/team/{apps,infra,gitops}` src + destKey pairs |
+| `golang/internal/templater/render.go` | 202–204 | `building-blocks/{runtimes,service-meta,delivery/release}` |
+| `golang/internal/templater/render.go` | 213, 243 | `building-blocks/capabilities` lookup and `.tf.tmpl` join |
+| `python/cli.py` | 37–38, 52, 69, 100 | the same literals, Jinja side |
+| `python/api.py` | 75 | `CATALOG_DIR / "building-blocks" / "runtimes"` |
+
+`2-idp-scaffolder/golang/` is **out of scope on this branch** by standing instruction, and
+AGENTS.md's two-engine acceptance test means the Python side cannot move without it —
+renaming one engine's paths and not the other produces two engines that no longer render
+identical output, which is the single invariant this repo exists to demonstrate.
+
+**So: put this section in `2-idp-scaffolder/golang/TODO.md` as a phase, and execute it
+there alongside the Python edit and a re-run of the two-engine acceptance test.** The
+`git mv` is trivial; the coordination is the work.
+
+#### What to do on *this* branch instead
+
+The names cannot move yet, but the *lookup cost* can be removed today, and it is the
+actual complaint.
+
+**✅ Already done — `.agents/AGENTS.md` now carries a "Render Map" section**: one row per
+destinations key, under the current names, with columns *you edit this* → *it renders to*
+→ *rendered by* → *how often*. It is derived from `destinations:`, so it is mechanical to
+write and mechanical to check, and it states that `catalog.yaml` — not the table — is the
+authority when they disagree. It also names the phantom `capabilities-ack` key and this
+section's blocker in place, so a reader hits both facts without opening PLAN.md.
+
+Two things still to do on this branch:
+
+- Copy the same table into a new `1-platform-catalog/README.md`. The person who needs it
+  most is standing in that directory, not reading agent instructions.
+- When 3.8 lands, add its four `README.md` first lines to the same habit. **Between them,
+  the render map and the per-directory READMEs are the actual fix**; 3.9's rename makes
+  the fix redundant, which is the point, but it cannot ship yet.
+
+When 3.9 eventually executes, the render map is the diff you verify against: every row's
+left column changes, no row's right column may.
+
+**Leave `2-idp-scaffolder/` and `3-tenant-workloads/` alone.** Both already pass the test
+at the top of 3.8 — `golang/`, `python/`, `<team>/apps|infra|gitops` are unambiguous. Not
+every name needs changing, and churn in a directory that is already clear costs review
+attention that 3.8 and 3.9 need.
 
 ---
 
@@ -743,8 +906,8 @@ but it is **not** the highest-ROI work and must not displace Phases 4–5.
 
 ## Phase 4 — Operate the observability stack (highest market value)
 
-**The gap.** `4-platform-engineering/addons/observability/` runs Prometheus, Loki, Tempo
-and Promtail; `addons/otel/` wires OpenTelemetry and Grafana datasources; the service
+**The gap.** `4-platform-engineering/2-cluster-services/observability/` runs Prometheus, Loki, Tempo
+and Promtail; `2-cluster-services/otel/` wires OpenTelemetry and Grafana datasources; the service
 chart emits an `Instrumentation`. And there is **not one `PrometheusRule` in the repo.**
 
 So the platform *collects* telemetry and never *acts* on it. Nobody is ever paged. That
@@ -757,7 +920,7 @@ the highest of any capability this repo does not yet evidence.
 
 ### 4.1 — Define SLOs for the sample service
 
-Create `4-platform-engineering/addons/observability/slo/app-a-slo.yaml`. Two SLIs, both
+Create `4-platform-engineering/2-cluster-services/observability/slo/app-a-slo.yaml`. Two SLIs, both
 derivable from what the OTel/Prometheus stack already scrapes:
 
 - **Availability** — `1 - (rate(5xx) / rate(all))`, target 99.9% over 30 days
@@ -768,7 +931,7 @@ budget is what makes the next task non-arbitrary.
 
 ### 4.2 — Multi-window, multi-burn-rate alerts
 
-Create `4-platform-engineering/addons/observability/slo/app-a-alerts.yaml` as a
+Create `4-platform-engineering/2-cluster-services/observability/slo/app-a-alerts.yaml` as a
 `monitoring.coreos.com/v1 PrometheusRule`.
 
 **Do not write a static threshold alert.** `rate(5xx) > 0.01 for 5m` is the alert every
@@ -823,10 +986,10 @@ would and what you added as a result.
 
 **Verify:**
 ```bash
-kubectl apply --dry-run=client -f 4-platform-engineering/addons/observability/slo/
-promtool check rules 4-platform-engineering/addons/observability/slo/app-a-alerts.yaml
+kubectl apply --dry-run=client -f 4-platform-engineering/2-cluster-services/observability/slo/
+promtool check rules 4-platform-engineering/2-cluster-services/observability/slo/app-a-alerts.yaml
 # every runbook_url resolves to a file that exists
-grep -rho 'runbook_url:.*' 4-platform-engineering/addons/observability/slo/
+grep -rho 'runbook_url:.*' 4-platform-engineering/2-cluster-services/observability/slo/
 ```
 
 ---
@@ -844,7 +1007,7 @@ cluster in a central account provisioning into **spoke** tenant accounts.
 ### 5.1 — Build the hub cluster for real
 
 **Terraform, not documentation.** Per the Target Environment section, EKS is the target, so
-`foundation/aws/eks/` holds real HCL held to a clean `terraform plan` in CI. "Documentation
+`1-cloud-foundation/aws/cluster/` holds real HCL held to a clean `terraform plan` in CI. "Documentation
 if budget allows" was the wrong default — a plan costs nothing and proves far more.
 
 - **Hub account** — EKS cluster, ArgoCD, ACK controllers, the observability stack
@@ -907,7 +1070,7 @@ a cluster; prod does not share an account with dev. Say this explicitly in the R
 because "would you give every team their own cluster?" is a standard interview probe and
 "no, and here is the axis I would use instead" is the answer that lands.
 
-Document in `foundation/` (post-3.8 naming):
+Document in `1-cloud-foundation/` (post-3.8 naming):
 
 - **AWS Organizations** is the primitive — accounts, Organizational Units, and **SCPs**.
 - **SCPs are permission *ceilings*, not grants.** They cannot give anyone access; they cap
@@ -922,7 +1085,7 @@ Document in `foundation/` (post-3.8 naming):
   Organizations + Terraform if you want no managed abstraction.
 
 You do not need to *own* an AWS Organization to do this task, but write it as real
-Terraform in `foundation/aws/org/` — `aws_organizations_organizational_unit` and
+Terraform in `1-cloud-foundation/aws/organization/` — `aws_organizations_organizational_unit` and
 `aws_organizations_policy` resources with the SCP documents as first-class files — rather
 than as prose. Even without an org to apply against, `terraform validate` proves the policy
 JSON is well-formed, and committed HCL is inspectable in a way a diagram is not.
@@ -965,7 +1128,7 @@ All four metrics are derivable from data this repo already produces:
 | Change failure rate | Phase 4.2 alerts firing within 1h of a sync |
 | MTTR | alert `firing` → `resolved` duration |
 
-Ship it as a Grafana dashboard JSON in `4-platform-engineering/addons/observability/`.
+Ship it as a Grafana dashboard JSON in `4-platform-engineering/2-cluster-services/observability/`.
 **Change failure rate and MTTR are only computable because Phase 4 exists** — say so in
 the README. It is the cleanest justification for why Phase 4 came first.
 
@@ -1005,7 +1168,7 @@ attribute, because every consumer below can only match on group strings.
 
 ### 7.1 — Keycloak as the IdP
 
-Add Keycloak to `cluster-services/` (post-3.8 naming) with a realm defining:
+Add Keycloak to `2-cluster-services/` (post-3.8 naming) with a realm defining:
 
 - one **group per team per tier**, following the scheme above
 - an OIDC **client** per consumer: `kubernetes`, `argocd`, `grafana`, `backstage`
@@ -1051,7 +1214,7 @@ same stanza on every one of the three surfaces above, which is the point.
 ### 7.2b — The EKS production path (build this, not just document it)
 
 7.2 shows the raw mechanism. **This is the one the platform actually targets**, so it gets
-real Terraform in `foundation/aws/`, validated by `terraform plan` per the Target
+real Terraform in `1-cloud-foundation/aws/`, validated by `terraform plan` per the Target
 Environment section — not a diagram.
 
 **On EKS there are two authentication paths, and the IAM one is the default:**
@@ -1093,7 +1256,7 @@ Identity Center, chosen so the whole loop runs locally with no corporate tenant.
 imply you would deploy Keycloak at an AWS shop that already has Identity Center. Naming
 the substitution is the mark of someone who has seen the real thing.
 
-**Deliverable:** real Terraform in `foundation/aws/access/` — an `aws_eks_access_entry` and
+**Deliverable:** real Terraform in `1-cloud-foundation/aws/cluster-access/` — an `aws_eks_access_entry` and
 `aws_eks_access_policy_association` per team group, plus the Identity Center permission-set
 assignment — reaching `terraform plan` cleanly against a real account. Not a diagram. The
 plan output *is* the evidence that the ARNs, policy documents and group mappings are
@@ -1129,7 +1292,7 @@ what Phase 10.1 needs.
 implementation is selected per environment.
 
 ```
-foundation/aws/identity/
+1-cloud-foundation/aws/workload-identity/
 ├── pod-identity.tf      # EKS target — PodIdentityAssociation per (cluster, ns, SA)
 └── irsa.tf              # fallback — OIDC provider + per-cluster trust policy
 ```
@@ -1398,8 +1561,8 @@ do, because "what would you have to change?" is the actual interview question:
 |---|---|---|
 | Helm chart, ArgoCD, Kyverno, Prometheus/Loki/Tempo, Argo Rollouts, ESO | ✅ | Plain Kubernetes — runs on any conformant cluster |
 | `catalog.yaml` capability *names* (`postgres`, `s3`) | ✅ | Already provider-neutral — this is the abstraction working |
-| Terraform modules under `infrastructure/aws/` | ❌ | Provider-specific by definition — but 3.8 already nested them by provider for exactly this |
-| The cluster itself — `foundation/aws/eks/` | ❌ | EKS, AKS and GKE differ in node groups, networking and identity. 3.8 nested `foundation/` by provider for this reason; the *relative size* of `foundation/<cloud>/` versus `cluster-services/` is the honest measure of coupling |
+| Terraform modules under `3-capability-modules/aws/` | ❌ | Provider-specific by definition — but 3.8 already nested them by provider for exactly this |
+| The cluster itself — `1-cloud-foundation/aws/cluster/` | ❌ | EKS, AKS and GKE differ in node groups, networking and identity. 3.8 nested `1-cloud-foundation/` by provider for this reason; the *relative size* of `1-cloud-foundation/<cloud>/` versus `2-cluster-services/` is the honest measure of coupling |
 | **ACK** | ❌ **hard blocker** | AWS-only. There is no ACK for Azure or STACKIT |
 | IRSA / Pod Identity | ❌ | Azure Workload Identity and GCP Workload Identity Federation are the analogues; the *concept* ports, the config does not |
 | Ingress / LoadBalancer, StorageClass | ⚠️ | Traefik ports cleanly; the LB and CSI drivers underneath do not |
@@ -1415,7 +1578,7 @@ reader should not have to rediscover it.
 Do **not** port the platform. Port `postgres`, on one second provider, and stop.
 
 ```
-4-platform-engineering/infrastructure/
+4-platform-engineering/3-capability-modules/
 ├── aws/postgres/       # exists
 └── stackit/postgres/   # add this one
 ```
@@ -1462,7 +1625,7 @@ and it should not appear in your skills list as though it were demanded.
 section names EKS primary with AKS and GKE secondary. That makes **Azure the second
 provider and STACKIT an optional third**, reversing the emphasis above:
 
-1. **`azure/postgres` + `foundation/azure/aks/`** — 29.3% mentioned, 11% Req, and an
+1. **`azure/postgres` + `1-cloud-foundation/azure/cluster/`** — 29.3% mentioned, 11% Req, and an
    explicitly stated target. Azure Database for PostgreSQL Flexible Server maps closely
    enough to RDS that the variable contract survives, and **Azure Workload Identity** is
    the direct analogue of Pod Identity, which makes 7.2c's seam concrete rather than
@@ -1479,9 +1642,9 @@ survives Azure it will survive anything.
 ### 10.4 — Write down the ceiling
 
 Add a README section — three paragraphs, no more — titled *"What 'cloud-agnostic' means
-here, and what it does not."* State that `cluster-services/` is genuinely portable, that
+here, and what it does not."* State that `2-cluster-services/` is genuinely portable, that
 one capability is proven on a second provider, that ACK is AWS-only and would have to
-become Crossplane, that `foundation/` is provider-specific by nature, and that workload
+become Crossplane, that `1-cloud-foundation/` is provider-specific by nature, and that workload
 identity has an **analogue rather than an equivalent** on each cloud — EKS Pod Identity,
 Azure Workload Identity, GCP Workload Identity Federation solve one problem three
 incompatible ways.
@@ -1524,7 +1687,7 @@ Read `.agents/AGENTS.md` in full before starting. The ones this plan touches:
 7. **`charts/service/` is never scaffolded.** It has no `destinations` key. CI renders it
    and only the output reaches a tenant repo. Do not add a `destinations` entry for it.
 
-8. **Every namespaced resource in `cluster-services/` sets `metadata.namespace`.**
+8. **Every namespaced resource in `2-cluster-services/` sets `metadata.namespace`.**
    `bootstrap.yaml` recurses the directory with `destination.namespace: argocd`, so an
    omission is silently created in `argocd` and ArgoCD still reports Synced/Healthy. Only
    `Application` and `ApplicationSet` objects may rely on the default. (Phase 3.7a.)
@@ -1567,15 +1730,15 @@ kubectl describe resourcequota -n team-a
 kubectl get networkpolicy -n team-a          # expect 5 named policies
 ```
 
-Terraform under `foundation/` and `infrastructure/`, per the Target Environment tiers:
+Terraform under `1-cloud-foundation/` and `3-capability-modules/`, per the Target Environment tiers:
 
 ```bash
-terraform -chdir=4-platform-engineering/foundation/aws/eks init -backend=false
-terraform -chdir=4-platform-engineering/foundation/aws/eks validate
+terraform -chdir=4-platform-engineering/1-cloud-foundation/aws/cluster init -backend=false
+terraform -chdir=4-platform-engineering/1-cloud-foundation/aws/cluster validate
 tflint --recursive 4-platform-engineering/
 
 # Tier 2 — the one that actually proves something. Creates nothing.
-terraform -chdir=4-platform-engineering/foundation/aws/eks plan
+terraform -chdir=4-platform-engineering/1-cloud-foundation/aws/cluster plan
 ```
 
 **A green `kubectl`/`helm` run on k3d does not mean the platform works.** Re-read the

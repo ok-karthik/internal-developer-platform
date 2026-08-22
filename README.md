@@ -305,6 +305,7 @@ This will remove the cluster (via K3d/Kind/Minikube) and clean up all resources.
 
 To mature this architecture for production environments, the following capabilities are roadmapped:
 
+- [ ] **Scaffolder Identity (authn/authz):** The CLI and REST API currently trust `--team` as a plain string — anyone who can run the binary can scaffold into any team's directory, with the pull request and `CODEOWNERS` acting as the real gate. Roadmapped: OIDC device-authorisation flow against the platform IdP for the CLI, JWKS bearer-token validation for the API, and one authorisation rule — *the caller's group claims must contain the team being scaffolded into*. Deliberately the **same** identity that drives Kubernetes RBAC and the Argo CD `policy.csv`, so one group membership governs every plane rather than a second, parallel group system. Design notes in [.agents/AGENTS.md](.agents/AGENTS.md#-roadmap--scaffolder-identity-not-planned-work-direction-only).
 - [ ] **Backstage Integration:** Migrating the python CLI generator into Backstage Software Templates for a unified GUI developer portal.
 - [ ] **AIOps / Observability:** Full instrumentation using OpenTelemetry to map service dependencies and reduce MTTR via correlation.
 - [ ] **FinOps Automation:** Operator-driven cost controls to scale non-production idle workloads to zero using KEDA.

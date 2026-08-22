@@ -60,6 +60,44 @@ platform-engineering-idp-gitops-reference-architecture/
 
 ---
 
+## 🗺️ Render Map — what each catalog directory produces
+
+Answers "what does this directory turn into?" without opening `catalog.yaml`.
+`catalog.yaml`'s `destinations:` block remains the **authority**; this table is the
+readable projection of it. If they disagree, `catalog.yaml` is right and this table is
+stale — fix the table.
+
+Every path below is relative to `1-platform-catalog/` on the left and
+`3-tenant-workloads/` on the right.
+
+| You edit this | It renders to | Rendered by | How often |
+|---|---|---|---|
+| `blueprints/team/apps/` | `{team}/apps/` | `onboard-team` | once per team |
+| `blueprints/team/infra/` | `{team}/infra/` | `onboard-team` | once per team |
+| `blueprints/team/gitops/` | `{team}/gitops/` | `onboard-team` | once per team |
+| `building-blocks/runtimes/<lang>/` | `{team}/apps/{app}/` | `add-service` | once per service — **one** `<lang>` picked by `--runtime` / golden path |
+| `building-blocks/service-meta/` | `{team}/apps/{app}/` | `add-service` | once per service, always |
+| `building-blocks/capabilities/<cap>.tf.tmpl` | `{team}/infra/apps/{app}/{env}/` | `add-service` | one file per requested capability with `provisioner: terraform` |
+| `building-blocks/delivery/release/` | `{team}/gitops/apps/{app}/{env}/` | `add-service` | once per service per env |
+| `charts/service/` | **nothing** — never scaffolded | CI, via `helm template` | output only, into `{team}/gitops/apps/{app}/{env}/manifests/` |
+
+Two gaps this table makes visible, both real and both tracked in `PLAN.md`:
+
+- **`building-blocks/capabilities-ack` is a destinations key with no directory.** ACK
+  `.yaml.tmpl` templates share `building-blocks/capabilities/` with the Terraform
+  `.tf.tmpl` ones, so routing them to `gitops/` instead of `infra/` would require the
+  renderer to dispatch on file extension. That dispatch is unbuilt in both engines.
+- **`blueprints/` vs `building-blocks/` encode nothing.** The distinction that matters is
+  *once per team* vs *once per service*, which is exactly what the two rightmost columns
+  above have to supply. PLAN.md §3.9 proposes `per-team/` and `per-service/` with the
+  output tree mirrored beneath each — which also removes the phantom key above by making
+  the directory the router. **It is blocked**: these names are hardcoded in
+  `golang/internal/catalog/catalog.go:43-49,127`, `golang/internal/templater/render.go:181-243`,
+  `python/cli.py:37-100` and `python/api.py:75`, so it cannot ship while
+  `2-idp-scaffolder/golang/` is out of scope.
+
+---
+
 ## 🧭 Platform Model & Key Decisions
 
 The scaffolder templates are organised around **platform lifecycle verbs**, not file type. Each verb maps to a `1-platform-catalog/` domain:
@@ -206,3 +244,66 @@ diff -r /tmp/go-out/3-tenant-workloads/<team> 3-tenant-workloads/<team>
 11. **Plan-then-Write is the intended architecture, NOT the current one.** Today both engines render and write file-by-file. Go buffers each template in memory before writing it, so a *single* template failure leaves no truncated file — but a failure on file 5 of 10 still leaves four on disk. `--dry-run` is declared in `root.go` and **never read**, so passing it performs a full silent write. Neither engine has an in-memory `Plan` map yet. Getting there (`plan_service(cfg) -> dict[str, bytes]`, then `write_plan`) is Phase 3 in the Go TODO and Phase 2 in the Python TODO, and it is the prerequisite for an honest `--dry-run`, the API's plan endpoint, and in-memory golden tests. Do not describe this as done.
 13. **Runtimes are declared, and an undeclared directory is deliberately invisible.** `catalog.yaml` carries a `runtimes:` map alongside `capabilities:`, and `validate()` checks it in both useful directions: a golden path may not name a runtime that is not declared, and a declared runtime must have a directory under `building-blocks/runtimes/`. `Resolve` applies the same check to an explicit `--runtime`, which never passes through golden-path validation. What is **not** checked — on purpose — is the reverse: a directory that exists but is not listed in `runtimes:` is simply not offered, which is what lets a half-built runtime sit in the tree without being scaffoldable. "Supported" is a platform decision, not a consequence of what happens to be on disk. `TestLoadCatalog_UndeclaredRuntimeDirectoryIsIgnored` guards this; do not "fix" it by adding a reverse check or by auto-discovering directories into `c.Runtimes`. Note the asymmetry with capabilities is principled rather than accidental: a capability entry carries `module` + `version` that the template cannot get from a directory name (the module is remote and independently versioned), whereas a runtime directory is local and self-contained. When runtimes acquire real metadata — base image, default port, deprecation status — the natural next step is a co-located `runtime.yaml` per directory (the Backstage model), not more central YAML.
 14. **Generated output is not yet idempotent.** Both engines use truncating writes, so re-running `add-service` overwrites a team's edits to a scaffolded file. Skip-if-exists plus `--force` is planned alongside Plan-then-Write. Copier used to provide `_skip_if_exists` on the Python side; that guarantee was given up when Copier was dropped (Copier renders *to a directory* and cannot return rendered bytes, which is incompatible with Plan-then-Write).
+
+---
+
+## 🔭 Roadmap — Scaffolder identity (not planned work; direction only)
+
+Nothing here is scheduled. It is recorded so that the *shape* of the answer is decided
+before someone reaches for the easy wrong version of it.
+
+### The gap
+
+**The scaffolder has no notion of who is running it.** `--team` is a string, and both
+engines trust it. Anyone who can run the binary, or reach the FastAPI endpoint in
+`python/api.py`, can scaffold into any team's directory. The repo's own multi-tenancy
+story stops at the cluster boundary and does not extend to the tool that *creates*
+tenants — which is a gap worth naming out loud, because a reviewer will spot it.
+
+Today that is defensible: the scaffolder writes to a local working tree, and the real
+gate is the pull request plus `CODEOWNERS`. **Git review is the authorisation plane.**
+That stops being true the moment the API is hosted for more than one person, or a portal
+(Backstage) calls it on a user's behalf — at that point the caller's identity is the only
+thing standing between team-a and team-b's directory.
+
+### The shape of the fix
+
+The platform will already have an identity provider — Keycloak, per PLAN.md Phase 7 —
+issuing group claims that drive Kubernetes RBAC, the ArgoCD `policy.csv`, and
+`AppProject` scope. **The scaffolder should be a consumer of that same identity, not a
+second one.** Two group systems is the failure mode to avoid; the value of the design is
+that one group membership governs every plane.
+
+- **CLI:** OIDC device-authorisation flow (`oauth2 device_code`) against Keycloak. It is
+  the right grant type for a terminal — no browser redirect URI, no client secret on
+  disk, works over SSH. Cache the token under `~/.config/idp/`, honour `IDP_TOKEN` for
+  CI. This is the same flow `argocd login --sso` and `gh auth login` use, which makes it
+  a familiar thing to explain rather than a bespoke one.
+- **API:** validate the bearer JWT against Keycloak's JWKS endpoint. Do not invent
+  sessions.
+- **Authorisation, both:** one rule — *the caller's groups must contain the team they are
+  scaffolding into.* `--team payments` succeeds only for a member of `payments`. Platform
+  admins get a group that bypasses it, for `onboard-team`, which by definition cannot be
+  authorised by membership in a team that does not exist yet.
+
+### Where it belongs in the code
+
+The CLI is a thin adapter over `internal/catalog` and `internal/templater` — commands in
+`cmd/cli/` are ~30–50 lines and hold no logic. That structure is what makes this cheap:
+**authentication is a Cobra `PersistentPreRunE` and an `internal/auth` package; it does
+not touch the renderer at all.** Authorisation is one comparison between the token's
+groups claim and `cfg.Team`, applied at the same boundary. Neither concern belongs
+inside `render.go`, and pushing them there would undo the separation that the TODO.md
+refactor phases were about.
+
+Ordering: this comes **after** Plan-then-Write (Go TODO Phase 3 / Python TODO Phase 2).
+Adding an auth layer on top of an engine that still does partial writes on failure fixes
+the less important problem first — an unauthorised caller is a hypothetical today, a
+half-written tenant directory is reproducible right now.
+
+### Non-goals
+
+Do not build a user database, a permissions UI, or per-capability entitlements
+("team-a may request postgres but not s3"). Entitlement belongs in `catalog.yaml` as
+data if it is ever wanted, in the same spirit as `destinations:` and `provisioner:` — not
+in code, and not in a second policy engine.

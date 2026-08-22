@@ -183,7 +183,7 @@ grep -c "hand edit" /tmp/real/3-tenant-workloads/payments/apps/checkout/main.go 
 
 ---
 
-## Phase 4 — Pin the catalog version
+## ~~Phase 4 — Pin the catalog version~~ ✅ DONE
 
 **Where:** `root.go:58`, `root.go:112`.
 
@@ -725,7 +725,7 @@ strictly better UX for a scaffolder invoked with `--capabilities a,b,c`; why
 `--capabilities`, not `strings.Contains(err.Error(), "unknown capability")`. The second
 form is why error strings become frozen APIs by accident.
 
-### 7b. `context.Context` through every I/O path
+### ~~7b. `context.Context` through every I/O path~~ ✅ DONE
 
 **Current state: zero occurrences of `context` in the module.** Verified —
 `grep -rn context --include='*.go' .` returns nothing.
