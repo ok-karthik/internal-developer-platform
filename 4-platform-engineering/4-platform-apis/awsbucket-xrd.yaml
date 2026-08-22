@@ -1,0 +1,56 @@
+# Phase 9: the custom API this platform's second composition path offers,
+# modernized to Crossplane v2 (apiextensions.crossplane.io/v2, not v1).
+#
+# WHY v2, NOT THE ARCHIVED v1 SHAPE: v1 XRDs are cluster-scoped by default
+# and need a separate namespaced "Claim" kind (z_claim.yaml in the archived
+# version) as a proxy, because the XR itself cannot live in a tenant's
+# namespace. v2 XRDs default `scope: Namespaced` — the XR itself is
+# namespaced, so it can be created directly inside team-a's namespace with
+# no claim indirection, matching this platform's tenancy model where a
+# resource's namespace IS its ownership boundary (same reasoning as ACK's
+# single-CR-per-namespace shape, and Phase 7.7's per-team SecretStore over
+# a cluster-scoped ClusterSecretStore).
+#
+# WHY THIS EXISTS ALONGSIDE ACK'S S3 SUPPORT, NOT INSTEAD OF IT: ACK's
+# Bucket CR (1-platform-catalog/building-blocks/capabilities/s3.yaml.tmpl)
+# is a flat one-CR-to-one-resource mapping. This XRD demonstrates the thing
+# ACK cannot do — one CR (AWSBucket) fanning out into TWO composed managed
+# resources (a Bucket and its encryption config) via the Composition below.
+# That is the actual distinction between "provider layer" (ACK) and
+# "composition layer" (Crossplane/kro) that PLAN.md Phase 9 asks a reader to
+# hold — this repo can now show both, not just describe them.
+apiVersion: apiextensions.crossplane.io/v2
+kind: CompositeResourceDefinition
+metadata:
+  name: xawsbuckets.platform.io
+spec:
+  scope: Namespaced
+  group: platform.io
+  names:
+    kind: XAWSBucket
+    plural: xawsbuckets
+  versions:
+    - name: v1alpha1
+      served: true
+      referenceable: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              properties:
+                parameters:
+                  type: object
+                  properties:
+                    bucketName:
+                      type: string
+                    region:
+                      type: string
+                    isEncrypted:
+                      type: boolean
+                      default: true
+                  required:
+                    - bucketName
+                    - region
+                    - isEncrypted
