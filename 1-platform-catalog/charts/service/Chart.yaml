@@ -17,5 +17,5 @@ type: application
 #              manifest carries it in the helm.sh/chart label, so you can see which
 #              services are still on an old chart.
 # appVersion — a fallback image tag only; real services pin image.tag in values.
-version: 0.1.0
+version: 2.1.0
 appVersion: "1.0.0"
