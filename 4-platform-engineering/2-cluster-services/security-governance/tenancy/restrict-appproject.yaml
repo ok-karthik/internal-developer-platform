@@ -1,0 +1,24 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: restrict-appproject
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+spec:
+  validationFailureAction: Enforce
+  background: true
+  rules:
+    - name: restrict-appproject
+      match:
+        any:
+        - resources:
+            kinds:
+              - AppProject
+      validate:
+        message: "AppProject destinations namespace must match the team's namespace, and sourceRepos must be the allowed monorepo URL."
+        pattern:
+          spec:
+            sourceRepos:
+              - "https://github.com/ok-karthik/internal-developer-platform.git"
+            destinations:
+              - namespace: "{{request.object.metadata.name}}"

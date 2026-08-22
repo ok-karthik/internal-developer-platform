@@ -1,0 +1,29 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: verify-images
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+    policies.kyverno.io/title: Verify Image Signatures
+    policies.kyverno.io/subject: Pod
+spec:
+  validationFailureAction: Audit
+  background: false
+  webhookTimeoutSeconds: 30
+  failurePolicy: Fail
+  rules:
+    - name: check-image-keyless
+      match:
+        any:
+        - resources:
+            kinds:
+              - Pod
+      verifyImages:
+      - imageReferences:
+        - "ghcr.io/ok-karthik/*"
+        mutateDigest: true
+        attestors:
+        - entries:
+          - keyless:
+              subject: "https://github.com/ok-karthik/internal-developer-platform/.github/workflows/tenant-workloads-ci-cd.yaml@refs/heads/main"
+              issuer: "https://token.actions.githubusercontent.com"

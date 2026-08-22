@@ -4,7 +4,7 @@ metadata:
   name: tenant-systems-bootstrap
   namespace: argocd
   annotations:
-    description: "Cluster-wide bootstrap: Discovers per-team/per-system AppSets and applies them."
+    description: "Cluster-wide bootstrap: Discovers per-tenant/per-system AppSets and applies them."
     argocd.argoproj.io/sync-wave: "3"
 spec:
   generators:

@@ -1,0 +1,22 @@
+# CODEOWNERS for <org>/[[ .TenantName ]]-gitops
+#
+# The second of two repositories (the machine repo). Kept separate from the
+# apps+infra source repo because ArgoCD reads this repo, and CI bots write
+# rendered manifests to it. It is the one repo where automation holds credentials.
+#
+# In this monorepo its root is 3-tenant-workloads/[[ .TenantName ]]/gitops/; when the
+# tree is split out (git filter-repo) it becomes the real repository root unchanged.
+#
+# Last matching pattern wins, so the general rule goes first.
+
+# The team owns its own workloads: per-env values.yaml and CI-rendered manifests.
+[[- range .Owners ]]
+*                                       @acme-corp/[[ . ]]
+[[- end ]]
+
+# The tenancy boundary and ArgoCD wiring are platform-owned. A team cannot widen its
+# own AppProject, relax its NetworkPolicy, or repoint its ApplicationSet.
+/platform/                              @acme-corp/platform-engineering
+
+# Kyverno exceptions weaken a cluster-wide guardrail, so security signs those off.
+/platform/team/policy-exceptions.yaml   @acme-corp/security

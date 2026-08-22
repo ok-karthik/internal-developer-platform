@@ -68,3 +68,713 @@ composing multiple AWS resources from one custom object, which ACK alone can't d
 with the exact same input/output contract as `aws/postgres`, proving that switching
 providers is a one-line catalog change. `catalog.yaml` still points at AWS — this proves
 the seam works, it doesn't move the platform off AWS.
+
+---
+
+# Next — specified, not yet executed
+
+Everything above shipped. Everything below is a spec written to be executed by a fresh
+agent. It is more verbose than the changelog above on purpose: a one-line summary is
+enough to *record* a decision, and not enough to *perform* one.
+
+---
+
+## Phase 11a — Prerequisite: put the scaffolder under CI
+
+**Do this before Phase 11.** It is a single workflow file and it is the safety net that
+Phases 11 and 13 both assume already exists.
+
+**What is missing.** `.github/workflows/` holds exactly two workflows — `Platform Policy
+Gate` and `Tenant Workloads - CI/CD Pipeline`. **Neither touches `2-idp-scaffolder/`.**
+Concretely:
+
+- `go test` never runs in CI, though `internal/catalog/catalog_test.go`,
+  `internal/templater/resolve_test.go` and `render_test.go` exist and pass locally.
+- `golang/.golangci.yml` is committed and **nothing executes it**.
+- The Python engine has **zero tests** and declares no test dependency in
+  `pyproject.toml`.
+- The two-engine acceptance test is documented in `.agents/AGENTS.md` as a manual
+  procedure and is never run automatically.
+
+**Why it blocks Phase 11.** The repository's headline claim is *one catalog, two engines,
+identical output* — and only one engine is tested at all. Worse, Phase 11 step 5
+**deliberately breaks the coincidence** that currently makes the two engines agree: Python
+hardcodes `TENANT_WORKLOADS_DIR / team_name / blueprint_kind` while Go resolves through
+`destinations:`. If the Python rewrite is subtly wrong, the failure is silent divergence in
+generated output — the single defect this repo is least able to detect today, handed to an
+agent that will report success because every command it ran exited zero.
+
+### The workflow
+
+New `.github/workflows/scaffolder-ci.yaml`, on `pull_request` and `push` to `main`, with
+`paths: ['2-idp-scaffolder/**', '1-platform-catalog/**']`. Four jobs:
+
+1. **`go`** — `go vet ./...`, `go test ./... -race`, `golangci-lint run` (the config is
+   already there).
+2. **`python`** — `ruff check`, then `pytest`. Add `pytest` to `pyproject.toml` first.
+3. **`acceptance`** — the job that actually matters. Render the same tenant with both
+   engines into two temp directories and diff them:
+
+   ```bash
+   go run . onboard-team --catalog-root ../../1-platform-catalog --team-name ci-probe
+   uv run python main.py onboard-team --team-name ci-probe
+   diff -r /tmp/go-out/3-tenant-workloads/ci-probe /tmp/py-out/3-tenant-workloads/ci-probe
+   ```
+
+   Follow `AGENTS.md § "The two-engine acceptance test"` for the exact invocation — it
+   already specifies the output roots. Do the same for `add-service` across at least one
+   `terraform`-provisioned and one `ack`-provisioned capability, so the Phase 3.9 dispatch
+   is covered on both paths.
+
+4. **`catalog`** — the destinations-integrity check from Phase 11's Verify block, so a
+   destination key pointing at a non-existent directory fails at PR time rather than
+   mid-render.
+
+### Minimum Python tests
+
+Not parity with Go — just enough that `pytest` is not an empty run. Port the two checks
+that already exist on the Go side and guard real invariants:
+
+- a golden path naming an undeclared runtime is rejected at catalog load
+- a runtime directory that exists but is **not** declared in `runtimes:` stays invisible
+  (this is deliberate behaviour per AGENTS.md decision 13, and the kind of thing a future
+  agent will "fix" unless a test says otherwise)
+
+**Verify:** open a throwaway PR that changes one Python destination path and confirm the
+`acceptance` job fails. A gate never seen to fail is not known to work — same rule as
+Phase 12.
+
+---
+
+## Phase 11 — Collapse the tenant split from three repos to two
+
+> **Scope note.** This phase edits `2-idp-scaffolder/golang/`. That tree is normally
+> off-limits; it is authorised for *this change only* — two one-line edits in the
+> destination wiring. Do not refactor anything else while you are in there.
+
+**The decision.** Each of `team-a/{apps,infra,gitops}` is currently a would-be repo root,
+so a team costs three repos — sixty at twenty teams. Collapse to **two**: `apps` + `infra`
+become one repo, `gitops` stays its own. Full rationale, the trigger for ever going back
+to three, and the extraction commands are **Decision 15 in `.agents/AGENTS.md`** — read it
+before touching anything. In one line: *split on who or what writes a directory, not on
+what technology is in it.*
+
+**The directory tree does not change.** `3-tenant-workloads/team-a/` keeps all three
+directories. What moves is `CODEOWNERS`, because GitHub honours it only at a repository
+root — and the merged repo's root maps to `{team}/`, not `{team}/apps/`.
+
+### Steps
+
+1. **Create `1-platform-catalog/per-team/root/CODEOWNERS.tmpl`** covering both halves of
+   the merged repo. Merge the two existing templates; last matching pattern wins, so the
+   general rule goes first:
+
+   ```
+   # CODEOWNERS for <org>/[[ .TeamName ]]
+   #
+   # Root of the merged application + infrastructure repository. In this monorepo that
+   # root is 3-tenant-workloads/[[ .TeamName ]]/; it becomes the real repository root
+   # when the tree is extracted (AGENTS.md Decision 15 has the filter-repo command).
+   #
+   # apps/ and infra/ live together because a service and the infrastructure it claims
+   # are one unit of change: "this service now needs a bucket" is one PR, one review,
+   # one revert. Ownership is separated by path, not by repository.
+
+   *                  @acme-corp/[[ .TeamName ]]
+
+   # Provider config, backend state wiring and the team IAM role decide what the team's
+   # Terraform is *able* to do, so they stay platform-owned.
+   /infra/platform/   @acme-corp/platform-engineering
+   ```
+
+2. **`catalog.yaml`** — add the new key, delete the now-empty one:
+   ```yaml
+   per-team/root:   "{team}/"        # merged apps+infra repo root (CODEOWNERS)
+   per-team/infra:  "{team}/infra/"
+   per-team/gitops: "{team}/gitops/"
+   ```
+   `per-team/apps` goes away entirely — `CODEOWNERS.tmpl` was its only file and it has
+   moved up a level.
+
+3. **`golang/internal/catalog/catalog.go`** — in `requiredDestinations`, replace
+   `"per-team/apps"` with `"per-team/root"`.
+
+4. **`golang/internal/templater/render.go`** — in `RenderTenantFoundation`'s
+   `teamBlueprints`, replace the `per-team/apps` entry with:
+   ```go
+   {src: "per-team/root", destKey: "per-team/root"}, // CODEOWNERS for the merged apps+infra repo
+   ```
+
+5. **`python/cli.py` — fix a real engine drift while you are here.**
+   `onboard_team_workload` loops `for blueprint_kind in ["apps","infra","gitops"]` and
+   builds `dst_dir = TENANT_WORKLOADS_DIR / team_name / blueprint_kind`. It **never reads
+   the `destinations:` map**, while the Go engine resolves every destination through it.
+   Both produce identical paths today by coincidence, which is why the two-engine
+   acceptance test has never caught it — and it is precisely the drift that test exists
+   to catch. This phase breaks the coincidence, because `per-team/root` maps to `{team}/`
+   and no longer matches `team_name / blueprint_kind`.
+
+   Do not add a special case. Reshape the loop to resolve through `destinations`, the way
+   the service path already does:
+   ```python
+   for dest_key in ["per-team/root", "per-team/infra", "per-team/gitops"]:
+       src_dir = catalog_dir / dest_key
+       dst_dir = render.TENANT_WORKLOADS_DIR / cat.destinations[dest_key].format(team=team_name)
+   ```
+   Confirm the exact accessor against `catalog.py`'s pydantic model before writing it.
+
+6. **Delete** `per-team/apps/CODEOWNERS.tmpl` and `per-team/infra/CODEOWNERS.tmpl`, then
+   `rmdir 1-platform-catalog/per-team/apps`.
+
+7. **Re-render `team-a`.** Delete the two stale rendered files
+   (`3-tenant-workloads/team-a/apps/CODEOWNERS`, `.../infra/CODEOWNERS`); a new
+   `3-tenant-workloads/team-a/CODEOWNERS` should appear. `team-a/gitops/CODEOWNERS` is
+   untouched.
+
+8. **Update the header comment in `per-team/gitops/CODEOWNERS.tmpl`** — it describes a
+   three-repo world. It should say this is the *second of two* repos and why it is
+   separate: ArgoCD reads it and CI writes to it, so it is the one repo where automation
+   holds credentials.
+
+9. **Docs:** the directory tree and the Render Map in `.agents/AGENTS.md`, plus any README
+   passage describing three tenant repos.
+
+### Verify
+
+```bash
+# 1. Both engines still agree — the invariant step 5 protects.
+#    Follow AGENTS.md § "The two-engine acceptance test" verbatim.
+
+# 2. CODEOWNERS lands at the merged repo root, not inside apps/.
+test -f 3-tenant-workloads/team-a/CODEOWNERS
+test ! -f 3-tenant-workloads/team-a/apps/CODEOWNERS
+test ! -f 3-tenant-workloads/team-a/infra/CODEOWNERS
+test -f 3-tenant-workloads/team-a/gitops/CODEOWNERS
+
+# 3. No destination key points at a directory that does not exist.
+python3 -c "
+import yaml, pathlib
+c = yaml.safe_load(open('1-platform-catalog/catalog.yaml'))
+missing = [k for k in c['destinations'] if not pathlib.Path('1-platform-catalog', k).is_dir()]
+assert not missing, missing
+print('destinations OK')"
+```
+
+**Do not run `git filter-repo`.** Extraction is a one-time future operation; the command
+lives in AGENTS.md so the design is verifiable, not so it is performed now.
+
+---
+
+## Phase 12 — Enforce the tenancy boundary in CI, not in review
+
+**The problem.** `team-a/gitops/CODEOWNERS` claims *"a team cannot widen its own
+AppProject, relax its NetworkPolicy, or repoint its ApplicationSet."* In this monorepo
+that claim enforces **nothing**: GitHub reads `CODEOWNERS` only from a repository root,
+`.github/`, or `docs/`, and `3-tenant-workloads/team-a/gitops/` is none of those. The
+control switches on only after the extraction in Phase 11 — which has not happened and
+may never happen.
+
+**Do not fix this with a root `.github/CODEOWNERS`.** Its owners (`@acme-corp/team-a`) do
+not exist in this GitHub org, so GitHub flags them as unresolvable and the file enforces
+nothing either. A broken control that *looks* like a control is worse than an honest gap.
+
+**Enforce the invariant instead of the review.** A CI gate on the outcome needs no GitHub
+teams, no branch protection and no repository split — and it keeps working unchanged after
+Phase 11's extraction, because it runs against paths.
+
+### (a) Run the policies you already have against the tenant tree
+
+Kyverno is already installed with two `ClusterPolicy` resources in
+`4-platform-engineering/2-cluster-services/security-governance/`
+(`disallow-default-namespace.yaml`, `require-encrypted-buckets.yaml`). The same policies
+run offline against files — this is the shift-left of a control you already own:
+
+```bash
+kyverno apply 4-platform-engineering/2-cluster-services/security-governance/ \
+  --resource 3-tenant-workloads/ --policy-report
+```
+
+Point `--resource` at Kubernetes YAML **only**. The tenant tree also holds `.tf` files and
+`values.yaml`, which are not Kubernetes resources; feeding them to `kyverno apply`
+produces parse noise, and a noisy gate is an ignored gate. Glob
+`3-tenant-workloads/*/gitops/` and exclude `values.yaml`.
+
+### (b) Write the policies that actually express the tenancy boundary
+
+(a) is the quick win, but neither existing policy asserts anything about tenancy. These
+are new `ClusterPolicy` files and they are the real deliverable — each turns a sentence
+from the README into a check:
+
+| Invariant | Rule |
+|---|---|
+| A team cannot widen its AppProject | `AppProject.spec.destinations[].namespace` must equal the team's namespace; `sourceRepos` must stay under the team's own path |
+| Default-deny stays default-deny | every team `NetworkPolicy` carries `policyTypes: [Ingress, Egress]` with an empty default rule |
+| Pod Security Admission is not downgraded | `Namespace` must carry `pod-security.kubernetes.io/enforce: restricted` |
+| ResourceQuota is not removed | a `ResourceQuota` must exist in each team namespace |
+| An ApplicationSet is not repointed | `ApplicationSet.spec.generators[].git.directories` must stay under the team's own path |
+
+Write them as `validate` rules with `failureAction: Enforce`, in
+`2-cluster-services/security-governance/tenancy/`. The same files then serve both the
+in-cluster admission path and the CI gate — **one definition, two enforcement points**,
+which is the entire argument for policy-as-code and the thing worth being able to say out
+loud in an interview.
+
+### (c) Wire it as a workflow
+
+New `.github/workflows/platform-policy-gate.yaml`, triggered on `pull_request` with
+`paths: ['3-tenant-workloads/**']`. Install the Kyverno CLI, run (a) and (b), fail on any
+policy failure. Keep it **separate** from `tenant-workloads-ci-cd.yaml`: that one runs on
+`push` to `main` and writes rendered manifests back, whereas a gate has to run on the pull
+request, before merge, or it is not a gate.
+
+### (d) While you are in there — narrow the CI trigger
+
+`tenant-workloads-ci-cd.yaml` triggers on `3-tenant-workloads/**`, so editing
+`infra/apps/app-a/dev/postgres.tf` fires an image build and a manifest render. That is the
+"a monorepo triggers everything" complaint that repository splits are usually reached for
+— sitting unfixed in the repo used as evidence against needing the split. Narrow to:
+
+```yaml
+paths:
+  - '3-tenant-workloads/*/apps/**'
+  - '3-tenant-workloads/*/gitops/apps/**/values.yaml'
+  - '1-platform-catalog/charts/service/**'
+  - '.github/workflows/tenant-workloads-ci-cd.yaml'
+```
+
+### Verify
+
+Break something deliberately and watch the gate catch it — **a gate never seen to fail is
+not known to work**:
+
+```bash
+# Widen the AppProject, confirm a non-zero exit naming the offending resource, then revert.
+kyverno apply 4-platform-engineering/2-cluster-services/security-governance/tenancy/ \
+  --resource 3-tenant-workloads/team-a/gitops/platform/ --policy-report
+```
+
+Put both the passing and the failing transcript in the PR description. That is the
+artefact worth showing: a green build demonstrates only that nothing was tested.
+
+---
+
+## Phase 13 — `team` → `tenant`, but only where the concept is isolation
+
+> **Sequencing.** Land Phase 11 first — both phases edit the same `CODEOWNERS`
+> templates and the same `requiredDestinations` list, and doing them in one pass avoids
+> two rounds of identical edits. Land this before Phase 14, or the recording shows flags
+> that no longer exist.
+
+**Why.** The tree is already incoherent: `3-tenant-workloads/team-a/` says *tenant* at one
+level and *team* at the next. And the current model quietly assumes one team == one
+isolation boundary, which breaks the moment two squads in the same business unit share a
+namespace, an AppProject and a quota.
+
+**This supersedes Decision 9 in `.agents/AGENTS.md`**, which argued the opposite ("teams
+are the customers, so use `team`"). That decision was half right — it correctly saw the
+two words name different things, then resolved the tension by picking one word for both
+jobs. Rewrite it; do not leave both in the file.
+
+### The rule
+
+`tenant` and `team` are **not synonyms**, and a global find-replace is the wrong change.
+
+| Concept | Word | Why |
+|---|---|---|
+| The isolation unit — one Namespace, one AppProject, one ResourceQuota, one NetworkPolicy, one repo pair | **tenant** | This is what the platform isolates. It may contain more than one team. |
+| The human group — a GitHub team in `CODEOWNERS`, an IdP group in an RBAC subject, `spec.owner` in `catalog-info.yaml` | **team** | `@acme-corp/team-a` *is* a GitHub team. Calling it a tenant would be the same error in the other direction. |
+
+### The segregation axis is the tenant, not the platform instance
+
+A platform instance — one hub cluster, one ArgoCD, one catalog version, e.g. `eu` and `us`,
+or `staging` and `prod` — is a **deployment target, not an identity**. It must not become a
+directory level.
+
+**Why not.** A tenant almost always exists on more than one instance: `payments` runs on
+both the EU and the US platform. Segregating by instance first produces `eu/payments/` and
+`us/payments/`, which forks one tenant's identity across N trees — N copies of
+`CODEOWNERS`, N answers to "who owns payments", and under Phase 11, **N repo pairs per
+tenant instead of two**. And with a single instance, which is the case here and in most
+organisations, the level carries exactly one value forever: pure cost, zero information.
+
+This repo has already made this mistake once and reversed it. `.agents/AGENTS.md`
+Decision 5 removed a `<system>/` directory level for the same reason — it was a second
+encoding of a fact better held as metadata. Do not re-introduce the shape under a new name.
+
+**Where instance actually belongs: in the reader, not the data.** Each platform instance
+runs its own ArgoCD with its own `ApplicationSet` generator. That generator already decides
+which paths the instance syncs, so instance selection is a property of *who is reading the
+repository* — nothing in the tenant tree has to change to support a second instance. If a
+tenant must be present on some instances and not others, that is one field consumed by the
+generator, alongside the `owners:` list above:
+
+```yaml
+# 3-tenant-workloads/<tenant>/tenant.yaml
+name: payments
+owners:    [payments-core, payments-fraud]   # GitHub teams / IdP groups
+instances: [eu, us]                          # which platform instances sync this tenant
+```
+
+Data, not directories — the same principle as `destinations:` and `provisioner:`.
+
+**The one trigger that separates instances**, and it still is not a directory level: a data
+residency rule under which an EU tenant's repository may not replicate to US
+infrastructure. That forces a **separate repository**, not a nested folder. Record it as
+the trigger and do not pre-pay for it.
+
+**Note on the other reading of the question:** if "platform instance" means *which platform
+deployment the CLI is talking to* — which catalog root, which git remote, which backend —
+that is scaffolder configuration, not tree structure. It belongs in a config file or an
+env var, and it still never appears in a path. Same answer either way.
+
+So: the flag is `--tenant-name`. There is no `--instance-name`.
+
+### Rename to `tenant`
+
+- `3-tenant-workloads/<tenant>/` — the directory level
+- `{team}` → `{tenant}` in `catalog.yaml`'s `destinations:` values
+- `1-platform-catalog/per-team/` → `per-tenant/` (and the matching `destinations:` keys,
+  `requiredDestinations` in `catalog.go`, the `teamBlueprints` table in `render.go`, and
+  the loop in `python/cli.py`)
+- `TeamName` → `TenantName` in every `.tmpl` and both engines' config structs
+- `--team-name` → `--tenant-name` in both CLIs
+- `gitops/platform/team/` → `gitops/platform/tenancy/` — six files (appproject, namespace,
+  networkpolicy, rbac, policy-exceptions, secretstore) that collectively *are* the tenancy
+  boundary; `team/` never named them accurately
+
+### Keep as `team`
+
+- Every `@acme-corp/<team>` owner in `CODEOWNERS` templates
+- `RoleBinding.subjects` — the subject is a group, not a tenant
+- `catalog-info.yaml`'s `spec.owner`
+- Prose that genuinely means a group of humans
+
+### The payoff — make the distinction do work
+
+Once the words are separated, "two teams, one tenant" becomes expressible as data instead
+of a redesign. Add a per-tenant declaration rather than deriving ownership from the
+directory name:
+
+```yaml
+# 3-tenant-workloads/<tenant>/tenant.yaml
+name: payments
+owners:                      # GitHub teams / IdP groups — one tenant, N teams
+  - payments-core
+  - payments-fraud
+```
+
+Then `CODEOWNERS` renders one line per owner, and `RoleBinding.subjects` renders one
+subject per owner. **Do this part only if step one lands cleanly** — it needs a new
+scaffolder input, and a rename that half-applies across two engines is worse than no
+rename. If you defer it, say so in the AGENTS.md decision so the gap is recorded rather
+than implied.
+
+### Backward compatibility
+
+`--team-name` is the CLI's public interface and it appears in the README, both TODO files
+and every example. Keep it as a deprecated alias for one release rather than breaking it
+silently — Cobra's `MarkDeprecated` prints a warning and still works; do the equivalent in
+Typer. Remove it at the next tag.
+
+### Verify
+
+```bash
+# No stale vocabulary anywhere in the tree.
+grep -rn "TeamName\|per-team\|{team}\|--team-name" \
+  1-platform-catalog 2-idp-scaffolder 3-tenant-workloads .agents README.md
+
+# `team` should now survive ONLY in CODEOWNERS owners, RBAC subjects and spec.owner.
+grep -rn "\bteam\b" 3-tenant-workloads | grep -viE "CODEOWNERS|subjects|owner"
+
+# Both engines still agree.
+# Follow AGENTS.md § "The two-engine acceptance test" verbatim.
+```
+
+Tag this one. It changes the CLI's public interface and every rendered path, so old
+Terraform `?ref=` pins must keep resolving against the previous tag.
+
+---
+
+## Phase 14 — Prove it runs
+
+**The problem.** Phases 5, 7, 8, 9 and 10 are all explicitly "held to a clean
+`terraform plan`", "not a running instance", or "documented, not built". That honesty is a
+strength and should stay. But the repo now contains no evidence — no recording, no
+screenshot, no transcript — that any of it has ever executed. The ratio of *claimed* to
+*demonstrated* is the weakest thing about the repository as an artefact.
+
+Everything below runs on k3d and costs nothing.
+
+**(a) One end-to-end recording, ~90 seconds.** `make setup` → `onboard-team` →
+`add-service` → ArgoCD syncs → the app answers an HTTP request. Record with `asciinema`
+(text, greppable, small) and embed near the top of the README. A reader watches this;
+they do not read 400 lines of `AGENTS.md`.
+
+**(b) Fire a Phase 4 alert on purpose.** Same principle as Phase 12's gate: **an alert
+never seen to fire is not known to work.** Drive errors into the sample service until the
+multi-window burn-rate rule trips, and capture Prometheus showing the rule as `firing`.
+
+**(c) Close the loop that already exists.** `docs/runbooks/app-a-availability-burn.md` and
+`app-a-latency-burn.md` are written for exactly the alerts in (b). Follow one as written,
+end to end, and note anything the runbook got wrong — a runbook that has never been walked
+is a guess. Alert → runbook → resolution is a complete Incident Response story, and
+Incident Response is the highest-demand gap this plan ever identified.
+
+**(d) Commit the artefacts** to `docs/demo/` and link them from the README's Quickstart.
+
+---
+
+## Phase 15 — Promote the decisions into ADRs
+
+`docs/adr/` exists and contains exactly one file. Meanwhile `.agents/AGENTS.md` holds
+fifteen numbered architectural decisions with their full reasoning — findable only by an
+agent reading a 400-line instruction file.
+
+Extract the ones that carry a genuine "why not the obvious alternative", one file each,
+keeping context → alternatives → decision → **revisit trigger**:
+
+| ADR | Source | The question it answers |
+|---|---|---|
+| Two repos per tenant, not three | Decision 15 | why `apps`+`infra` merge and `gitops` does not |
+| One platform-owned chart, rendered manifests | Decision 6 | why CI commits YAML instead of ArgoCD running Helm |
+| System is metadata, not a directory | Decision 5 | why a reversal is recorded rather than erased |
+| Dev-only scaffolding, gated promotion | Decision 3 | why `prod/` never appears automatically |
+| `provisioner:` — Terraform vs ACK | `catalog.yaml` | why one platform uses both, chosen by data |
+| k3d is a harness, not the target | Target Environment | why local convenience never picks the production mechanism |
+| `tenant` vs `team` | Phase 13 | why they are not synonyms |
+
+Leave the full text in `AGENTS.md` or link out to the ADRs from it — but do not maintain
+both copies.
+
+**Why this is worth a phase:** an ADR's structure *is* the structure of a good verbal
+answer under pressure. The bottleneck at this point is not the repository.
+
+---
+
+## Phase 16 — Hygiene backlog
+
+Small, independent, no ordering constraints.
+
+- **Move `aws-creds.ini` out of the repo root** to `~/.aws/`. It is untracked, covered by
+  `*.ini` in `.gitignore`, and `git log --all -- aws-creds.ini` confirms it was never
+  committed — so this is not an incident. It is one `git add -f`, one `.gitignore` edit or
+  one `zip -r` of the directory away from becoming one. Zero cost to remove the exposure.
+- **Surface `docs/incidents/2026-08-20-traefik-networkpolicy-ingress-blocked.md`** from the
+  README. A real postmortem on a bug found and fixed in your own system is rare in a
+  reference repo, and it is currently buried two directories deep.
+- **`.agents/AGENTS.md`'s decision list skips number 12.** Renumber or insert a stub.
+- **`4-platform-engineering/2-cluster-services/otel/`** — check whether this still reads
+  as a separate concern from `observability/` after Phase 3.7, or whether the two should
+  merge. Two directories for one signal path is the same naming failure Phase 3.8 fixed
+  one level up.
+
+---
+
+## Phase 17 — Day-2 operations: what only hurts after six months
+
+The control plane is complete — catalog, scaffolder, GitOps, tenancy, identity, policy and
+observability all exist and are coherent. What is thin is everything that only starts
+hurting once the platform has been *running* for a while. This phase is that list.
+
+**Sub-phases are independent.** If time is short, the best credibility-per-hour is
+**17.4 (minutes) → 17.2 (an hour) → 17.1 (an afternoon)**. 17.3 is the highest-value new
+capability but costs roughly a day.
+
+---
+
+### 17.1 — Remote state for the platform's own Terraform
+
+**The gap.** `3-tenant-workloads/<tenant>/infra/platform/providers.tf` declares
+`backend "s3"` with locking. `4-platform-engineering/1-cloud-foundation/aws/*/main.tf`
+declares **no backend at all** — the platform's own state is local. In production that
+means no locking (two engineers applying concurrently corrupts state), no version history,
+no encryption at rest, and a lost laptop losing the only record of what the platform is.
+
+**The bootstrap chicken-and-egg.** The state bucket cannot itself be stored in the state
+bucket. The standard resolution, and the one to implement:
+
+1. Create `1-cloud-foundation/aws/bootstrap/` — S3 bucket with versioning, SSE, and a
+   public-access block. Nothing else belongs here; it exists once and is never touched again.
+2. Apply it with **local state**.
+3. Add a `backend "s3"` block to `bootstrap/` itself and run
+   `terraform init -migrate-state`, moving its state into the bucket it just created.
+4. Add `backend "s3"` to `network/`, `cluster/`, `cluster-access/`, `workload-identity/`
+   and `organization/`, one key each:
+   `platform/aws/<component>/terraform.tfstate`.
+
+**Use S3-native locking, not DynamoDB.** Terraform 1.10+ supports `use_lockfile = true`,
+which removes a whole resource from the design. Modernise
+`1-platform-catalog/per-tenant/infra/platform/providers.tf.tmpl` at the same time — it
+still uses `dynamodb_table`, which is now the legacy path.
+
+**One state per component, not one for everything.** A blast radius the size of the whole
+platform is the thing separate state files exist to prevent: a mistake in
+`cluster-access/` should not be able to destroy the VPC.
+
+**Verify.** `terraform init -backend=false && terraform validate` still passes in every
+directory — the Appendix B tier-1 checks are unaffected by a backend block, so this costs
+nothing in CI and does not require credentials.
+
+---
+
+### 17.2 — Make ArgoCD self-managed
+
+**The gap.** `make install-argocd` installs ArgoCD imperatively, and nothing under
+`2-cluster-services/gitops-orchestration/` is an `Application` managing argo-cd itself. The
+one component that reconciles everything else is the one component nobody reconciles —
+upgrading it is a manual `helm upgrade` performed outside GitOps, with no diff, no history
+and no rollback. *"Who deploys the deployer?"* is a standard interview question and this is
+the standard answer.
+
+**Build it.** Add `2-cluster-services/gitops-orchestration/argocd.yaml`: an `Application`
+pointing at the same argo-cd chart and the same values the Makefile uses, in the earliest
+sync wave.
+
+Three things that will bite:
+
+- **The values must match what was installed imperatively**, or the first sync fights the
+  bootstrap install and flaps. Extract the Makefile's values into a committed
+  `values.yaml` and have both the Makefile and the `Application` read that one file.
+- **Use `ServerSideApply=true`.** ArgoCD's own CRDs exceed the
+  `kubectl.kubernetes.io/last-applied-configuration` annotation size limit; client-side
+  apply fails on them.
+- **Think before enabling `selfHeal` on this one Application.** If a bad value breaks the
+  repo-server, self-heal removes your ability to fix it *through* ArgoCD. Document the
+  break-glass explicitly: `helm upgrade` directly against the cluster, then let
+  reconciliation resume.
+
+---
+
+### 17.3 — Supply chain: sign what you build, verify what you run
+
+**The gap.** CI builds images and pushes them to GHCR with **no scan, no signature, no SBOM
+and no provenance**. Separately, Kyverno is installed but carries no `verifyImages` rule —
+so the cluster will run any image from anywhere. Every piece needed is already present;
+none of them are connected.
+
+**(a) Scan.** Add Trivy to `tenant-workloads-ci-cd.yaml` after the image build, failing the
+job on `HIGH,CRITICAL`. Set `ignore-unfixed: true` — a finding with no available fix is
+noise, and a noisy gate is an ignored gate.
+
+**(b) Sign, keylessly.** `cosign sign --yes` using the workflow's GitHub OIDC token
+(`permissions: id-token: write`). No private key to store, rotate or leak — the signing
+identity *is* the workflow identity, which is the whole point.
+
+**(c) SBOM.** `syft` to generate it, `cosign attest` to attach it to the image.
+
+**(d) Verify at admission — this is the step that closes the loop.** A new Kyverno
+`ClusterPolicy` in `2-cluster-services/security-governance/supply-chain/` with a
+`verifyImages` rule, keyless, trusting issuer
+`https://token.actions.githubusercontent.com` and the subject of the workflow that signs.
+
+> **Gotcha that will break your cluster if you skip it.** In `Enforce` mode a
+> `verifyImages` rule blocks *everything* unsigned — including Traefik, Prometheus, Loki,
+> Keycloak and every other addon image, none of which you sign. **Scope the rule to your
+> own registry and the tenant namespaces only.** Roll it out in `Audit` first, read the
+> policy report, then switch to `Enforce`.
+
+Same argument as Phase 12: one definition, two enforcement points — build time and
+admission time.
+
+---
+
+### 17.4 — PodDisruptionBudget in the platform chart
+
+**The cheapest fix in this phase and the one with the highest consequence.** A node drain
+is exactly what an EKS version upgrade performs, and with no PDB the drain can evict every
+replica of a service simultaneously.
+
+Add `1-platform-catalog/charts/service/templates/poddisruptionbudget.yaml`.
+
+> **Render it only when `replicaCount > 1`, and use `maxUnavailable: 1`.** A
+> `minAvailable: 1` PDB on a single-replica Deployment blocks the drain **forever** — the
+> node never cordons, the upgrade hangs, and the cause is nowhere near the symptom. This
+> is the most common way a PDB makes things worse than having none.
+
+---
+
+### 17.5 — Autoscaling: HPA and metrics-server
+
+**The gap.** No HPA in the chart and no `metrics-server` in the cluster, so nothing scales
+on load.
+
+- Add `metrics-server` as an `Application` under `2-cluster-services/`.
+- Add `charts/service/templates/hpa.yaml`, gated on `autoscaling.enabled` (default off).
+- Argo Rollouts is already installed, so where `rollout.yaml` is active the HPA's
+  `scaleTargetRef` must be `kind: Rollout`, not `Deployment`.
+
+> **Omit `replicas:` from the Deployment/Rollout template whenever `autoscaling.enabled`
+> is true.** Otherwise the HPA sets the replica count, ArgoCD sees drift from the committed
+> manifest, resets it, the HPA scales again — a permanent sync loop. This is the single
+> most common GitOps + HPA bug.
+
+---
+
+### 17.6 — Node capacity: Karpenter, or a written decision not to
+
+`1-cloud-foundation/aws/cluster/main.tf` provisions a fixed `aws_eks_node_group` with
+`max_size = desired + 2`. That is a demo shape, not a production one: capacity cannot
+respond to load, and instance types are chosen once by a human.
+
+Karpenter is the current EKS standard and high-signal. Building it means an `EC2NodeClass`
+and a `NodePool`, an IAM role via Pod Identity, an SQS interruption queue, and subnet and
+security-group discovery **tags on the resources `network/` already creates** — that tag
+dependency is the part people miss, so add the tags in the same commit.
+
+If you do not build it, write the decision down as an ADR — an explicit "fixed node group,
+because X" reads as a choice, while an unexplained fixed node group reads as an oversight.
+
+---
+
+### 17.7 — external-dns
+
+cert-manager automates certificates, but DNS records for Ingress hostnames are still
+created by hand — half the loop automated. Add `external-dns` as an `Application` with a
+Route53 role via the Pod Identity seam from Phase 7.2c, scoped to one hosted zone.
+
+This is also the cheapest live demonstration that the workload-identity seam actually
+works, since external-dns fails loudly and immediately when its credentials are wrong.
+
+---
+
+### 17.8 — Write the disaster recovery position
+
+Do not install Velero reflexively. For a GitOps platform most of the answer is genuinely
+*"re-bootstrap the cluster and let ArgoCD reconcile from git"* — and stating that clearly
+is a stronger answer than a backup tool nobody has restored from.
+
+What matters is naming, in `docs/disaster-recovery.md`, what git does **not** hold:
+
+| Not in git | Consequence if lost | Mitigation |
+|---|---|---|
+| PVC data (Prometheus TSDB, Loki chunks, Keycloak DB) | metrics/log history gone; Keycloak realm gone if not seeded declaratively | Keycloak realm **is** declarative (Phase 7) — verify that is still true. Snapshot the rest or accept the loss explicitly. |
+| Terraform state | the platform's own resources become unmanaged | 17.1 — versioned S3 bucket |
+| **The Sealed Secrets controller private key** | **every `SealedSecret` in git becomes permanently undecryptable** | Back it up, off-cluster, before anything else |
+
+That third row is the one people miss, and it is unrecoverable. The backup is one command:
+
+```bash
+kubectl get secret -n kube-system \
+  -l sealedsecrets.bitnami.com/sealed-secrets-key -o yaml > sealed-secrets-key.yaml
+```
+
+Store it wherever your break-glass credentials live — never in this repo. State an RTO and
+RPO even if the honest answer is "hours, and we accept losing observability history."
+
+---
+
+### 17.9 — Loose ends
+
+- **Two secret systems, no rule.** sealed-secrets *and* external-secrets are both
+  installed. That is defensible — sealed-secrets for bootstrap secrets that must exist
+  before any cloud dependency, external-secrets for everything that has a real secret
+  store behind it. Write that one sentence down, or it reads as indecision.
+- **Cluster upgrade runbook.** EKS versions age out in roughly 14 months. Add
+  `docs/runbooks/cluster-upgrade.md`: the control-plane-then-nodes order, the addon
+  compatibility check, and what 17.4's PDBs are protecting during the node roll.
+- **Verify the Phase 13 rename actually re-rendered.**
+  `3-tenant-workloads/tenant-a/infra/platform/providers.tf` still contains
+  `key = "teams/team-a/terraform.tfstate"` and `Team = "team-a"` while the directory is
+  `tenant-a`. Either the template kept the old string or the output was never re-rendered.
+  Check the `.tmpl`, re-render, and confirm — this is exactly the stale-output class of
+  bug that Phase 11a's acceptance job exists to catch.

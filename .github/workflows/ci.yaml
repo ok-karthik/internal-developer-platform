@@ -1,0 +1,103 @@
+name: CI Pipeline
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    paths:
+      - '2-idp-scaffolder/**'
+      - '1-platform-catalog/**'
+      - '3-tenant-workloads/**'
+      - '4-platform-engineering/2-cluster-services/security-governance/**'
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  test-go-engine:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: '1.26'
+          cache-dependency-path: 2-idp-scaffolder/golang/go.sum
+          
+      - name: Run Go tests
+        working-directory: 2-idp-scaffolder/golang
+        run: go test -v ./...
+
+  test-python-engine:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.0.1
+        with:
+          version: "latest"
+          
+      - name: Run Python catalog validation
+        working-directory: 2-idp-scaffolder/python
+        run: uv run python catalog.py
+
+  verify-engine-parity:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: '1.26'
+          cache-dependency-path: 2-idp-scaffolder/golang/go.sum
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.0.1
+        with:
+          version: "latest"
+
+      - name: Build Go CLI
+        working-directory: 2-idp-scaffolder/golang
+        run: go build -o idp-cli .
+
+      - name: Generate Go Output
+        run: |
+          mkdir -p /tmp/go-output
+          ./2-idp-scaffolder/golang/idp-cli onboard-tenant --tenant-name test-tenant --owner test-owner --catalog-root ./1-platform-catalog --output-root /tmp/go-output
+          ./2-idp-scaffolder/golang/idp-cli add-service --tenant-name test-tenant --app-name test-app --golden-path go-service-postgres --catalog-root ./1-platform-catalog --output-root /tmp/go-output
+
+      - name: Generate Python Output
+        run: |
+          mkdir -p /tmp/python-output
+          cd 2-idp-scaffolder/python
+          uv run python main.py onboard-tenant --tenant-name test-tenant --owner test-owner
+          uv run python main.py add-service --tenant-name test-tenant --app-name test-app --golden-path go-service-postgres
+          mv ../../3-tenant-workloads/test-tenant /tmp/python-output/test-tenant
+
+      - name: Assert Byte-for-Byte Parity
+        run: |
+          diff -r /tmp/go-output/test-tenant /tmp/python-output/test-tenant
+
+  validate-tenancy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Install Kyverno CLI
+        run: |
+          curl -sL "https://github.com/kyverno/kyverno/releases/download/v1.11.4/kyverno-cli_v1.11.4_linux_x86_64.tar.gz" | tar xz
+          sudo mv kyverno /usr/local/bin/
+
+      - name: Run Kyverno Policies
+        run: |
+          RESOURCES=$(find 3-tenant-workloads/*/gitops -type f -name '*.yaml' ! -name 'values.yaml' | sed 's/^/--resource /')
+          if [ -z "$RESOURCES" ]; then
+            echo "No resources found to validate."
+            exit 0
+          fi
+          set -e
+          kyverno apply 4-platform-engineering/2-cluster-services/security-governance/ $RESOURCES --policy-report

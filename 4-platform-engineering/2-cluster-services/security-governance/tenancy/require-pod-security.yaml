@@ -1,0 +1,32 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: require-pod-security
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+spec:
+  validationFailureAction: Enforce
+  background: true
+  rules:
+    - name: require-pod-security
+      match:
+        any:
+        - resources:
+            kinds:
+              - Namespace
+      exclude:
+        any:
+        - resources:
+            names:
+              - kube-system
+              - argocd
+              - traefik
+              - default
+              - kyverno
+              - external-secrets
+      validate:
+        message: "Namespace must carry pod-security.kubernetes.io/enforce: restricted"
+        pattern:
+          metadata:
+            labels:
+              pod-security.kubernetes.io/enforce: restricted

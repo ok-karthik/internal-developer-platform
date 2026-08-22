@@ -1,0 +1,22 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: enforce-resource-quota
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+spec:
+  validationFailureAction: Enforce
+  background: true
+  rules:
+    - name: enforce-resource-quota
+      match:
+        any:
+        - resources:
+            kinds:
+              - ResourceQuota
+      validate:
+        message: "ResourceQuota is required and must specify hard limits."
+        pattern:
+          spec:
+            hard:
+              requests.cpu: "?*"

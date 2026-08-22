@@ -161,11 +161,11 @@ make destroy
 
 | Catalog directory | Rendered by | When | What reaches a tenant repo |
 | :--- | :--- | :--- | :--- |
-| `per-team/` | `onboard-team` | once per team | the files themselves, copied |
+| `per-tenant/` | `onboard-team` | once per team | the files themselves, copied |
 | `per-service/` | `add-service` | once per service (or once per capability requested) | the files themselves, copied |
 | `charts/` | **GitHub Actions**, never the CLI | every push touching a `values.yaml` or the chart | **only its rendered output**, into `manifests/` |
 
-The directory name tells you *how often* a thing renders — `per-team` vs `per-service` — and
+The directory name tells you *how often* a thing renders — `per-tenant` vs `per-service` — and
 the path underneath tells you *where it lands*. `per-service/` has a second split baked in:
 `per-service/infra/capabilities/` is Terraform (applied by a `terraform` run), while
 `per-service/gitops/capabilities/` is a Kubernetes-native alternative (applied by ArgoCD) —
@@ -183,9 +183,9 @@ instead of being copy-pasted into N repos.
 
 | Catalog source | Rendered | Lands at |
 | :--- | :--- | :--- |
-| `per-team/apps/` | once per team | `<team>/apps/` |
-| `per-team/infra/` | once per team | `<team>/infra/` |
-| `per-team/gitops/` | once per team | `<team>/gitops/` |
+| `per-tenant/root/` | once per team | `<team>/` |
+| `per-tenant/infra/` | once per team | `<team>/infra/` |
+| `per-tenant/gitops/` | once per team | `<team>/gitops/` |
 | `per-service/apps/runtimes/<lang>/` | per service | `<team>/apps/<app>/` |
 | `per-service/apps/service-meta/` | per service | `<team>/apps/<app>/` |
 | `per-service/infra/capabilities/<cap>.tf.tmpl` | per capability, if `provisioner: terraform` | `<team>/infra/apps/<app>/<env>/` |
@@ -212,13 +212,13 @@ Adding infrastructure capability: postgres (provisioner: terraform)
 per-service/infra/capabilities/postgres.tf.tmpl    --> payments/infra/apps/checkout-api/dev/postgres.tf
 ```
 
-Five files, three would-be repos, one command. Note what is absent: no `Chart.yaml`, no
+Five files, two would-be repos, one command. Note what is absent: no `Chart.yaml`, no
 Helm packaging in `apps/`, and nothing written outside `dev/` — production requires a
 deliberate promotion PR.
 
 The CLI writes to the current directory and appends nothing to it, same contract as
 `terraform` or `npm`. See [`docs/gitops-delivery.md`](docs/gitops-delivery.md) for how the
-generated monorepo layout turns into real per-team repos with no extra tooling.
+generated monorepo layout turns into real per-tenant repos with no extra tooling.
 </details>
 
 ---
@@ -279,7 +279,7 @@ registered by hand.
 flowchart TB
     subgraph AWS ["🔒 AWS Account (hard boundary — SCPs, billing, blast radius)"]
         direction LR
-        A["Namespace: team-a<br/><br/>(soft boundary)<br/>RBAC, NetworkPolicy<br/>ResourceQuota"]
+        A["Namespace: tenant-a<br/><br/>(soft boundary)<br/>RBAC, NetworkPolicy<br/>ResourceQuota"]
         B["Namespace: team-b<br/><br/>(soft boundary)<br/>RBAC, NetworkPolicy<br/>ResourceQuota"]
         C["Namespace: team-c<br/><br/>(soft boundary)<br/>RBAC, NetworkPolicy<br/>ResourceQuota"]
     end
@@ -347,8 +347,8 @@ other way around. Details:
 
 ## 🔐 Identity & Single Sign-On
 
-Every rule above ("team-a can only touch team-a's namespace") only means something if
-there's a real login system deciding who *is* team-a. This platform runs
+Every rule above ("tenant-a can only touch tenant-a's namespace") only means something if
+there's a real login system deciding who *is* tenant-a. This platform runs
 [Keycloak](https://www.keycloak.org/) as a stand-in for a corporate login system (Entra ID,
 Okta, or similar), and wires the same group membership into five different tools —
 Kubernetes, ArgoCD, Grafana, Backstage, and AWS — so one group decides access everywhere,
@@ -514,12 +514,12 @@ find 3-tenant-workloads 4-platform-engineering -name '*.yaml' \
 # The chart still renders and lints
 helm lint 1-platform-catalog/charts/service
 helm template app-a 1-platform-catalog/charts/service \
-  -f 3-tenant-workloads/team-a/gitops/apps/app-a/dev/values.yaml
+  -f 3-tenant-workloads/tenant-a/gitops/apps/app-a/dev/values.yaml
 
-# Templates and rendered output agree (expect only [[ .TeamName ]] -> team-a)
-diff <(sed 's/\[\[ \.TeamName \]\]/team-a/g' \
-        1-platform-catalog/per-team/gitops/platform/team/namespace.yaml.tmpl) \
-     3-tenant-workloads/team-a/gitops/platform/team/namespace.yaml
+# Templates and rendered output agree (expect only [[ .TenantName ]] -> tenant-a)
+diff <(sed 's/\[\[ \.TenantName \]\]/tenant-a/g' \
+        1-platform-catalog/per-tenant/gitops/platform/team/namespace.yaml.tmpl) \
+     3-tenant-workloads/tenant-a/gitops/platform/team/namespace.yaml
 
 # Burn-rate alert PromQL is syntactically valid
 promtool check rules 4-platform-engineering/2-cluster-services/observability/slo/app-a-alerts.yaml
@@ -539,9 +539,9 @@ terraform -chdir=4-platform-engineering/1-cloud-foundation/aws/cluster plan
 <summary><strong>Live cluster checks</strong> — after <code>make setup</code> + <code>make wait-for-apps</code></summary>
 
 ```bash
-kubectl auth can-i --list --as=system:serviceaccount:team-a:default -n team-a
-kubectl describe resourcequota -n team-a
-kubectl get networkpolicy -n team-a          # expect 5 named policies
+kubectl auth can-i --list --as=system:serviceaccount:tenant-a:default -n tenant-a
+kubectl describe resourcequota -n tenant-a
+kubectl get networkpolicy -n tenant-a          # expect 5 named policies
 ```
 
 **A green `kubectl`/`helm` run on k3d does not mean the platform works against real AWS.**
@@ -559,4 +559,5 @@ IAM, load balancers, storage, and cluster authentication are only genuinely test
 - [`docs/adr/001-tools-evaluated.md`](docs/adr/001-tools-evaluated.md) — tools considered and not adopted, with the reasoning
 - [`docs/backstage/`](docs/backstage/) — the Backstage integration design (not yet a running instance)
 - [`docs/runbooks/`](docs/runbooks/) — incident response runbooks, one per alert
+- [`docs/incidents/2026-08-20-traefik-networkpolicy-ingress-blocked.md`](docs/incidents/2026-08-20-traefik-networkpolicy-ingress-blocked.md) — postmortem on the Traefik/NetworkPolicy routing incident
 - [`.agents/AGENTS.md`](.agents/AGENTS.md) — the full technical reference: conventions, decisions, execution commands

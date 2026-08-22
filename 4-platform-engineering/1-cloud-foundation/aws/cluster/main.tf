@@ -5,9 +5,16 @@
 # stays independently `validate`-able — the same pattern every capability
 # module in 3-capability-modules/ already uses.
 terraform {
-  required_version = ">= 1.5"
+  required_version = ">= 1.10"
   required_providers {
     aws = { source = "hashicorp/aws", version = "~> 5.0" }
+  }
+  backend "s3" {
+    bucket       = "acme-corp-terraform-state"
+    key          = "platform/aws/cluster/terraform.tfstate"
+    region       = "us-east-1"
+    use_lockfile = true
+    encrypt      = true
   }
 }
 

@@ -10,7 +10,7 @@ name: Tenant Workloads - CI/CD Pipeline
 #
 # The chart lives in charts/, not per-service/, because it is never scaffolded
 # into a tenant repo — it has no destinations key, and only its rendered OUTPUT
-# reaches 3-tenant-workloads/. Everything under per-team/ and per-service/ gets copied; this
+# reaches 3-tenant-workloads/. Everything under per-tenant/ and per-service/ gets copied; this
 # gets rendered. Different verbs, different directories.
 #
 # The discovery unit is a values.yaml, not a directory of charts: a file existing
@@ -22,7 +22,8 @@ on:
     branches:
       - main
     paths:
-      - '3-tenant-workloads/**'
+      - '3-tenant-workloads/*/apps/**'
+      - '3-tenant-workloads/*/gitops/apps/**/values.yaml'
       - '1-platform-catalog/charts/service/**'
       - '.github/workflows/tenant-workloads-ci-cd.yaml'
 
@@ -30,9 +31,11 @@ on:
 permissions:
   contents: write
   packages: write
+  id-token: write # required for sigstore/cosign keyless signing
 
 env:
   CHART_DIR: 1-platform-catalog/charts/service
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   render:
@@ -67,6 +70,15 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Cosign
+        uses: sigstore/cosign-installer@v4.1.2
+
+      - name: Setup Syft
+        uses: anchore/sbom-action/download-syft@v0
+
+      - name: Setup Trivy
+        run: curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
 
       # ---------------------------------------------------------------------
       # CI: one image per app, regardless of how many environments it has.
@@ -109,6 +121,15 @@ jobs:
 
             docker push "$IMAGE:latest"
             docker push "$IMAGE:v${{ github.run_number }}"
+            
+            echo "Generating SBOM with Syft..."
+            syft "$IMAGE:latest" -o spdx-json=sbom.json
+            
+            echo "Scanning image with Trivy..."
+            trivy image --severity HIGH,CRITICAL --no-progress "$IMAGE:latest"
+            
+            echo "Signing image with Cosign..."
+            cosign sign --yes "$IMAGE:latest"
             echo "::endgroup::"
           done < /tmp/apps.txt
 

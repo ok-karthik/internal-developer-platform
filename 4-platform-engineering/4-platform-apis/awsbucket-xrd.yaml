@@ -8,7 +8,7 @@
 # namespaced, so it can be created directly inside team-a's namespace with
 # no claim indirection, matching this platform's tenancy model where a
 # resource's namespace IS its ownership boundary (same reasoning as ACK's
-# single-CR-per-namespace shape, and Phase 7.7's per-team SecretStore over
+# single-CR-per-namespace shape, and Phase 7.7's per-tenant SecretStore over
 # a cluster-scoped ClusterSecretStore).
 #
 # WHY THIS EXISTS ALONGSIDE ACK'S S3 SUPPORT, NOT INSTEAD OF IT: ACK's

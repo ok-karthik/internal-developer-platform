@@ -31,9 +31,9 @@ from pydantic import BaseModel, Field, model_validator
 # ../golang/internal/catalog/catalog.go. If the two drift, one engine accepts a
 # catalog the other rejects, and the "one catalog, two engines" claim is dead.
 REQUIRED_DESTINATIONS: list[str] = [
-    "per-team/apps",
-    "per-team/infra",
-    "per-team/gitops",
+    "per-tenant/root",
+    "per-tenant/infra",
+    "per-tenant/gitops",
     "per-service/apps/runtimes",
     "per-service/apps/service-meta",
     "per-service/infra/capabilities",

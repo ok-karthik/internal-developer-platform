@@ -37,7 +37,7 @@ func TestRenderServiceGolden(t *testing.T) {
 
 	// C. Resolve config for a test service (e.g. go-service-postgres)
 	cfg, err := Resolve(spec, "go-service-postgres", Config{
-		TeamName: "payments",
+		TenantName: "payments",
 		AppName:  "checkout",
 		Env:      "dev",
 	})
@@ -187,7 +187,7 @@ func TestRenderService_BadRuntimeErrorPath(t *testing.T) {
 
 	// Pass a runtime that does not exist in the catalog
 	cfg := Config{
-		TeamName: "payments",
+		TenantName: "payments",
 		AppName:  "checkout",
 		Runtime:  "doesnotexist",
 	}
@@ -234,7 +234,7 @@ func TestRenderService_DryRun(t *testing.T) {
 	}
 
 	cfg, err := Resolve(spec, "go-service-postgres", Config{
-		TeamName: "payments",
+		TenantName: "payments",
 		AppName:  "checkout",
 		Env:      "dev",
 	})
@@ -282,7 +282,7 @@ func TestRenderService_SkipIfExists(t *testing.T) {
 	}
 
 	cfg, err := Resolve(spec, "go-service-postgres", Config{
-		TeamName: "payments",
+		TenantName: "payments",
 		AppName:  "checkout",
 		Env:      "dev",
 	})
@@ -347,7 +347,7 @@ func TestRenderService_ContextCanceled(t *testing.T) {
 	}
 
 	cfg := Config{
-		TeamName: "payments",
+		TenantName: "payments",
 		AppName:  "checkout",
 		Runtime:  "go",
 	}

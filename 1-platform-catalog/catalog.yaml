@@ -1,11 +1,8 @@
 # 1-platform-catalog/catalog.yaml
-#
-# The platform's offering (golden paths, runtimes, capabilities) and its output
-# contract (destinations). Rationale for every decision here lives in
-# .agents/AGENTS.md — this file stays terse on purpose.
+# Platform offering (golden paths, runtimes, capabilities) and output contract (destinations).
+# See .agents/AGENTS.md for full rationale.
 
 # Golden paths compose a runtime + capabilities into one paved road.
-# A list rather than a map, so it unmarshals into the Go struct []GoldenPath.
 golden-paths:
   - name: go-service-postgres
     description: Go microservice backed by AWS Postgres, shipped via ArgoCD
@@ -16,100 +13,51 @@ golden-paths:
     runtime: python
     capabilities: [s3]
 
-# The offered runtimes. A directory under per-service/apps/runtimes/ is scaffoldable
-# ONLY if declared here — an undeclared one is deliberately invisible, which is what
-# lets a half-built runtime sit in the tree unreachable. Do not auto-discover.
+# Allowed runtimes. Runtimes missing from this list are deliberately ignored by the scaffolder.
 runtimes:
   go:              { description: Go HTTP service }
   python:          { description: Python FastAPI service }
   nodejs:          { description: Node.js Express service }
   java-springboot: { description: Java Spring Boot service }
 
-# Capabilities are declarative claims resolved to blessed, version-pinned modules.
-# The version pins below are the only hand-maintained ones in the repo; Renovate
-# bumps them via the custom regex manager in renovate.json.
+# Capabilities are claims resolved to pinned modules (bumped via Renovate).
 capabilities_source_base: "git::https://github.com/ok-karthik/internal-developer-platform.git//4-platform-engineering/3-capability-modules"
 
-#
-# `provisioner` is a platform decision expressed in data, not a fork in the road:
-# ACK reconciles continuously with no plan step — deleting a CR can delete a live
-# resource with no review gate. That is fine for a bucket and unacceptable for a
-# production database. So: ACK for cheap, recreatable, per-app resources;
-# Terraform for stateful and expensive ones. The developer requesting the
-# capability never learns which they got, which is the abstraction working
-# correctly. `kind`/`group` are only meaningful for provisioner: ack (the ACK
-# CRD identity); `module`/`version` are only meaningful for provisioner:
-# terraform.
-#
-# Phase 3.9: both engines now CONSUME `provisioner` — it decides which of the
-# two capability directories the renderer looks in (per-service/infra/capabilities/
-# for terraform, per-service/gitops/capabilities/ for ack), not just which
-# fields a template happens to read. This is why s3 and iam's old .tf.tmpl
-# stubs are gone: with real dispatch, keeping a Terraform template around for
-# a capability whose provisioner says "ack" would just be dead, misleading
-# code — see per-service/gitops/capabilities/iam.yaml.tmpl for what replaced
-# 3.9's predecessor, per-service/infra/capabilities/iam.tf.tmpl.
+# The `provisioner` field dictates the dispatch path and lifecycle:
+# - ack: Continuous reconciliation (no plan step). For cheap, recreatable resources.
+# - terraform: Requires a plan/review gate. For stateful, expensive resources.
 capabilities:
-  # Phase 10.2: the portability seam, proved with exactly one capability on
-  # exactly one second provider, and stopped there. postgres stays on
-  # aws/postgres because AWS/EKS is this platform's stated target (see
-  # PLAN.md's Target Environment section) — 3-capability-modules/azure/postgres/
-  # exists with the SAME variable/output contract (team_name, app_name, env,
-  # tags in; db_identifier, db_endpoint out) specifically so switching this
-  # platform's cloud is provably this one line:
-  #   module: azure/postgres
-  # and nothing else — no renderer change, no template edit, because the
-  # provider was already a path segment in `module:`, not a separate field
-  # (Phase 3.8). The developer requesting postgres never learns which
-  # provider they got either way — same abstraction argument as
-  # `provisioner:` above, one level up. Do not actually flip this line;
-  # doing so would silently break every golden-path service currently
-  # pointed at AWS. The seam is proved by the module existing with a
-  # matching contract, not by switching the platform's live target.
+  # The module path acts as the cloud portability seam (e.g. aws/postgres vs azure/postgres).
   postgres:
     provisioner: terraform   # stateful, expensive, wants a plan step
     module: aws/postgres     # provider is a path segment, not a name prefix
-    version: v2.0.0
+    version: v2.2.0
   s3:
     provisioner: ack         # cheap, recreatable, per-app
     module: aws/s3
-    version: v2.0.0
+    version: v2.2.0
     kind: Bucket
     group: s3.services.k8s.aws
   iam:
     provisioner: ack
     module: aws/iam
-    version: v2.0.0
+    version: v2.2.0
     kind: Role
     group: iam.services.k8s.aws
 
-# The output contract: catalog source directory -> where it is written, relative to
-# 3-tenant-workloads/. Every key is the LITERAL source directory in this catalog, so
-# the renderer derives both halves from one string and no Go file holds an output
-# path. Restructuring the output tree is an edit here, not a code change.
-#
-# Deliberately absent: charts/service/. It is never scaffolded — CI renders it
-# against each app's values.yaml and commits only the result into
-# {team}/gitops/apps/{app}/{env}/manifests/.
+# The output contract: literal catalog source directory -> relative output path.
+# charts/service/ is deliberately absent (it is rendered by CI, not scaffolded).
 destinations:
-  # Rendered once per team, by onboard-team. per-team/<kind>/ mirrors the tree it
-  # produces, so the nesting IS the path logic and no file needs its own rule. Each
-  # target is a would-be repo root — and a `git subtree split` prefix — which is
-  # what lets CODEOWNERS sit where GitHub actually honours it.
-  per-team/apps:   "{team}/apps/"
-  per-team/infra:  "{team}/infra/"
-  per-team/gitops: "{team}/gitops/"
+  # Rendered once per tenant by onboard-tenant. Mirrors output tree structure.
+  per-tenant/root:   "{tenant}/"
+  per-tenant/infra:  "{tenant}/infra/"
+  per-tenant/gitops: "{tenant}/gitops/"
 
-  # Composed per service, by add-service. {app}/{env} is spelled out here rather
-  # than mirrored in the catalog layout, because per-service/ is selected by name
-  # (runtime: go) or by provisioner, not walked wholesale the way per-team/ is.
-  per-service/apps/runtimes:      "{team}/apps/{app}/"
-  per-service/apps/service-meta:  "{team}/apps/{app}/"
-  per-service/gitops/release:     "{team}/gitops/apps/{app}/{env}/"
+  # Composed per service by add-service. Output path contains {app}/{env}.
+  per-service/apps/runtimes:      "{tenant}/apps/{app}/"
+  per-service/apps/service-meta:  "{tenant}/apps/{app}/"
+  per-service/gitops/release:     "{tenant}/gitops/apps/{app}/{env}/"
 
-  # Phase 3.9: the directory IS the router between the two provisioners, which is
-  # what makes `provisioner:` above a data fact the renderer acts on rather than a
-  # label nobody reads. No file needs its own extension-sniffing rule, and no
-  # phantom key — every source directory here has a real directory on disk.
-  per-service/infra/capabilities:  "{team}/infra/apps/{app}/{env}/"   # provisioner: terraform (*.tf.tmpl)
-  per-service/gitops/capabilities: "{team}/gitops/apps/{app}/{env}/"  # provisioner: ack (*.yaml.tmpl)
+  # Provisioner-specific capability destinations.
+  per-service/infra/capabilities:  "{tenant}/infra/apps/{app}/{env}/"   # provisioner: terraform (*.tf.tmpl)
+  per-service/gitops/capabilities: "{tenant}/gitops/apps/{app}/{env}/"  # provisioner: ack (*.yaml.tmpl)

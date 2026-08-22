@@ -11,12 +11,12 @@
 module "postgres" {
   source = "[[ .CapabilitiesSourceBase ]]/[[ .Module ]]?ref=[[ .Version ]]"
 
-  team_name = "[[ .TeamName ]]"
+  team_name = "[[ .TenantName ]]"
   app_name  = "[[ .AppName ]]"
   env       = "[[ .Env ]]"
 
   tags = {
-    Team        = "[[ .TeamName ]]"
+    Team        = "[[ .TenantName ]]"
     Service     = "[[ .AppName ]]"
     Environment = "[[ .Env ]]"
     Capability  = "postgres"

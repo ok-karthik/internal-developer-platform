@@ -1,0 +1,38 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: external-dns
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  project: default
+  source:
+    repoURL: 'https://kubernetes-sigs.github.io/external-dns/'
+    targetRevision: '1.14.3'
+    chart: external-dns
+    helm:
+      values: |
+        provider: aws
+        env:
+          - name: AWS_DEFAULT_REGION
+            value: eu-west-1
+        txtOwnerId: "idp-platform"
+        policy: sync
+        domainFilters:
+          - "internal.example.com"
+        podLabels:
+          # Pod Identity seam (Phase 7.2c)
+          pod-identity.platform.acme.corp/role: "external-dns"
+        serviceAccount:
+          create: true
+          name: external-dns
+  destination:
+    server: 'https://kubernetes.default.svc'
+    namespace: ingress-routing
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

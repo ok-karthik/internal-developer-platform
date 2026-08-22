@@ -1,0 +1,22 @@
+apiVersion: kyverno.io/v2
+kind: PolicyException
+metadata:
+  name: [[ .TenantName ]]-exceptions
+  namespace: [[ .TenantName ]]
+spec:
+  # Example: requesting an exception to the cluster-wide bucket encryption policy
+  # for a specific public asset bucket.
+  # This file would typically require approval from the Platform/Security team via CODEOWNERS.
+  exceptions:
+    - policyName: require-encrypted-buckets
+      ruleNames:
+        - require-isencrypted-true
+  match:
+    any:
+      - resources:
+          kinds:
+            - AWSBucket
+          namespaces:
+            - [[ .TenantName ]]
+          names:
+            - "[[ .TenantName ]]-public-assets"

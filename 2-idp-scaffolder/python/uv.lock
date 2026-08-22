@@ -272,7 +272,7 @@ wheels = [
 
 [[package]]
 name = "idp-scaffolder-python"
-version = "0.1.0"
+version = "2.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "fastapi", extra = ["standard"] },

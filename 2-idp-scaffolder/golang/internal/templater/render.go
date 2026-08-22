@@ -16,12 +16,13 @@ import (
 // Config holds all the data that our templates might need to render.
 // Note: Fields MUST be capitalized so they are exported and accessible by the text/template engine!
 type Config struct {
-	TeamName     string   // e.g., "payments"
+	TenantName   string   // e.g., "payments"
 	SystemName   string   // e.g., "checkout"
 	AppName      string   // e.g., "checkout-api"
 	Env          string   // e.g., "dev" (Default value, can be overridden by flags or golden-path)
 	Runtime      string   // e.g., "go" (From runtimes)
 	Capabilities []string // e.g., ["postgres", "s3"] (From flags or golden-path)
+	Owners       []string // e.g., ["payments-core", "payments-fraud"] (Used in CODEOWNERS and RBAC)
 }
 
 type Renderer struct {
@@ -135,7 +136,7 @@ func (r *Renderer) writer() Writer {
 	return OSWriter{}
 }
 
-// renderPath takes a path string like "[[ .TeamName ]]/app" and evaluates the template variables inside it
+// renderPath takes a path string like "[[ .TenantName ]]/app" and evaluates the template variables inside it
 func renderPath(pathStr string, cfg Config) (string, error) {
 	tmpl, err := template.New("path").Delims("[[", "]]").Parse(pathStr)
 	if err != nil {
@@ -151,7 +152,7 @@ func renderPath(pathStr string, cfg Config) (string, error) {
 // Substitutes {team}/{system}/{app}/{env} and prefixes OutputDir
 func (r *Renderer) resolveDestination(destTemplate string, cfg Config) string {
 	dest := destTemplate
-	dest = strings.ReplaceAll(dest, "{team}", cfg.TeamName)
+	dest = strings.ReplaceAll(dest, "{tenant}", cfg.TenantName)
 	dest = strings.ReplaceAll(dest, "{system}", cfg.SystemName)
 	dest = strings.ReplaceAll(dest, "{app}", cfg.AppName)
 
@@ -178,9 +179,9 @@ type blueprint struct {
 func (r *Renderer) RenderTenantFoundation(ctx context.Context, cfg Config) error {
 	teamBlueprints := []blueprint{
 		// Each destination key IS the source directory inside the catalog.yaml
-		{src: "per-team/apps", destKey: "per-team/apps"},     // CODEOWNERS for the app-source repo
-		{src: "per-team/infra", destKey: "per-team/infra"},   // CODEOWNERS + platform/ (providers, backend, team IAM)
-		{src: "per-team/gitops", destKey: "per-team/gitops"}, // CODEOWNERS + platform/ (tenancy boundary, ApplicationSet)
+		{src: "per-tenant/root", destKey: "per-tenant/root"}, // CODEOWNERS for the merged apps+infra repo
+		{src: "per-tenant/infra", destKey: "per-tenant/infra"},   // CODEOWNERS + platform/ (providers, backend, team IAM)
+		{src: "per-tenant/gitops", destKey: "per-tenant/gitops"}, // CODEOWNERS + platform/ (tenancy boundary, ApplicationSet)
 	}
 
 	return r.renderDestinations(ctx, teamBlueprints, cfg)

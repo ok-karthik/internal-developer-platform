@@ -1,0 +1,52 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: [[ .TenantName ]]
+  namespace: argocd
+spec:
+  description: "Project for team [[ .TenantName ]]"
+  sourceRepos:
+    - "https://github.com/ok-karthik/internal-developer-platform.git"
+  destinations:
+    - server: "https://kubernetes.default.svc"
+      namespace: "[[ .TenantName ]]"
+  clusterResourceWhitelist: []
+  # namespaceResourceWhitelist is the tenant-facing API surface: every kind the
+  # platform offers a team must appear here, or ArgoCD refuses to sync it even
+  # though the manifest rendered correctly. Adding a capability (a chart
+  # feature, an addon) is incomplete until its kind is added here too.
+  namespaceResourceWhitelist:
+    - group: "apps"
+      kind: "Deployment"
+    - group: "apps"
+      kind: "StatefulSet"
+    - group: "apps"
+      kind: "DaemonSet"
+    - group: ""
+      kind: "Service"
+    - group: ""
+      kind: "ConfigMap"
+    - group: ""
+      kind: "Secret"
+    - group: "networking.k8s.io"
+      kind: "Ingress"
+    - group: ""
+      kind: "ServiceAccount"
+    - group: "autoscaling"
+      kind: "HorizontalPodAutoscaler"
+    - group: "batch"
+      kind: "Job"
+    - group: "batch"
+      kind: "CronJob"
+    - group: "argoproj.io"
+      kind: "Rollout"
+    - group: "argoproj.io"
+      kind: "AnalysisTemplate"
+    - group: "s3.services.k8s.aws"
+      kind: "Bucket"
+    - group: "iam.services.k8s.aws"
+      kind: "Role"
+    - group: "external-secrets.io"
+      kind: "SecretStore"
+    - group: "external-secrets.io"
+      kind: "ExternalSecret"
