@@ -13,3 +13,16 @@ dist/
 .coverage
 htmlcov/
 2-idp-scaffolder/golang/scaffolder
+scaffolder
+
+# Terraform local state/provider cache — .terraform.lock.hcl IS committed
+# (it pins provider versions); the downloaded provider binaries are not.
+**/.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+*.tfvars
+*.tfvars.json
+.terraformrc
+terraform.rc

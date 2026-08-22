@@ -1,6 +1,7 @@
 package templater
 
 import (
+	"errors"
 	"scaffolder/internal/catalog"
 	"slices"
 	"testing"
@@ -45,7 +46,7 @@ func TestResolve(t *testing.T) {
 		in          Config   // the flag-populated Config
 		wantRuntime string   // expected resolved runtime
 		wantCaps    []string // expected resolved capabilities (sorted, deduped)
-		wantErr     bool
+		wantErr     error    // expected sentinel error via errors.Is
 	}{
 		{
 			name:        "runtime flag only",
@@ -72,7 +73,7 @@ func TestResolve(t *testing.T) {
 			name:       "unknown golden path is an error",
 			goldenPath: "does-not-exist",
 			in:         Config{},
-			wantErr:    true,
+			wantErr:    ErrUnknownGoldenPath,
 		},
 		// This is the case that broke when the dedup was first rewritten.
 		{
@@ -88,7 +89,13 @@ func TestResolve(t *testing.T) {
 			name:       "no runtime and no golden path is an error",
 			goldenPath: "",
 			in:         Config{},
-			wantErr:    true,
+			wantErr:    ErrRuntimeRequired,
+		},
+		{
+			name:       "unknown runtime is an error",
+			goldenPath: "",
+			in:         Config{Runtime: "rust"},
+			wantErr:    ErrUnknownRuntime,
 		},
 		// Sorting is what makes the rendered output diffable across runs.
 		{
@@ -105,9 +112,12 @@ func TestResolve(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := Resolve(testCatalog(), tt.goldenPath, tt.in)
 
-			if tt.wantErr {
+			if tt.wantErr != nil {
 				if err == nil {
-					t.Fatalf("Resolve() succeeded, want an error")
+					t.Fatalf("Resolve() succeeded, want error %v", tt.wantErr)
+				}
+				if !errors.Is(err, tt.wantErr) {
+					t.Errorf("Resolve() error = %v, want errors.Is(..., %v)", err, tt.wantErr)
 				}
 				return // nothing else to assert on the error path
 			}

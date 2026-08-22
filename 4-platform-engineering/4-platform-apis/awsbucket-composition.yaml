@@ -1,0 +1,57 @@
+# Modernized from the archived v1 composition: managed-resource API groups
+# gain an `.m.` suffix for the namespaced v2 variant a v2-scoped XR is
+# allowed to compose (e.g. s3.aws.upbound.io -> s3.aws.m.upbound.io) — v2
+# providers ship both the legacy cluster-scoped CRDs and the new namespaced
+# ones side by side for backward compatibility, and a Namespaced-scope XR
+# may only compose the namespaced ones.
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: s3.platform.io
+spec:
+  compositeTypeRef:
+    apiVersion: platform.io/v1alpha1
+    kind: XAWSBucket
+  mode: Pipeline
+  pipeline:
+    - step: patch-and-transform
+      functionRef:
+        name: function-patch-and-transform
+      input:
+        apiVersion: pt.fn.crossplane.io/v1beta1
+        kind: Resources
+        resources:
+          - name: s3-bucket
+            base:
+              apiVersion: s3.aws.m.upbound.io/v1beta1
+              kind: Bucket
+              spec:
+                forProvider:
+                  region: eu-central-1
+                providerConfigRef:
+                  name: default
+            patches:
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.parameters.bucketName
+                toFieldPath: metadata.annotations[crossplane.io/external-name]
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.parameters.region
+                toFieldPath: spec.forProvider.region
+          - name: s3-bucket-encryption
+            base:
+              apiVersion: s3.aws.m.upbound.io/v1beta1
+              kind: BucketServerSideEncryptionConfiguration
+              spec:
+                forProvider:
+                  region: eu-central-1
+                  bucketSelector:
+                    matchControllerRef: true
+                  rule:
+                    - applyServerSideEncryptionByDefault:
+                        - sseAlgorithm: AES256
+                providerConfigRef:
+                  name: default
+            patches:
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.parameters.region
+                toFieldPath: spec.forProvider.region

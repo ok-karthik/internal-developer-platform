@@ -1,0 +1,87 @@
+{
+  "_comment": "Phase 6 DORA dashboard. Deployment Frequency and (half of) Change Failure Rate are real PromQL against ArgoCD's own metrics (argocd_app_sync_total) — see Makefile's install-argocd target for the metrics.serviceMonitor flags this depends on. Lead Time and MTTR are documented as gaps, not faked: Lead Time (commit timestamp -> ArgoCD syncedAt) has no native Prometheus metric and needs a small exporter joining git log against the ArgoCD API; MTTR (alert firing -> resolved duration) needs the firing/resolved timestamps Alertmanager already sends to alert-webhook-receiver (Phase 4.3) aggregated somewhere queryable, which is a follow-up, not a single PromQL query. Change failure rate and MTTR are only meaningful because Phase 4's alerts exist at all -- that is the concrete justification for why Phase 4 came before this one.",
+  "title": "DORA Metrics — app-a / team-a",
+  "uid": "dora-app-a",
+  "editable": true,
+  "timezone": "utc",
+  "time": { "from": "now-30d", "to": "now" },
+  "refresh": "5m",
+  "tags": ["dora", "app-a", "team-a"],
+  "panels": [
+    {
+      "id": 1,
+      "title": "Deployment Frequency (successful syncs / day)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "targets": [
+        {
+          "expr": "sum(increase(argocd_app_sync_total{phase=\"Succeeded\", name=~\".*app-a.*\"}[1d]))",
+          "legendFormat": "app-a successful syncs/day",
+          "refId": "A"
+        }
+      ],
+      "description": "Source: PLAN.md Phase 6 table — 'ArgoCD sync history / git commits to gitops/apps/**'. Requires argocd metrics.serviceMonitor.enabled (Makefile install-argocd)."
+    },
+    {
+      "id": 2,
+      "title": "Change Failure Rate — sync-level (failed or errored syncs / total syncs)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "targets": [
+        {
+          "expr": "sum(increase(argocd_app_sync_total{phase=~\"Failed|Error\", name=~\".*app-a.*\"}[1d])) / clamp_min(sum(increase(argocd_app_sync_total{name=~\".*app-a.*\"}[1d])), 1)",
+          "legendFormat": "sync failure ratio",
+          "refId": "A"
+        }
+      ],
+      "description": "A proxy, not the full PLAN.md definition. PLAN.md defines change failure rate as 'Phase 4.2 alerts firing within 1h of a sync' -- a user-impact signal, not a sync-mechanics signal. This panel answers a narrower, always-answerable question (did the sync operation itself fail); the panel below is the closer approximation to the PLAN.md definition."
+    },
+    {
+      "id": 3,
+      "title": "Change Failure Rate — user-impact (SLO alerts firing, 1h window)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "targets": [
+        {
+          "expr": "count_over_time(ALERTS{alertname=~\"AppA.*BurnRate.*\", alertstate=\"firing\"}[1h])",
+          "legendFormat": "app-a SLO alerts firing (1h)",
+          "refId": "A"
+        }
+      ],
+      "description": "PLAN.md's actual definition: a Phase 4.2 burn-rate alert firing within 1h of a sync counts that deploy as a failure. This panel shows alert-firing volume; correlating a specific firing window to the specific sync that preceded it is a manual read of this panel next to the Deployment Frequency panel, not a single PromQL join -- Prometheus has no native 'join by nearest prior event' operator."
+    },
+    {
+      "id": 4,
+      "title": "Lead Time for Change — NOT YET WIRED",
+      "type": "text",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "options": {
+        "mode": "markdown",
+        "content": "**Gap, named rather than faked.** PLAN.md defines this as `commit timestamp -> ArgoCD syncedAt`. Neither Prometheus nor ArgoCD's own metrics expose a per-commit lead-time series -- `argocd_app_sync_total` counts syncs, it does not carry the originating commit's author-timestamp as a label. Closing this needs a small exporter: read `git log --format=%aI` for `3-tenant-workloads/team-a/gitops/apps/app-a/**`, pair each commit with the ArgoCD Application's `.status.sync.revision` / `.status.reconciledAt` via the ArgoCD API, and expose the delta as a histogram. Not built in this phase -- named here so the dashboard does not silently imply it works."
+      }
+    },
+    {
+      "id": 5,
+      "title": "MTTR — NOT YET WIRED",
+      "type": "text",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "options": {
+        "mode": "markdown",
+        "content": "**Gap, named rather than faked.** PLAN.md defines this as `alert firing -> resolved duration`. Prometheus's `ALERTS` series has no `resolved` state to diff against -- it simply stops existing when an alert clears, so a bare PromQL query cannot compute a duration between two events, only observe the current state. The data does exist: Alertmanager already sends both the firing AND the resolved webhook payload (`send_resolved: true` in `prometheus.yaml`'s `alertmanager.config`) to `alert-webhook-receiver` (Phase 4.3), each with a timestamp. Turning that into an MTTR number needs those two events correlated and aggregated somewhere queryable -- e.g. a small script parsing the receiver's logs, or routing resolved-with-timestamp payloads into a table. Not built in this phase."
+      }
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "DS_PROMETHEUS",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": {}
+      }
+    ]
+  }
+}

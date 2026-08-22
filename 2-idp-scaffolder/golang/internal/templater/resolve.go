@@ -1,10 +1,8 @@
 package templater
 
 import (
-	"fmt"
 	"scaffolder/internal/catalog"
 	"slices"
-	"strings"
 )
 
 // Resolve merges a golden path with explicit overrides into the final Config.
@@ -19,7 +17,11 @@ func Resolve(spec *catalog.Catalog, goldenPath string, in Config) (Config, error
 	if goldenPath != "" {
 		gp, found := spec.FindGoldenPath(goldenPath)
 		if !found {
-			return Config{}, fmt.Errorf("golden path '%s' not found in catalog", goldenPath)
+			return Config{}, &ValidationError{
+				Field: "golden-path",
+				Value: goldenPath,
+				Err:   ErrUnknownGoldenPath,
+			}
 		}
 		// An explicit --runtime wins over the golden path's.
 		if out.Runtime == "" {
@@ -29,7 +31,10 @@ func Resolve(spec *catalog.Catalog, goldenPath string, in Config) (Config, error
 	}
 
 	if out.Runtime == "" {
-		return Config{}, fmt.Errorf("a runtime is required: pass --runtime or --golden-path")
+		return Config{}, &ValidationError{
+			Field: "runtime",
+			Err:   ErrRuntimeRequired,
+		}
 	}
 
 	// Golden-path runtimes are checked at catalog load, but an explicit --runtime
@@ -37,8 +42,11 @@ func Resolve(spec *catalog.Catalog, goldenPath string, in Config) (Config, error
 	// declared set. A directory on disk that the catalog does not offer stays
 	// deliberately unreachable.
 	if _, ok := spec.Runtimes[out.Runtime]; !ok {
-		return Config{}, fmt.Errorf("unknown runtime %q (offered: %s)",
-			out.Runtime, strings.Join(spec.GetRuntimeNames(), ", "))
+		return Config{}, &ValidationError{
+			Field: "runtime",
+			Value: out.Runtime,
+			Err:   ErrUnknownRuntime,
+		}
 	}
 
 	// Sort makes output deterministic; Compact then drops the duplicates

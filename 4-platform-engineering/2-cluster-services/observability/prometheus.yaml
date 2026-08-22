@@ -1,0 +1,72 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: prometheus
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  project: default
+  source:
+    repoURL: 'https://prometheus-community.github.io/helm-charts'
+    targetRevision: '61.1.0'
+    chart: kube-prometheus-stack
+    helm:
+      parameters:
+        - name: "grafana.enabled"
+          value: "true"
+        - name: "prometheusOperator.enabled"
+          value: "true"
+      # Routing tree is the artefact here, not the integration — the receiver
+      # is a local echo service (alert-webhook-receiver.yaml) that just logs
+      # what it gets, so the path from "PromQL breaches a burn-rate threshold"
+      # to "a receiver got a POST" is demonstrable without a real PagerDuty/
+      # Slack account. `make fire-synthetic-alert` exercises this end-to-end.
+      values: |
+        alertmanager:
+          config:
+            global:
+              resolve_timeout: 5m
+            route:
+              receiver: ticket-receiver
+              group_by: ["alertname", "namespace"]
+              group_wait: 30s
+              group_interval: 5m
+              repeat_interval: 4h
+              routes:
+                - matchers:
+                    - severity = page
+                  receiver: page-receiver
+                  group_wait: 10s
+                  repeat_interval: 1h
+                - matchers:
+                    - severity = ticket
+                  receiver: ticket-receiver
+            # A firing page suppresses the matching ticket for the same SLI —
+            # once someone is being paged for it, the lower-urgency duplicate
+            # is noise, not signal.
+            inhibit_rules:
+              - source_matchers:
+                  - severity = page
+                target_matchers:
+                  - severity = ticket
+                equal: ["sloi", "namespace"]
+            receivers:
+              - name: page-receiver
+                webhook_configs:
+                  - url: "http://alert-webhook-receiver.monitoring.svc.cluster.local:8080/page"
+                    send_resolved: true
+              - name: ticket-receiver
+                webhook_configs:
+                  - url: "http://alert-webhook-receiver.monitoring.svc.cluster.local:8080/ticket"
+                    send_resolved: true
+  destination:
+    server: 'https://kubernetes.default.svc'
+    namespace: monitoring
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

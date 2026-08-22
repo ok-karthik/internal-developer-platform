@@ -23,7 +23,7 @@ var addServiceCmd = &cobra.Command{
 		}
 
 		fmt.Printf("Generating app '%s' [Runtime: %s, Capabilities: %v]\n", resolvedCfg.AppName, resolvedCfg.Runtime, resolvedCfg.Capabilities)
-		return renderer.RenderService(resolvedCfg)
+		return renderer.RenderService(cmd.Context(), resolvedCfg)
 	},
 }
 

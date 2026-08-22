@@ -1,0 +1,68 @@
+# SLO declaration for app-a (team-a). A plain ConfigMap, not a CRD: no SLO
+# operator (Sloth, Keptn, etc.) is installed in this cluster, and inventing a
+# CRD with no controller behind it would be a claim with no implementation —
+# exactly the anti-pattern PLAN.md Phase 2.2 calls out for Argo Rollouts. The
+# burn-rate math and thresholds here are the source of truth that
+# app-a-alerts.yaml's PrometheusRule was hand-derived from; keep them in sync
+# if either changes.
+#
+# KNOWN GAP: the metric names below (OTel semantic-convention HTTP server
+# duration histogram) assume traces AND metrics reach Prometheus. Today the
+# OpenTelemetry `Instrumentation` CR
+# (4-platform-engineering/2-cluster-services/observability/otel-instrumentation.yaml)
+# only wires traces to Tempo — there is no `OpenTelemetryCollector` deployment
+# or `ServiceMonitor`/`PodMonitor` exporting app-a's metrics into Prometheus
+# yet. Wiring that scrape path is a prerequisite for these SLOs and alerts to
+# fire in reality; it is out of scope for this change and is named here rather
+# than silently assumed to work, per this repo's own rule about not claiming
+# more than what is built.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-a-slo
+  namespace: monitoring
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+  labels:
+    app: app-a
+    team: team-a
+data:
+  slo.yaml: |
+    service: app-a
+    namespace: team-a
+    slis:
+      # Availability — proportion of non-5xx responses.
+      - name: availability
+        target: 0.999                # 99.9% over the window
+        window: 30d
+        # Error budget: (1 - 0.999) * 30d = 43m12s of allowed bad-request-time
+        # in a rolling 30-day window. This is what makes the burn-rate alert
+        # thresholds in app-a-alerts.yaml non-arbitrary — each one is a
+        # fraction of THIS budget, not a made-up percentage.
+        error_budget: "43m12s per 30d"
+        good_query: |
+          sum(rate(http_server_request_duration_seconds_count{
+            service_name="app-a", namespace="team-a",
+            http_response_status_code!~"5.."
+          }[{{window}}]))
+        total_query: |
+          sum(rate(http_server_request_duration_seconds_count{
+            service_name="app-a", namespace="team-a"
+          }[{{window}}]))
+
+      # Latency — proportion of requests served under 500ms.
+      - name: latency
+        target: 0.99                 # 99% of requests under the threshold
+        threshold: 500ms
+        window: 30d
+        # Error budget: 1% of all requests over 30d may exceed 500ms. Unlike
+        # availability this is a request-count budget, not a time budget.
+        error_budget: "1% of requests per 30d"
+        good_query: |
+          sum(rate(http_server_request_duration_seconds_bucket{
+            service_name="app-a", namespace="team-a", le="0.5"
+          }[{{window}}]))
+        total_query: |
+          sum(rate(http_server_request_duration_seconds_count{
+            service_name="app-a", namespace="team-a"
+          }[{{window}}]))

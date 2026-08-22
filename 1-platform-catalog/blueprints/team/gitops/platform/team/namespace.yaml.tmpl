@@ -4,6 +4,8 @@ metadata:
   name: [[ .TeamName ]]
   labels:
     team: [[ .TeamName ]]
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
 ---
 apiVersion: v1
 kind: ResourceQuota
@@ -17,6 +19,11 @@ spec:
     limits.cpu: "20"
     limits.memory: 40Gi
     pods: "50"
+    count/services.loadbalancers: "2"    # each = a real ELB = a real bill
+    count/services.nodeports: "0"        # forces traffic through the ingress
+    persistentvolumeclaims: "10"
+    requests.storage: 100Gi
+    count/secrets: "100"                 # etcd pressure
 ---
 apiVersion: v1
 kind: LimitRange
@@ -25,10 +32,18 @@ metadata:
   namespace: [[ .TeamName ]]
 spec:
   limits:
-    - default:
+    - type: Container
+      default:
         cpu: "500m"
         memory: "512Mi"
       defaultRequest:
         cpu: "100m"
         memory: "256Mi"
-      type: Container
+      max:
+        cpu: "2"
+        memory: "4Gi"
+      min:
+        cpu: "10m"
+        memory: "32Mi"
+      maxLimitRequestRatio:
+        cpu: "4"   # limits overcommit gaming

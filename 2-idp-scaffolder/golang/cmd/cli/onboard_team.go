@@ -17,7 +17,7 @@ var onboardTeamCmd = &cobra.Command{
 		fmt.Printf("Onboarding new team: %s\n", cfg.TeamName)
 
 		// Call our rendering logic
-		return renderer.RenderTenantFoundation(cfg)
+		return renderer.RenderTenantFoundation(cmd.Context(), cfg)
 	},
 }
 

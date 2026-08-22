@@ -1,0 +1,47 @@
+# Phase 7.4: the Role that used to live in this file is now the
+# platform-owned, cluster-scoped ClusterRole `platform-developer`
+# (4-platform-engineering/2-cluster-services/identity/platform-rbac-clusterroles.yaml)
+# — defined ONCE rather than re-rendered per team, which avoids every team's
+# ArgoCD Application fighting over ownership of an identically-named
+# cluster-scoped object. This RoleBinding is what scopes that shared
+# ClusterRole down to just this namespace; a RoleBinding may reference a
+# ClusterRole in roleRef and still only grant permissions within its own
+# namespace, which is the standard Kubernetes pattern this relies on.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: [[ .TeamName ]]-developer
+  namespace: [[ .TeamName ]]
+subjects:
+  # Bind to a GROUP from the IdP, never to individual users — otherwise
+  # onboarding a person becomes a platform-team ticket, which is exactly the
+  # toil an IDP exists to remove. Group name follows the Phase 7.0 contract:
+  # `platform:<team>:<tier>`, with the `oidc:` prefix the API server adds
+  # (--oidc-groups-prefix=oidc:, Phase 7.2) — chosen specifically so an IdP
+  # can never mint a group called system:masters and take the cluster.
+  - kind: Group
+    name: "oidc:platform:[[ .TeamName ]]:developer"
+    apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: ClusterRole
+  name: platform-developer
+  apiGroup: rbac.authorization.k8s.io
+---
+# Phase 7.5: break-glass. Bound to the oncall tier, never the developer
+# tier — nobody is a PERMANENT member of platform:<team>:oncall; membership
+# is granted through the IdP for a shift and revoked after. See the
+# ClusterRole's own comment for why the control is the membership lifecycle,
+# not this binding.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: [[ .TeamName ]]-breakglass
+  namespace: [[ .TeamName ]]
+subjects:
+  - kind: Group
+    name: "oidc:platform:[[ .TeamName ]]:oncall"
+    apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: ClusterRole
+  name: platform-breakglass
+  apiGroup: rbac.authorization.k8s.io

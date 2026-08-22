@@ -2,6 +2,7 @@ package templater
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io/fs"
 	"os"
@@ -40,12 +41,17 @@ type CapabilityView struct {
 }
 
 // walkAndRender recursively traverses sourceDir and renders every template file into targetDir.
-func (r *Renderer) walkAndRender(sourceDir string, targetDir string, cfg Config) error {
+func (r *Renderer) walkAndRender(ctx context.Context, sourceDir string, targetDir string, cfg Config) error {
 
 	// 1. Define an anonymous callback function (closure) for processing each file/directory.
 	// Because this function is declared INSIDE walkAndRender, it automatically captures
 	// outer variables: sourceDir, targetDir, and cfg.
 	handleFile := func(srcPath string, d fs.DirEntry, err error) error {
+		// Check if context was canceled before doing any work on this file
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+
 		// If filepath.WalkDir encountered a file system error (e.g. permission denied), return it immediately
 		if err != nil {
 			return err
@@ -70,7 +76,7 @@ func (r *Renderer) walkAndRender(sourceDir string, targetDir string, cfg Config)
 		}
 
 		// If current item is a file, parse the template and write the rendered output to targetPath
-		return r.processSingleTemplate(srcPath, targetPath, cfg)
+		return r.processSingleTemplate(ctx, srcPath, targetPath, cfg)
 	}
 
 	// 2. Start walking the directory tree.
@@ -78,7 +84,10 @@ func (r *Renderer) walkAndRender(sourceDir string, targetDir string, cfg Config)
 	return fs.WalkDir(r.CatalogFS, sourceDir, handleFile)
 }
 
-func (r *Renderer) processSingleTemplate(srcPath string, targetPath string, data any) error {
+func (r *Renderer) processSingleTemplate(ctx context.Context, srcPath string, targetPath string, data any) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	// Strip .tmpl extension for the output file
 	targetPath = strings.TrimSuffix(targetPath, ".tmpl")
 
@@ -166,7 +175,7 @@ type blueprint struct {
 
 // RenderTenantFoundation scaffolds everything a team gets exactly once. All of it
 // is platform-owned, which is why it sits behind a single verb.
-func (r *Renderer) RenderTenantFoundation(cfg Config) error {
+func (r *Renderer) RenderTenantFoundation(ctx context.Context, cfg Config) error {
 	teamBlueprints := []blueprint{
 		// Each destination key IS the source directory inside the catalog.yaml
 		{src: "blueprints/team/apps", destKey: "blueprints/team/apps"},     // CODEOWNERS for the app-source repo
@@ -174,16 +183,19 @@ func (r *Renderer) RenderTenantFoundation(cfg Config) error {
 		{src: "blueprints/team/gitops", destKey: "blueprints/team/gitops"}, // CODEOWNERS + platform/ (tenancy boundary, ApplicationSet)
 	}
 
-	return r.renderDestinations(teamBlueprints, cfg)
+	return r.renderDestinations(ctx, teamBlueprints, cfg)
 }
 
 // RenderService renders runtime, delivery, and capability templates for a service
-func (r *Renderer) RenderService(cfg Config) error {
+func (r *Renderer) RenderService(ctx context.Context, cfg Config) error {
 	// Guard the exported boundary rather than trusting the caller: path.Join drops
 	// empty segments, so an empty Runtime would silently point the walk at
 	// building-blocks/runtimes and render EVERY runtime into the one app directory.
 	if cfg.Runtime == "" {
-		return fmt.Errorf("cfg.Runtime is required")
+		return &ValidationError{
+			Field: "runtime",
+			Err:   ErrRuntimeRequired,
+		}
 	}
 
 	buildingBlocks := []blueprint{
@@ -193,7 +205,7 @@ func (r *Renderer) RenderService(cfg Config) error {
 	}
 
 	// Render Runtime, Service Meta, Delivery (Release)
-	if err := r.renderDestinations(buildingBlocks, cfg); err != nil {
+	if err := r.renderDestinations(ctx, buildingBlocks, cfg); err != nil {
 		return err
 	}
 
@@ -204,10 +216,19 @@ func (r *Renderer) RenderService(cfg Config) error {
 	}
 
 	for _, capName := range cfg.Capabilities {
+		// Check context
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+
 		// 1. Look up the capability's details from the catalog
 		spec, ok := r.Spec.Capabilities[capName]
 		if !ok {
-			return fmt.Errorf("unknown capability: %s", capName)
+			return &ValidationError{
+				Field: "capability",
+				Value: capName,
+				Err:   ErrUnknownCapability,
+			}
 		}
 
 		// 2. Construct the focused view for this specific template
@@ -225,7 +246,7 @@ func (r *Renderer) RenderService(cfg Config) error {
 		fmt.Printf("Adding infrastructure capability: %s\n", capName)
 
 		// 3. Pass `view` instead of `cfg`
-		if err := r.processSingleTemplate(srcFile, destFile, view); err != nil {
+		if err := r.processSingleTemplate(ctx, srcFile, destFile, view); err != nil {
 			return fmt.Errorf("failed rendering capability %s: %w", capName, err)
 		}
 	}
@@ -233,10 +254,10 @@ func (r *Renderer) RenderService(cfg Config) error {
 	return nil
 }
 
-func (r *Renderer) renderDestinations(bps []blueprint, cfg Config) error {
+func (r *Renderer) renderDestinations(ctx context.Context, bps []blueprint, cfg Config) error {
 	for _, item := range bps {
 		target := r.resolveDestination(r.Spec.Destinations[item.destKey], cfg)
-		if err := r.walkAndRender(item.src, target, cfg); err != nil {
+		if err := r.walkAndRender(ctx, item.src, target, cfg); err != nil {
 			return fmt.Errorf("rendering %s: %w", item.src, err)
 		}
 	}

@@ -1,7 +1,41 @@
+# 1. Default deny everything
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: default-deny-and-dns
+  name: default-deny-all
+  namespace: team-a
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+# 2. DNS — always required
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns
+  namespace: team-a
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+---
+# 3. Same-team east-west traffic
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-same-team
   namespace: team-a
 spec:
   podSelector: {}
@@ -18,12 +52,44 @@ spec:
         - namespaceSelector:
             matchLabels:
               team: team-a
-    - to:
+---
+# 4. FIX — the ingress controller must be able to reach tenant pods.
+#    Traefik runs in the `traefik` namespace and is the only path in; without
+#    this rule every ingress-enabled service is unreachable.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ingress-controller
+  namespace: team-a
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
         - namespaceSelector:
             matchLabels:
-              kubernetes.io/metadata.name: kube-system
-      ports:
-        - protocol: UDP
-          port: 53
-        - protocol: TCP
-          port: 53
+              kubernetes.io/metadata.name: traefik
+---
+# 5. FIX — egress to external services, EXCEPT the cloud metadata endpoint.
+#    169.254.169.254 is the SSRF -> IAM credential theft path (Capital One breach).
+#    Blocking it at the tenant boundary is the reason this policy is not just
+#    "allow all egress". RDS and other AWS APIs live outside the cluster, so
+#    without this rule every external dependency (e.g. `--capabilities postgres`)
+#    is provisioned but unreachable.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-egress-external
+  namespace: team-a
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 169.254.169.254/32   # IMDS
+              - 10.0.0.0/8           # force intra-VPC through explicit rules

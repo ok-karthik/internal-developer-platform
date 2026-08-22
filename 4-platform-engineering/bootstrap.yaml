@@ -9,7 +9,7 @@ spec:
   source:
     repoURL: "https://github.com/ok-karthik/internal-developer-platform.git"
     targetRevision: HEAD
-    path: 4-platform-engineering/argocd-apps # This tells Argo to apply everything inside the bootstrap folder!
+    path: 4-platform-engineering/2-cluster-services # This tells Argo to apply everything inside the bootstrap folder!
     directory:
       recurse: true
   destination:
@@ -20,4 +20,10 @@ spec:
       prune: true
       selfHeal: true
     syncOptions:
+      # Every file under addons/ now carries an explicit sync-wave (0-3, see
+      # AGENTS.md), so ordering is no longer half-specified. This option is
+      # kept anyway: it was not re-verified against a live cluster on this
+      # branch (no `make setup` run), so removing it would be an unverified
+      # claim rather than a confirmed one. Re-test removal against a cold
+      # `make setup` before deleting this line.
       - SkipDryRunOnMissingResource=true

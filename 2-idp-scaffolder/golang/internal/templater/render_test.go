@@ -2,6 +2,8 @@ package templater
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"flag"
 	"maps"
 	"os"
@@ -44,7 +46,7 @@ func TestRenderServiceGolden(t *testing.T) {
 	}
 
 	// D. Render the service
-	if err := r.RenderService(cfg); err != nil {
+	if err := r.RenderService(context.Background(), cfg); err != nil {
 		t.Fatalf("RenderService failed: %v", err)
 	}
 
@@ -191,7 +193,7 @@ func TestRenderService_BadRuntimeErrorPath(t *testing.T) {
 	}
 
 	// 1. Assert non-nil error
-	err = r.RenderService(cfg)
+	err = r.RenderService(context.Background(), cfg)
 	if err == nil {
 		t.Fatalf("RenderService() succeeded with invalid runtime, expected error")
 	}
@@ -240,17 +242,23 @@ func TestRenderService_DryRun(t *testing.T) {
 		t.Fatalf("Resolve failed: %v", err)
 	}
 
-	if err := r.RenderService(cfg); err != nil {
+	if err := r.RenderService(context.Background(), cfg); err != nil {
 		t.Fatalf("RenderService failed: %v", err)
 	}
 
 	fileCount := 0
-	_ = filepath.WalkDir(tmpOut, func(path string, d os.DirEntry, err error) error {
-		if err == nil && !d.IsDir() {
+	err = filepath.WalkDir(tmpOut, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() {
 			fileCount++
 		}
 		return nil
 	})
+	if err != nil {
+		t.Fatalf("filepath.WalkDir failed: %v", err)
+	}
 
 	if fileCount != 0 {
 		t.Errorf("DryRunWriter wrote %d files to disk, expected 0", fileCount)
@@ -283,7 +291,7 @@ func TestRenderService_SkipIfExists(t *testing.T) {
 	}
 
 	// First render: creates files
-	if err := r.RenderService(cfg); err != nil {
+	if err := r.RenderService(context.Background(), cfg); err != nil {
 		t.Fatalf("First RenderService failed: %v", err)
 	}
 
@@ -295,7 +303,7 @@ func TestRenderService_SkipIfExists(t *testing.T) {
 	}
 
 	// Second render with Force: false (should skip existing files)
-	if err := r.RenderService(cfg); err != nil {
+	if err := r.RenderService(context.Background(), cfg); err != nil {
 		t.Fatalf("Second RenderService failed: %v", err)
 	}
 
@@ -309,7 +317,7 @@ func TestRenderService_SkipIfExists(t *testing.T) {
 
 	// Third render with Force: true (should overwrite existing files)
 	r.Force = true
-	if err := r.RenderService(cfg); err != nil {
+	if err := r.RenderService(context.Background(), cfg); err != nil {
 		t.Fatalf("Third RenderService failed: %v", err)
 	}
 
@@ -319,5 +327,61 @@ func TestRenderService_SkipIfExists(t *testing.T) {
 	}
 	if bytes.Equal(gotContentAfterForce, handEdit) {
 		t.Errorf("RenderService failed to overwrite file even with --force")
+	}
+}
+
+func TestRenderService_ContextCanceled(t *testing.T) {
+	// 1. Load the catalog into memory
+	spec, err := catalog.LoadCatalog(os.DirFS(catalogDir))
+	if err != nil {
+		t.Fatalf("LoadCatalog failed: %v", err)
+	}
+
+	// 2. Create an isolated temporary directory for this test
+	tmpOut := t.TempDir()
+
+	r := &Renderer{
+		CatalogFS: os.DirFS(catalogDir),
+		Spec:      spec,
+		OutputDir: tmpOut,
+	}
+
+	cfg := Config{
+		TeamName: "payments",
+		AppName:  "checkout",
+		Runtime:  "go",
+	}
+
+	// 3. Create a context and cancel it IMMEDIATELY
+	// This simulates: "The user pressed Ctrl+C or the HTTP request disconnected right at invocation"
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // 👈 ctx is now marked as canceled!
+
+	// 4. Call RenderService with the canceled context
+	err = r.RenderService(ctx, cfg)
+
+	// 5. Assertion 1: Did RenderService properly return context.Canceled?
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("RenderService() error = %v, want errors.Is(..., context.Canceled)", err)
+	}
+
+	// 6. Assertion 2: Did it write zero files to disk?
+	fileCount := 0
+	err = filepath.WalkDir(tmpOut, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() {
+			fileCount++ // Count any files created in tmpOut
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("filepath.WalkDir failed: %v", err)
+	}
+
+	// If fileCount > 0, it means the scaffolder leaked half-written files to disk!
+	if fileCount != 0 {
+		t.Errorf("RenderService wrote %d files on canceled context, want 0", fileCount)
 	}
 }

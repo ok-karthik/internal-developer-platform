@@ -1,0 +1,55 @@
+# Phase 7.4/7.5: the two ClusterRoles every team's RoleBinding (rendered by
+# onboard-team into gitops/platform/team/rbac.yaml) references by name.
+#
+# WHY THESE LIVE HERE, PLATFORM-OWNED, RATHER THAN INSIDE THE BLUEPRINT:
+# PLAN.md's Phase 7.4 preferred option is "one ClusterRole, defined once,
+# plus one RoleBinding per namespace." A ClusterRole is cluster-scoped, so if
+# every team's onboard-team run rendered its OWN copy of an identically-named
+# ClusterRole, N different ArgoCD Applications (one per team, each scoped to
+# that team's own AppProject) would all claim to own the SAME cluster-scoped
+# object — a shared-resource conflict ArgoCD surfaces as flapping
+# OutOfSync/Synced status even when the content genuinely never differs. A
+# RoleBinding is namespace-scoped and CAN reference a ClusterRole via roleRef
+# while granting permissions only within its own namespace — that is the
+# standard Kubernetes pattern this file relies on, and it is what lets the
+# ClusterRole be defined exactly once here while every team's RoleBinding
+# still stays a per-team, blueprint-rendered file.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: platform-developer
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+rules:
+  - apiGroups: ["", "apps", "batch", "networking.k8s.io", "argoproj.io"]
+    resources: ["*"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods/log", "pods/portforward"]
+    verbs: ["get", "list", "create"]
+  # Deliberately absent: pods/exec, secrets read, and every write verb.
+  # pods/exec bypasses every guardrail above — it can read mounted secrets,
+  # mutate running state, and leaves no git trail. Break-glass is the
+  # ClusterRole below, bound to a separate, time-bound, audited group —
+  # never the default developer role.
+---
+# Phase 7.5: the break-glass role Phase 1.1's comment promised and never
+# built. Bound (by each team's rbac.yaml, rendered from the blueprint) to
+# `platform:<team>:oncall` — a group NOBODY is a permanent member of. The
+# control here is not this RBAC object, it is the IdP-side membership
+# lifecycle: granted through Keycloak for a shift, revoked after. This repo
+# implements the RBAC half only; the time-bounding is an IdP workflow this
+# repo does not run (see README.md's Phase 7.5 section).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: platform-breakglass
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+rules:
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create", "get"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list"]

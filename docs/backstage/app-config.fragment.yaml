@@ -1,0 +1,29 @@
+# Fragment to merge into a real Backstage app-config.yaml once one exists
+# (npx @backstage/create-app). Two pieces, both zero-new-code on this
+# repo's side:
+#
+# 1. catalog.locations — add-service already emits catalog-info.yaml for
+#    every scaffolded service (1-platform-catalog/building-blocks/service-meta/,
+#    AGENTS.md decision 6). Backstage's catalog just needs to be told where
+#    to look; nothing in this repo has to change for entities to appear.
+# 2. auth.providers.oidc — points Backstage at Keycloak's `backstage` client
+#    (Phase 7.1, realm-config.yaml), so the portal sits on the same identity
+#    plane as Kubernetes/ArgoCD/Grafana rather than inventing a fifth one —
+#    see README.md's "one group, every tool" table.
+
+catalog:
+  locations:
+    - type: file
+      target: ../../../3-tenant-workloads/*/apps/*/catalog-info.yaml
+      rules:
+        - allow: [Component, System, API]
+
+auth:
+  environment: development
+  providers:
+    oidc:
+      development:
+        metadataUrl: https://keycloak.localhost/realms/platform/.well-known/openid-configuration
+        clientId: backstage
+        clientSecret: ${KEYCLOAK_BACKSTAGE_CLIENT_SECRET}
+        prompt: auto

@@ -28,18 +28,54 @@ runtimes:
 # Capabilities are declarative claims resolved to blessed, version-pinned modules.
 # The version pins below are the only hand-maintained ones in the repo; Renovate
 # bumps them via the custom regex manager in renovate.json.
-capabilities_source_base: "git::https://github.com/ok-karthik/internal-developer-platform.git//4-platform-engineering/cloud-services-terraform-modules"
+capabilities_source_base: "git::https://github.com/ok-karthik/internal-developer-platform.git//4-platform-engineering/3-capability-modules"
 
+#
+# `provisioner` is a platform decision expressed in data, not a fork in the road:
+# ACK reconciles continuously with no plan step — deleting a CR can delete a live
+# resource with no review gate. That is fine for a bucket and unacceptable for a
+# production database. So: ACK for cheap, recreatable, per-app resources;
+# Terraform for stateful and expensive ones. The developer requesting the
+# capability never learns which they got, which is the abstraction working
+# correctly. `kind`/`group` are only meaningful for provisioner: ack (the ACK
+# CRD identity); `module`/`version` are only meaningful for provisioner:
+# terraform. Both s3 and iam carry module/version for now regardless of
+# provisioner — neither scaffolder engine consumes `provisioner` yet (that is a
+# documented follow-up), so the existing Terraform capability templates
+# (s3.tf.tmpl, iam.tf.tmpl) must keep working until they do.
 capabilities:
+  # Phase 10.2: the portability seam, proved with exactly one capability on
+  # exactly one second provider, and stopped there. postgres stays on
+  # aws/postgres because AWS/EKS is this platform's stated target (see
+  # PLAN.md's Target Environment section) — 3-capability-modules/azure/postgres/
+  # exists with the SAME variable/output contract (team_name, app_name, env,
+  # tags in; db_identifier, db_endpoint out) specifically so switching this
+  # platform's cloud is provably this one line:
+  #   module: azure/postgres
+  # and nothing else — no renderer change, no template edit, because the
+  # provider was already a path segment in `module:`, not a separate field
+  # (Phase 3.8). The developer requesting postgres never learns which
+  # provider they got either way — same abstraction argument as
+  # `provisioner:` above, one level up. Do not actually flip this line;
+  # doing so would silently break every golden-path service currently
+  # pointed at AWS. The seam is proved by the module existing with a
+  # matching contract, not by switching the platform's live target.
   postgres:
-    module: aws-postgres
-    version: v1.1.0
+    provisioner: terraform   # stateful, expensive, wants a plan step
+    module: aws/postgres     # provider is a path segment, not a name prefix
+    version: v1.2.0
   s3:
-    module: aws-s3
-    version: v1.1.0
+    provisioner: ack         # cheap, recreatable, per-app
+    module: aws/s3
+    version: v1.2.0
+    kind: Bucket
+    group: s3.services.k8s.aws
   iam:
-    module: aws-iam
-    version: v1.1.0
+    provisioner: ack
+    module: aws/iam
+    version: v1.2.0
+    kind: Role
+    group: iam.services.k8s.aws
 
 # The output contract: catalog source directory -> where it is written, relative to
 # 3-tenant-workloads/. Every key is the LITERAL source directory in this catalog, so
@@ -65,3 +101,12 @@ destinations:
   building-blocks/service-meta:     "{team}/apps/{app}/"
   building-blocks/capabilities:     "{team}/infra/apps/{app}/{env}/"
   building-blocks/delivery/release: "{team}/gitops/apps/{app}/{env}/"
+
+  # ACK capability manifests (provisioner: ack, e.g. s3.yaml.tmpl) land in
+  # gitops/, not infra/, so ArgoCD applies them instead of a Terraform run.
+  # Same source directory as the Terraform capability templates above — the
+  # renderer would need to dispatch by file extension (.yaml.tmpl vs .tf.tmpl)
+  # to route between these two keys, which is unbuilt in both engines today
+  # (see the provisioner comment above capabilities:). Declared here so the
+  # output location is a YAML fact, not something invented in code later.
+  building-blocks/capabilities-ack: "{team}/gitops/apps/{app}/{env}/"

@@ -1,0 +1,134 @@
+# The realm is seeded declaratively (this ConfigMap, imported on Keycloak
+# startup) rather than clicked through the admin UI — a platform whose
+# identity config only exists in a running container is not a platform.
+#
+# Wave 0, despite being "namespaced config" (normally wave 2 per the table in
+# .agents/AGENTS.md): this ConfigMap must exist BEFORE keycloak.yaml's
+# Application starts the pod that mounts it, so the usual "config comes after
+# its installer" ordering is inverted here on purpose. The wave table is a
+# guideline; a genuine reverse dependency overrides it, and this comment is
+# why an auditor should not "fix" this into wave 2.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: keycloak-realm-config
+  namespace: keycloak
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+  labels:
+    app: keycloak
+data:
+  platform-realm.json: |
+    {
+      "realm": "platform",
+      "enabled": true,
+      "sslRequired": "external",
+      "registrationAllowed": false,
+      "loginTheme": "keycloak",
+
+      "groups": [
+        {
+          "name": "platform",
+          "subGroups": [
+            { "name": "admin" }
+          ]
+        },
+        {
+          "name": "team-a",
+          "subGroups": [
+            { "name": "developer" },
+            { "name": "oncall" }
+          ]
+        }
+      ],
+
+      "clients": [
+        {
+          "clientId": "kubernetes",
+          "protocol": "openid-connect",
+          "publicClient": true,
+          "standardFlowEnabled": true,
+          "directAccessGrantsEnabled": false,
+          "redirectUris": ["http://localhost:8000/callback", "http://localhost:18000/callback"],
+          "attributes": { "pkce.code.challenge.method": "S256" },
+          "protocolMappers": [
+            {
+              "name": "groups",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-group-membership-mapper",
+              "config": {
+                "full.path": "true",
+                "id.token.claim": "true",
+                "access.token.claim": "true",
+                "claim.name": "groups",
+                "userinfo.token.claim": "true"
+              }
+            }
+          ]
+        },
+        {
+          "clientId": "argocd",
+          "protocol": "openid-connect",
+          "publicClient": false,
+          "standardFlowEnabled": true,
+          "redirectUris": ["https://argocd.localhost/auth/callback"],
+          "webOrigins": ["https://argocd.localhost"],
+          "protocolMappers": [
+            {
+              "name": "groups",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-group-membership-mapper",
+              "config": {
+                "full.path": "true",
+                "id.token.claim": "true",
+                "access.token.claim": "true",
+                "claim.name": "groups",
+                "userinfo.token.claim": "true"
+              }
+            }
+          ]
+        },
+        {
+          "clientId": "grafana",
+          "protocol": "openid-connect",
+          "publicClient": false,
+          "standardFlowEnabled": true,
+          "redirectUris": ["https://grafana.localhost/login/generic_oauth"],
+          "protocolMappers": [
+            {
+              "name": "groups",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-group-membership-mapper",
+              "config": {
+                "full.path": "true",
+                "id.token.claim": "true",
+                "access.token.claim": "true",
+                "claim.name": "groups",
+                "userinfo.token.claim": "true"
+              }
+            }
+          ]
+        },
+        {
+          "clientId": "backstage",
+          "protocol": "openid-connect",
+          "publicClient": false,
+          "standardFlowEnabled": true,
+          "redirectUris": ["https://backstage.localhost/api/auth/oidc/handler/frame"],
+          "protocolMappers": [
+            {
+              "name": "groups",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-group-membership-mapper",
+              "config": {
+                "full.path": "true",
+                "id.token.claim": "true",
+                "access.token.claim": "true",
+                "claim.name": "groups",
+                "userinfo.token.claim": "true"
+              }
+            }
+          ]
+        }
+      ]
+    }
