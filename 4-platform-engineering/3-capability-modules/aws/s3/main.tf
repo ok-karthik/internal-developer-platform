@@ -6,7 +6,7 @@ terraform {
   # be cleanly removed — Terraform requires the config to outlive the resources.
   # Providers are configured once in the root module (platform/providers.tf).
   required_providers {
-    aws    = { source = "hashicorp/aws", version = "~> 5.0" }
+    aws    = { source = "hashicorp/aws", version = "~> 6.0" }
     random = { source = "hashicorp/random", version = "~> 3.6" }
   }
 }

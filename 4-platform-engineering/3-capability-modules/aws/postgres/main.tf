@@ -4,7 +4,7 @@ terraform {
   # Declared here, NOT as a `provider "random" {}` block — see the note in
   # ../s3/main.tf. Providers are configured in the root module.
   required_providers {
-    aws    = { source = "hashicorp/aws", version = "~> 5.0" }
+    aws    = { source = "hashicorp/aws", version = "~> 6.0" }
     random = { source = "hashicorp/random", version = "~> 3.6" }
   }
 }
