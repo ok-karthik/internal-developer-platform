@@ -15,6 +15,7 @@ dist/
 htmlcov/
 2-idp-scaffolder/golang/scaffolder
 scaffolder
+2-idp-scaffolder/golang/idp-cli
 
 # Terraform local state/provider cache — .terraform.lock.hcl IS committed
 # (it pins provider versions); the downloaded provider binaries are not.
