@@ -13,3 +13,4 @@ dist/
 .coverage
 htmlcov/
 2-idp-scaffolder/golang/scaffolder
+scaffolder

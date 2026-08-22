@@ -14,10 +14,13 @@ import (
 )
 
 var (
-	outputRoot  string
-	catalogRoot string
-	dryRun      bool
-	force       bool
+	outputRoot     string
+	catalogRoot    string
+	dryRun         bool
+	force          bool
+	catalogRefresh bool
+
+	catalogRef = "main"
 
 	// cfg holds the CLI flags (--team-name, --app-name, etc)
 	cfg templater.Config
@@ -30,6 +33,7 @@ var rootCmd = &cobra.Command{
 	Use:          "scaffolder",
 	Short:        "Scaffolds templates for IDPs",
 	Long:         `CLI tool that scaffolds application templates for IDPs. Created using GoLang Cobra CLI library.`,
+	Version:      catalogRef,
 	SilenceUsage: true,
 	// PersistentPreRunE is inherited by all subcommands (e.g. onboard-team).
 	// Unlike RunE (which runs command-specific logic), this runs BEFORE every subcommand
@@ -63,24 +67,19 @@ var rootCmd = &cobra.Command{
 		}
 
 		if catalogRoot == "" {
-			// 2. Download the templates with a beautiful spinner!
+			// 2. Download the templates with a beautiful spinner icon!
 			s := spinner.New(spinner.CharSets[14], 100*time.Millisecond)
 			s.Suffix = " Fetching templates from GitHub..."
 			s.Start()
 
-			// TODO(platform): this should be a --catalog-ref flag defaulting to a
-			// release tag stamped at build time via -ldflags, so a bad catalog
-			// commit cannot break every engineer at once and a rollback is possible.
-			// Tracked as Phase 4 in TODO.md. Until then, track the default branch —
-			// never a feature branch, which disappears when it merges.
 			var err error
-			catalogRoot, err = fetchRemoteCatalog("main")
+			catalogRoot, err = fetchRemoteCatalog(catalogRef)
 			if err != nil {
-				s.Stop() // Make sure to stop it if there's an error!
+				s.Stop()
 				return err
 			}
 
-			s.Stop()
+			s.Stop() // Stop Spinner icon
 			fmt.Println("✅ Templates fetched!")
 		} else {
 			fmt.Printf("📁 Using local catalog from: %s\n", catalogRoot)
@@ -130,20 +129,27 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&catalogRoot, "catalog-root", "", "path to 1-platform-catalog (default: auto-discovered)")
 	rootCmd.PersistentFlags().BoolVar(&dryRun, "dry-run", false, "print what would be written without writing it")
 	rootCmd.PersistentFlags().BoolVar(&force, "force", false, "force overwrite of existing files")
+	rootCmd.PersistentFlags().StringVar(&catalogRef, "catalog-ref", catalogRef, "catalog git ref (tag, branch, or SHA)")
+	rootCmd.PersistentFlags().BoolVar(&catalogRefresh, "catalog-refresh", false, "force re-download of cached catalog")
+
 }
 
 // This downloads the catalog from GitHub into a temporary folder
 func fetchRemoteCatalog(version string) (string, error) {
 	// 1. Where to save it locally (e.g. ~/.scaffolder-cache/v1.0.0/)
-	//
-	// Discarding this error used to leave home as "", which makes cacheDir a
-	// RELATIVE .scaffolder-cache/<ref> — silently written into whatever
-	// directory the user happened to run from, and never found again.
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("cannot locate home directory for the catalog cache: %w", err)
 	}
 	cacheDir := filepath.Join(home, ".scaffolder-cache", version)
+
+	// If --catalog-refresh is set, wipe the cached folder first
+	if catalogRefresh {
+		if err := os.RemoveAll(cacheDir); err != nil {
+			return "", fmt.Errorf("clearing catalog cache: %w", err)
+		}
+	}
+
 	// 2. The remote Git URL (you can even specify branches or tags using ?ref=)
 	url := "git::https://github.com/ok-karthik/internal-developer-platform.git//1-platform-catalog?ref=" + version
 	// 3. HashiCorp's go-getter handles the actual download
