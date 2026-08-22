@@ -49,7 +49,7 @@ jobs:
         with:
           # This is the HELM version, not the action version. It previously read
           # v4.2.0 — the action's own tag — which does not resolve to a Helm release.
-          version: v4.2.3
+          version: v4.2.4
 
       - name: Lint the platform chart
         # The chart is shared by every service on the platform, so a broken chart is
