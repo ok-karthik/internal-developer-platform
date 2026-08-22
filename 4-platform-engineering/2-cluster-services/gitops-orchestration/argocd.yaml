@@ -1,0 +1,28 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argocd
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  project: default
+  sources:
+    - repoURL: 'https://argoproj.github.io/argo-helm'
+      chart: argo-cd
+      targetRevision: '*'
+      helm:
+        valueFiles:
+          - $values/4-platform-engineering/2-cluster-services/gitops-orchestration/values.yaml
+    - repoURL: 'https://github.com/ok-karthik/internal-developer-platform.git'
+      targetRevision: HEAD
+      ref: values
+  destination:
+    server: 'https://kubernetes.default.svc'
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      # DO NOT enable selfHeal for ArgoCD itself. Break-glass via direct Helm upgrade.
+    syncOptions:
+      - ServerSideApply=true

@@ -4,9 +4,16 @@
 # roughly the same cadence — splitting further would only add remote-state
 # indirection with no isolation benefit.
 terraform {
-  required_version = ">= 1.5"
+  required_version = ">= 1.10"
   required_providers {
     aws = { source = "hashicorp/aws", version = "~> 5.0" }
+  }
+  backend "s3" {
+    bucket       = "acme-corp-terraform-state"
+    key          = "platform/aws/network/terraform.tfstate"
+    region       = "us-east-1"
+    use_lockfile = true
+    encrypt      = true
   }
 }
 

@@ -122,54 +122,10 @@ install-argocd:
 	helm repo add argo https://argoproj.github.io/argo-helm
 	helm repo update
 	@echo "Installing/Upgrading ArgoCD..."
-	# metrics.enabled + the two serviceMonitor flags expose argocd_app_sync_total
-	# and friends to the kube-prometheus-stack Prometheus (its default
-	# serviceMonitorSelector has no label restriction, so any ServiceMonitor in
-	# the cluster is picked up) — this is what makes the Phase 6 DORA dashboard's
-	# deployment-frequency and change-failure-rate panels queryable at all.
-	#
-	# configs.cm.oidc\.config + configs.rbac.policy.csv wire ArgoCD's OWN login
-	# (Phase 7.3) to Keycloak's `argocd` client — this is a THIRD, independent
-	# OIDC usage from the Kubernetes-API-server one in create-cluster's comment
-	# above and the workload-identity one in 1-cloud-foundation/aws/workload-identity/;
-	# see the Four Planes table in .agents/AGENTS.md for why these do not
-	# collapse into one config. Written to a temp file rather than piped via a
-	# Makefile heredoc: GNU Make strips a leading tab from every recipe line,
-	# including heredoc body lines, which silently flattens YAML indentation.
-	@printf '%s\n' \
-		'configs:' \
-		'  cm:' \
-		'    url: "https://argocd.localhost"' \
-		'    oidc.config: |' \
-		'      name: Keycloak' \
-		'      issuer: https://keycloak.localhost/realms/platform' \
-		'      clientID: argocd' \
-		'      clientSecret: $$oidc.keycloak.clientSecret' \
-		'      requestedScopes: ["openid", "profile", "email", "groups"]' \
-		'  rbac:' \
-		'    policy.default: role:readonly' \
-		'    policy.csv: |' \
-		'      # Regenerated per team by onboard-team once the scaffolder consumes' \
-		'      # this (documented follow-up, Phase 7.3 -- 2-idp-scaffolder is out of' \
-		'      # scope on this branch). team-a rows below are the seed pattern: copy-' \
-		'      # paste per team until that automation exists.' \
-		'      p, role:team-a-developer, applications, get,      team-a/*, allow' \
-		'      p, role:team-a-developer, applications, sync,     team-a/*, allow' \
-		'      p, role:team-a-developer, logs,         get,      team-a/*, allow' \
-		'      p, role:team-a-developer, applications, delete,   team-a/*, deny' \
-		'      p, role:team-a-developer, applications, override, team-a/*, deny' \
-		'      g, platform:team-a:developer, role:team-a-developer' \
-		> /tmp/idp-argocd-values.yaml
 	helm upgrade --install argocd argo/argo-cd \
 		--namespace argocd \
-		--reuse-values \
-		--set server.extraArgs="{--insecure}" \
-		--set metrics.enabled=true \
-		--set metrics.serviceMonitor.enabled=true \
-		--set controller.metrics.enabled=true \
-		--set controller.metrics.serviceMonitor.enabled=true \
 		--create-namespace \
-		-f /tmp/idp-argocd-values.yaml
+		-f 4-platform-engineering/2-cluster-services/gitops-orchestration/values.yaml
 
 bootstrap:
 	@echo "Bootstrapping platform..."

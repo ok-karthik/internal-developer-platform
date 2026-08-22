@@ -1,0 +1,37 @@
+server:
+  extraArgs:
+    - --insecure
+
+metrics:
+  enabled: true
+  serviceMonitor:
+    enabled: true
+
+controller:
+  metrics:
+    enabled: true
+    serviceMonitor:
+      enabled: true
+
+configs:
+  cm:
+    url: "https://argocd.localhost"
+    oidc.config: |
+      name: Keycloak
+      issuer: https://keycloak.localhost/realms/platform
+      clientID: argocd
+      clientSecret: $oidc.keycloak.clientSecret
+      requestedScopes: ["openid", "profile", "email", "groups"]
+  rbac:
+    policy.default: role:readonly
+    policy.csv: |
+      # Regenerated per team by onboard-team once the scaffolder consumes
+      # this (documented follow-up, Phase 7.3 -- 2-idp-scaffolder is out of
+      # scope on this branch). team-a rows below are the seed pattern: copy-
+      # paste per team until that automation exists.
+      p, role:team-a-developer, applications, get,      team-a/*, allow
+      p, role:team-a-developer, applications, sync,     team-a/*, allow
+      p, role:team-a-developer, logs,         get,      team-a/*, allow
+      p, role:team-a-developer, applications, delete,   team-a/*, deny
+      p, role:team-a-developer, applications, override, team-a/*, deny
+      g, platform:team-a:developer, role:team-a-developer

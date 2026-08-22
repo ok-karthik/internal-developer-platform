@@ -1,0 +1,13 @@
+{{- if or (and (not .Values.autoscaling.enabled) (gt (int (default 1 .Values.replicaCount)) 1)) (and .Values.autoscaling.enabled (gt (int (default 1 .Values.autoscaling.minReplicas)) 1)) }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "app.fullname" . }}
+  labels:
+    {{- include "app.labels" . | nindent 4 }}
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      {{- include "app.selectorLabels" . | nindent 6 }}
+{{- end }}

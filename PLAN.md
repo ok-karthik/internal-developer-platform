@@ -567,3 +567,214 @@ Small, independent, no ordering constraints.
   as a separate concern from `observability/` after Phase 3.7, or whether the two should
   merge. Two directories for one signal path is the same naming failure Phase 3.8 fixed
   one level up.
+
+---
+
+## Phase 17 — Day-2 operations: what only hurts after six months
+
+The control plane is complete — catalog, scaffolder, GitOps, tenancy, identity, policy and
+observability all exist and are coherent. What is thin is everything that only starts
+hurting once the platform has been *running* for a while. This phase is that list.
+
+**Sub-phases are independent.** If time is short, the best credibility-per-hour is
+**17.4 (minutes) → 17.2 (an hour) → 17.1 (an afternoon)**. 17.3 is the highest-value new
+capability but costs roughly a day.
+
+---
+
+### 17.1 — Remote state for the platform's own Terraform
+
+**The gap.** `3-tenant-workloads/<tenant>/infra/platform/providers.tf` declares
+`backend "s3"` with locking. `4-platform-engineering/1-cloud-foundation/aws/*/main.tf`
+declares **no backend at all** — the platform's own state is local. In production that
+means no locking (two engineers applying concurrently corrupts state), no version history,
+no encryption at rest, and a lost laptop losing the only record of what the platform is.
+
+**The bootstrap chicken-and-egg.** The state bucket cannot itself be stored in the state
+bucket. The standard resolution, and the one to implement:
+
+1. Create `1-cloud-foundation/aws/bootstrap/` — S3 bucket with versioning, SSE, and a
+   public-access block. Nothing else belongs here; it exists once and is never touched again.
+2. Apply it with **local state**.
+3. Add a `backend "s3"` block to `bootstrap/` itself and run
+   `terraform init -migrate-state`, moving its state into the bucket it just created.
+4. Add `backend "s3"` to `network/`, `cluster/`, `cluster-access/`, `workload-identity/`
+   and `organization/`, one key each:
+   `platform/aws/<component>/terraform.tfstate`.
+
+**Use S3-native locking, not DynamoDB.** Terraform 1.10+ supports `use_lockfile = true`,
+which removes a whole resource from the design. Modernise
+`1-platform-catalog/per-tenant/infra/platform/providers.tf.tmpl` at the same time — it
+still uses `dynamodb_table`, which is now the legacy path.
+
+**One state per component, not one for everything.** A blast radius the size of the whole
+platform is the thing separate state files exist to prevent: a mistake in
+`cluster-access/` should not be able to destroy the VPC.
+
+**Verify.** `terraform init -backend=false && terraform validate` still passes in every
+directory — the Appendix B tier-1 checks are unaffected by a backend block, so this costs
+nothing in CI and does not require credentials.
+
+---
+
+### 17.2 — Make ArgoCD self-managed
+
+**The gap.** `make install-argocd` installs ArgoCD imperatively, and nothing under
+`2-cluster-services/gitops-orchestration/` is an `Application` managing argo-cd itself. The
+one component that reconciles everything else is the one component nobody reconciles —
+upgrading it is a manual `helm upgrade` performed outside GitOps, with no diff, no history
+and no rollback. *"Who deploys the deployer?"* is a standard interview question and this is
+the standard answer.
+
+**Build it.** Add `2-cluster-services/gitops-orchestration/argocd.yaml`: an `Application`
+pointing at the same argo-cd chart and the same values the Makefile uses, in the earliest
+sync wave.
+
+Three things that will bite:
+
+- **The values must match what was installed imperatively**, or the first sync fights the
+  bootstrap install and flaps. Extract the Makefile's values into a committed
+  `values.yaml` and have both the Makefile and the `Application` read that one file.
+- **Use `ServerSideApply=true`.** ArgoCD's own CRDs exceed the
+  `kubectl.kubernetes.io/last-applied-configuration` annotation size limit; client-side
+  apply fails on them.
+- **Think before enabling `selfHeal` on this one Application.** If a bad value breaks the
+  repo-server, self-heal removes your ability to fix it *through* ArgoCD. Document the
+  break-glass explicitly: `helm upgrade` directly against the cluster, then let
+  reconciliation resume.
+
+---
+
+### 17.3 — Supply chain: sign what you build, verify what you run
+
+**The gap.** CI builds images and pushes them to GHCR with **no scan, no signature, no SBOM
+and no provenance**. Separately, Kyverno is installed but carries no `verifyImages` rule —
+so the cluster will run any image from anywhere. Every piece needed is already present;
+none of them are connected.
+
+**(a) Scan.** Add Trivy to `tenant-workloads-ci-cd.yaml` after the image build, failing the
+job on `HIGH,CRITICAL`. Set `ignore-unfixed: true` — a finding with no available fix is
+noise, and a noisy gate is an ignored gate.
+
+**(b) Sign, keylessly.** `cosign sign --yes` using the workflow's GitHub OIDC token
+(`permissions: id-token: write`). No private key to store, rotate or leak — the signing
+identity *is* the workflow identity, which is the whole point.
+
+**(c) SBOM.** `syft` to generate it, `cosign attest` to attach it to the image.
+
+**(d) Verify at admission — this is the step that closes the loop.** A new Kyverno
+`ClusterPolicy` in `2-cluster-services/security-governance/supply-chain/` with a
+`verifyImages` rule, keyless, trusting issuer
+`https://token.actions.githubusercontent.com` and the subject of the workflow that signs.
+
+> **Gotcha that will break your cluster if you skip it.** In `Enforce` mode a
+> `verifyImages` rule blocks *everything* unsigned — including Traefik, Prometheus, Loki,
+> Keycloak and every other addon image, none of which you sign. **Scope the rule to your
+> own registry and the tenant namespaces only.** Roll it out in `Audit` first, read the
+> policy report, then switch to `Enforce`.
+
+Same argument as Phase 12: one definition, two enforcement points — build time and
+admission time.
+
+---
+
+### 17.4 — PodDisruptionBudget in the platform chart
+
+**The cheapest fix in this phase and the one with the highest consequence.** A node drain
+is exactly what an EKS version upgrade performs, and with no PDB the drain can evict every
+replica of a service simultaneously.
+
+Add `1-platform-catalog/charts/service/templates/poddisruptionbudget.yaml`.
+
+> **Render it only when `replicaCount > 1`, and use `maxUnavailable: 1`.** A
+> `minAvailable: 1` PDB on a single-replica Deployment blocks the drain **forever** — the
+> node never cordons, the upgrade hangs, and the cause is nowhere near the symptom. This
+> is the most common way a PDB makes things worse than having none.
+
+---
+
+### 17.5 — Autoscaling: HPA and metrics-server
+
+**The gap.** No HPA in the chart and no `metrics-server` in the cluster, so nothing scales
+on load.
+
+- Add `metrics-server` as an `Application` under `2-cluster-services/`.
+- Add `charts/service/templates/hpa.yaml`, gated on `autoscaling.enabled` (default off).
+- Argo Rollouts is already installed, so where `rollout.yaml` is active the HPA's
+  `scaleTargetRef` must be `kind: Rollout`, not `Deployment`.
+
+> **Omit `replicas:` from the Deployment/Rollout template whenever `autoscaling.enabled`
+> is true.** Otherwise the HPA sets the replica count, ArgoCD sees drift from the committed
+> manifest, resets it, the HPA scales again — a permanent sync loop. This is the single
+> most common GitOps + HPA bug.
+
+---
+
+### 17.6 — Node capacity: Karpenter, or a written decision not to
+
+`1-cloud-foundation/aws/cluster/main.tf` provisions a fixed `aws_eks_node_group` with
+`max_size = desired + 2`. That is a demo shape, not a production one: capacity cannot
+respond to load, and instance types are chosen once by a human.
+
+Karpenter is the current EKS standard and high-signal. Building it means an `EC2NodeClass`
+and a `NodePool`, an IAM role via Pod Identity, an SQS interruption queue, and subnet and
+security-group discovery **tags on the resources `network/` already creates** — that tag
+dependency is the part people miss, so add the tags in the same commit.
+
+If you do not build it, write the decision down as an ADR — an explicit "fixed node group,
+because X" reads as a choice, while an unexplained fixed node group reads as an oversight.
+
+---
+
+### 17.7 — external-dns
+
+cert-manager automates certificates, but DNS records for Ingress hostnames are still
+created by hand — half the loop automated. Add `external-dns` as an `Application` with a
+Route53 role via the Pod Identity seam from Phase 7.2c, scoped to one hosted zone.
+
+This is also the cheapest live demonstration that the workload-identity seam actually
+works, since external-dns fails loudly and immediately when its credentials are wrong.
+
+---
+
+### 17.8 — Write the disaster recovery position
+
+Do not install Velero reflexively. For a GitOps platform most of the answer is genuinely
+*"re-bootstrap the cluster and let ArgoCD reconcile from git"* — and stating that clearly
+is a stronger answer than a backup tool nobody has restored from.
+
+What matters is naming, in `docs/disaster-recovery.md`, what git does **not** hold:
+
+| Not in git | Consequence if lost | Mitigation |
+|---|---|---|
+| PVC data (Prometheus TSDB, Loki chunks, Keycloak DB) | metrics/log history gone; Keycloak realm gone if not seeded declaratively | Keycloak realm **is** declarative (Phase 7) — verify that is still true. Snapshot the rest or accept the loss explicitly. |
+| Terraform state | the platform's own resources become unmanaged | 17.1 — versioned S3 bucket |
+| **The Sealed Secrets controller private key** | **every `SealedSecret` in git becomes permanently undecryptable** | Back it up, off-cluster, before anything else |
+
+That third row is the one people miss, and it is unrecoverable. The backup is one command:
+
+```bash
+kubectl get secret -n kube-system \
+  -l sealedsecrets.bitnami.com/sealed-secrets-key -o yaml > sealed-secrets-key.yaml
+```
+
+Store it wherever your break-glass credentials live — never in this repo. State an RTO and
+RPO even if the honest answer is "hours, and we accept losing observability history."
+
+---
+
+### 17.9 — Loose ends
+
+- **Two secret systems, no rule.** sealed-secrets *and* external-secrets are both
+  installed. That is defensible — sealed-secrets for bootstrap secrets that must exist
+  before any cloud dependency, external-secrets for everything that has a real secret
+  store behind it. Write that one sentence down, or it reads as indecision.
+- **Cluster upgrade runbook.** EKS versions age out in roughly 14 months. Add
+  `docs/runbooks/cluster-upgrade.md`: the control-plane-then-nodes order, the addon
+  compatibility check, and what 17.4's PDBs are protecting during the node roll.
+- **Verify the Phase 13 rename actually re-rendered.**
+  `3-tenant-workloads/tenant-a/infra/platform/providers.tf` still contains
+  `key = "teams/team-a/terraform.tfstate"` and `Team = "team-a"` while the directory is
+  `tenant-a`. Either the template kept the old string or the output was never re-rendered.
+  Check the `.tmpl`, re-render, and confirm — this is exactly the stale-output class of
+  bug that Phase 11a's acceptance job exists to catch.

@@ -31,6 +31,7 @@ on:
 permissions:
   contents: write
   packages: write
+  id-token: write # required for sigstore/cosign keyless signing
 
 env:
   CHART_DIR: 1-platform-catalog/charts/service
@@ -69,6 +70,15 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Cosign
+        uses: sigstore/cosign-installer@v3.5.0
+
+      - name: Setup Syft
+        uses: anchore/sbom-action/download-syft@v0
+
+      - name: Setup Trivy
+        run: curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
 
       # ---------------------------------------------------------------------
       # CI: one image per app, regardless of how many environments it has.
@@ -111,6 +121,15 @@ jobs:
 
             docker push "$IMAGE:latest"
             docker push "$IMAGE:v${{ github.run_number }}"
+            
+            echo "Generating SBOM with Syft..."
+            syft "$IMAGE:latest" -o spdx-json=sbom.json
+            
+            echo "Scanning image with Trivy..."
+            trivy image --severity HIGH,CRITICAL --no-progress "$IMAGE:latest"
+            
+            echo "Signing image with Cosign..."
+            cosign sign --yes "$IMAGE:latest"
             echo "::endgroup::"
           done < /tmp/apps.txt
 
