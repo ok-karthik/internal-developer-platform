@@ -216,6 +216,84 @@ for the `sts:AssumeRole` + `ExternalId` trust policy this implies.
 
 ---
 
+## 🔐 Identity & Single Sign-On (Phase 7)
+
+Phase 1.1 binds the developer `Role` to `Group: oidc:<team>`. Before Phase 7, **that group
+existed nowhere** — nothing issued it, nothing validated it, no human had ever
+authenticated to this platform. "How do you stop team-a touching team-b?" has four
+separate answers, not one, and conflating them is the most common mistake here:
+
+| Plane | Question it answers | Enforced by |
+|---|---|---|
+| **Kubernetes API** | what can this human do with `kubectl`? | RBAC `Role`/`RoleBinding` |
+| **ArgoCD** | who may sync/rollback which app? | `argocd-rbac-cm` `policy.csv` |
+| **ArgoCD (deploy surface)** | what *kinds* may be deployed, and where? | `AppProject` |
+| **Workload → cloud** | what may the *pod itself* do in AWS? | IRSA / Pod Identity |
+
+The last plane is not a human plane at all — it answers "what can this pod do in AWS,"
+which has nothing to do with who is running `kubectl`. Every plane is driven by **one**
+group naming contract, chosen once and never varied: `platform:<team>:<tier>` (e.g.
+`platform:team-a:developer`, `platform:team-a:oncall`).
+
+**Keycloak is a self-hosted stand-in** for a corporate IdP (Entra ID / Okta) plus AWS IAM
+Identity Center, chosen so the whole loop runs locally with no corporate tenant. The chain
+a real AWS shop runs:
+
+```
+Corporate IdP (Entra ID / Okta) --SAML+SCIM--> IAM Identity Center --Permission Set-->
+an IAM role vended per account --> EKS Access Entry (maps that role to a K8s group) -->
+RoleBinding (unchanged)
+```
+
+On real EKS, human `kubectl` auth is **IAM Access Entries** (`1-cloud-foundation/aws/cluster-access/`),
+not raw OIDC flags to the API server — those flags are the local k3d approximation only,
+since k3d cannot rewire a running API server's auth once Keycloak exists (see the comment
+in `Makefile`'s `create-cluster` target). ArgoCD, Grafana and Backstage are ordinary apps
+with no AWS-native alternative, so they authenticate via plain OIDC against Keycloak
+directly.
+
+**External Secrets Operator, alongside Sealed Secrets, not replacing it.** Sealed Secrets
+keeps ciphertext in git (auditable, offline, rotation is a re-seal); ESO keeps only a
+reference in git and resolves the real value from AWS Secrets Manager at sync time
+(rotation is free, but the cluster now depends on AWS being reachable). Both stay because
+the trade-off differs by use case, not because one is strictly better. ESO authenticates
+via the same IRSA/Pod Identity plane as everything else in this section — see
+`4-platform-engineering/2-cluster-services/security-governance/external-secrets.yaml`.
+
+**Verify — this is the demo, not a diagram:**
+
+```bash
+kubectl auth can-i get pods          -n team-a --as=dev --as-group=oidc:platform:team-a:developer  # yes
+kubectl auth can-i create pods       -n team-a --as=dev --as-group=oidc:platform:team-a:developer  # no
+kubectl auth can-i get pods          -n team-b --as=dev --as-group=oidc:platform:team-a:developer  # no
+kubectl auth can-i create pods/exec  -n team-a --as=dev --as-group=oidc:platform:team-a:developer  # no
+kubectl auth can-i create pods/exec  -n team-a --as=sre --as-group=oidc:platform:team-a:oncall      # yes
+argocd account can-i sync applications 'team-b/*'   # no
+```
+
+**One group, every tool — the actual SSO deliverable:**
+
+| Consumer | Protocol | Where the group is consumed | Grants |
+|---|---|---|---|
+| Kubernetes API | OIDC (local) / EKS Access Entry (real EKS) | `RoleBinding.subjects[].name` | read + logs in that team's namespaces |
+| ArgoCD | OIDC via Keycloak's `argocd` client | `argocd-rbac-cm` `policy.csv` `g,` line | sync/rollback that team's apps only |
+| Grafana | OIDC + `role_attribute_path` | org role mapping | Viewer/Editor for the platform team |
+| Backstage | OIDC (`backstage` client) | entity ownership | sees its own components |
+| AWS console/CLI | SAML → IAM Identity Center | Permission Set assignment | scoped to that team's account |
+
+`platform:team-a:developer` is the same string in all five rows. Identity is issued once
+and interpreted five times; adding a sixth tool means adding a client and a mapping, not a
+new access model. The failure mode to guard against is **drift** — a group renamed in
+Keycloak but not in `policy.csv` fails open or closed silently, with no error anywhere.
+
+**Break-glass (Phase 7.5).** `pods/exec` and secret reads live in a separate
+`platform-breakglass` `ClusterRole`, bound only to `platform:<team>:oncall` — a group
+**nobody is a permanent member of**. This repo implements the RBAC half; the time-bounding
+(granting membership for a shift, revoking after) is an IdP workflow this repo does not
+run. Naming that boundary is stronger than implying the whole thing is built.
+
+---
+
 ## 🔬 One Catalog, Two Engines
 
 Most reference architectures claim their catalog is "the contract" and leave it at that. Here the claim is **falsifiable**.

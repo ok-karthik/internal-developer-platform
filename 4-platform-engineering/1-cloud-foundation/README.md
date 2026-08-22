@@ -14,19 +14,19 @@ platform actually is.**
 │   ├── organization/     #   Organizations, OUs, SCPs, cross-account ACK IAM (Phase 5.2-5.4) ✅ built
 │   ├── network/          #   VPC, subnets, one NAT gateway              (Phase 5.1) ✅ built
 │   ├── cluster/          #   EKS. Held to `terraform plan`-clean in CI. (Phase 5.1) ✅ built
-│   ├── cluster-access/   #   Access Entries + Identity Center  (Phase 7.2b — not built yet)
-│   └── workload-identity/#   Pod Identity / IRSA seam          (Phase 7.2c — not built yet)
+│   ├── cluster-access/   #   Access Entries + Identity Center  (Phase 7.2b) ✅ built
+│   └── workload-identity/#   Pod Identity / IRSA seam          (Phase 7.2c) ✅ built
 └── local/                #   k3d. A TEST HARNESS — never the reference. See local/README.md.
 ```
 
-**`aws/organization/`, `aws/network/` and `aws/cluster/` are real, `terraform validate`-clean
-HCL** — each is its own root module (own state, own `terraform init -backend=false &&
-terraform validate`), taking cross-module references (VPC ID, subnet IDs, controller role
-ARNs) as input variables rather than reading another module's remote state, so each stays
-independently validate-able. **None has been `apply`'d against a real AWS account** — per
-the Target Environment section, reaching a clean `plan` is the deliverable for this repo;
-an actual `apply` is the optional, timed, `destroy`-same-session exercise described there.
-`aws/cluster-access/` and `aws/workload-identity/` are still Phase 7 work.
+**Every `aws/` subdirectory above is real, `terraform validate`-clean HCL** — each is its
+own root module (own state, own `terraform init -backend=false && terraform validate`),
+taking cross-module references (VPC ID, subnet IDs, controller role ARNs, the cluster's
+OIDC issuer URL) as input variables rather than reading another module's remote state, so
+each stays independently validate-able, and each is `tflint`-clean (no unused-variable
+warnings). **None has been `apply`'d against a real AWS account** — per the Target
+Environment section, reaching a clean `plan` is the deliverable for this repo; an actual
+`apply` is the optional, timed, `destroy`-same-session exercise described there.
 
 Per the Target Environment section of `PLAN.md`: **EKS is the target, k3d is a test
 harness.** Where the two genuinely differ (workload identity, load balancers, storage,

@@ -165,6 +165,38 @@ Key decisions:
 
 ---
 
+## 🔐 Identity & Authorization — The Four Planes
+
+Phase 1.1 binds the developer `Role` to `Group: oidc:<team>`. **That group exists nowhere**
+— nothing issues it, nothing validates it, and no human has ever authenticated to this
+platform. Phase 7 is what makes it real. Design this before writing any YAML: authorization
+is not one decision, it is four, each with its own policy engine, and a rule granted in one
+plane grants nothing in another.
+
+| Plane | Question it answers | Enforced by |
+|---|---|---|
+| **Kubernetes API** | what can this human do with `kubectl`? | RBAC `Role`/`RoleBinding` (Phase 1.1), or `ClusterRole` + per-namespace `RoleBinding` once a team owns more than one namespace (Phase 7.4) |
+| **ArgoCD** | who may sync/rollback which app? | `argocd-rbac-cm` `policy.csv` (Phase 7.3) — **not** the same thing as the plane below |
+| **ArgoCD (deploy surface)** | what *kinds* may be deployed, and where? | `AppProject` (Phase 1.5) |
+| **Workload → cloud** | what may the *pod itself* do in AWS? | IRSA / Pod Identity (Phase 3.5, 7.2c) |
+
+**The last plane is not a human plane at all.** Conflating workload identity with user
+identity is the single most common error here — Pod Identity answers "what can this pod do
+in AWS," a completely different question from "what can this person do with `kubectl`,"
+which is why Phase 7.2's OIDC wiring and Phase 7.2c's Pod Identity work are not
+alternatives to each other, they are two different planes that happen to share the word
+"identity."
+
+**The group name is the contract across every plane, so it is chosen once and never
+varies:** `platform:<team>:<tier>` — e.g. `platform:team-a:developer`,
+`platform:team-a:oncall`, `platform:admin`. Tier is part of the group string, not a
+separate attribute, because every consumer below (Kubernetes RBAC, `argocd-rbac-cm`,
+Grafana's `role_attribute_path`, Backstage entity ownership, IAM Identity Center
+permission sets) can only match on the group string it receives — see Phase 7.8's table in
+`README.md` for all five wired at once.
+
+---
+
 ## 🛠️ Code Conventions & Scaffolder Standards
 
 ### 1. Templating Engine Rules

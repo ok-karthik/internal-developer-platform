@@ -3,7 +3,7 @@ CLUSTER_PROVIDER ?= k3d
 CLUSTER_NAME ?= nexus-platform
 AWS_CREDS ?= ./aws-creds.ini
 
-.PHONY: help check-deps create-cluster delete-cluster install-argocd bootstrap configure-aws up setup clean destroy get-argocd-creds wait-for-apps install-scaffolder run-api demo-onboard-team demo-add-service fire-synthetic-alert
+.PHONY: help check-deps create-cluster delete-cluster install-argocd bootstrap configure-aws up setup clean destroy get-argocd-creds wait-for-apps install-scaffolder run-api demo-onboard-team demo-add-service fire-synthetic-alert print-kubeconfig-stanza
 
 # Default target: show help
 help:
@@ -36,6 +36,27 @@ help:
 	@echo "  make bootstrap"
 
 # Conditional commands based on CLUSTER_PROVIDER
+#
+# Phase 7.2 note: the local cluster does NOT pass --oidc-issuer-url etc. via
+# --k3s-arg, even though that is the documented mechanism for wiring the API
+# server to Keycloak on k3d. Reason: k3d sets API-server flags at cluster
+# CREATION time, but Keycloak is installed AFTER the cluster exists (it is an
+# ArgoCD-managed addon in 2-cluster-services/identity/, applied by `make
+# bootstrap`, which itself needs the cluster first). Enabling OIDC flags at
+# `create-cluster` would point the API server at an issuer URL that does not
+# resolve yet. A real two-phase bootstrap (create cluster -> install Keycloak
+# -> recreate the cluster with OIDC flags pointed at it) would work but is
+# more machinery than this local harness is worth — see the Target
+# Environment section in PLAN.md: the honest fix is EKS Access Entries
+# (7.2b), which have no such chicken-and-egg problem because they are not
+# API-server startup flags at all. The flags below are commented, for the
+# concept demo:
+#   --k3s-arg "--kube-apiserver-arg=oidc-issuer-url=https://keycloak.localhost/realms/platform@server:*"
+#   --k3s-arg "--kube-apiserver-arg=oidc-client-id=kubernetes@server:*"
+#   --k3s-arg "--kube-apiserver-arg=oidc-username-claim=preferred_username@server:*"
+#   --k3s-arg "--kube-apiserver-arg=oidc-username-prefix=oidc:@server:*"
+#   --k3s-arg "--kube-apiserver-arg=oidc-groups-claim=groups@server:*"
+#   --k3s-arg "--kube-apiserver-arg=oidc-groups-prefix=oidc:@server:*"
 ifeq ($(CLUSTER_PROVIDER),k3d)
 CREATE_CLUSTER_CMD = k3d cluster create $(CLUSTER_NAME) \
 	--k3s-arg "--disable=traefik@server:*" \
@@ -106,6 +127,39 @@ install-argocd:
 	# serviceMonitorSelector has no label restriction, so any ServiceMonitor in
 	# the cluster is picked up) — this is what makes the Phase 6 DORA dashboard's
 	# deployment-frequency and change-failure-rate panels queryable at all.
+	#
+	# configs.cm.oidc\.config + configs.rbac.policy.csv wire ArgoCD's OWN login
+	# (Phase 7.3) to Keycloak's `argocd` client — this is a THIRD, independent
+	# OIDC usage from the Kubernetes-API-server one in create-cluster's comment
+	# above and the workload-identity one in 1-cloud-foundation/aws/workload-identity/;
+	# see the Four Planes table in .agents/AGENTS.md for why these do not
+	# collapse into one config. Written to a temp file rather than piped via a
+	# Makefile heredoc: GNU Make strips a leading tab from every recipe line,
+	# including heredoc body lines, which silently flattens YAML indentation.
+	@printf '%s\n' \
+		'configs:' \
+		'  cm:' \
+		'    url: "https://argocd.localhost"' \
+		'    oidc.config: |' \
+		'      name: Keycloak' \
+		'      issuer: https://keycloak.localhost/realms/platform' \
+		'      clientID: argocd' \
+		'      clientSecret: $$oidc.keycloak.clientSecret' \
+		'      requestedScopes: ["openid", "profile", "email", "groups"]' \
+		'  rbac:' \
+		'    policy.default: role:readonly' \
+		'    policy.csv: |' \
+		'      # Regenerated per team by onboard-team once the scaffolder consumes' \
+		'      # this (documented follow-up, Phase 7.3 -- 2-idp-scaffolder is out of' \
+		'      # scope on this branch). team-a rows below are the seed pattern: copy-' \
+		'      # paste per team until that automation exists.' \
+		'      p, role:team-a-developer, applications, get,      team-a/*, allow' \
+		'      p, role:team-a-developer, applications, sync,     team-a/*, allow' \
+		'      p, role:team-a-developer, logs,         get,      team-a/*, allow' \
+		'      p, role:team-a-developer, applications, delete,   team-a/*, deny' \
+		'      p, role:team-a-developer, applications, override, team-a/*, deny' \
+		'      g, platform:team-a:developer, role:team-a-developer' \
+		> /tmp/idp-argocd-values.yaml
 	helm upgrade --install argocd argo/argo-cd \
 		--namespace argocd \
 		--reuse-values \
@@ -114,7 +168,8 @@ install-argocd:
 		--set metrics.serviceMonitor.enabled=true \
 		--set controller.metrics.enabled=true \
 		--set controller.metrics.serviceMonitor.enabled=true \
-		--create-namespace
+		--create-namespace \
+		-f /tmp/idp-argocd-values.yaml
 
 bootstrap:
 	@echo "Bootstrapping platform..."
@@ -224,6 +279,32 @@ fire-synthetic-alert:
 	echo ""; \
 	kill $$PF_PID 2>/dev/null || true
 	@echo "Check the receiver: kubectl -n monitoring logs deploy/alert-webhook-receiver | tail -20"
+
+# --- Onboarding artefact (Phase 7.2) -----------------------------------------
+#
+# The kubeconfig stanza a new developer pastes to authenticate via OIDC
+# (kubectl oidc-login / kubelogin as a client-go credential plugin) rather
+# than a static token. Same stanza shape regardless of which of the three
+# control surfaces (7.2's raw flags, 7.2b's EKS Access Entries, or an
+# AKS/GKE managed OIDC issuer) is behind it — that portability is the point.
+.PHONY: print-kubeconfig-stanza
+print-kubeconfig-stanza:
+	@echo "Add this user entry to ~/.kube/config (or run: kubectl config set-credentials platform-oidc --exec-command=kubectl ...):"
+	@echo ""
+	@echo "users:"
+	@echo "- name: platform-oidc"
+	@echo "  user:"
+	@echo "    exec:"
+	@echo "      apiVersion: client.authentication.k8s.io/v1beta1"
+	@echo "      command: kubectl"
+	@echo "      args:"
+	@echo "        - oidc-login"
+	@echo "        - get-token"
+	@echo "        - --oidc-issuer-url=https://keycloak.localhost/realms/platform"
+	@echo "        - --oidc-client-id=kubernetes"
+	@echo "        - --oidc-extra-scope=groups"
+	@echo ""
+	@echo "Requires the kubelogin plugin: kubectl krew install oidc-login"
 
 install-scaffolder:
 	cd 2-idp-scaffolder/python && uv pip install -e .

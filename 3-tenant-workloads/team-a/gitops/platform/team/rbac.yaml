@@ -1,20 +1,12 @@
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  name: team-a-developer
-  namespace: team-a
-rules:
-  - apiGroups: ["", "apps", "batch", "networking.k8s.io", "argoproj.io"]
-    resources: ["*"]
-    verbs: ["get", "list", "watch"]
-  - apiGroups: [""]
-    resources: ["pods/log", "pods/portforward"]
-    verbs: ["get", "list", "create"]
-  # Deliberately absent: pods/exec, secrets read, and every write verb.
-  # pods/exec bypasses every guardrail above — it can read mounted secrets,
-  # mutate running state, and leaves no git trail. Break-glass belongs in a
-  # separate, time-bound, audited role, not in the default developer role.
----
+# Phase 7.4: the Role that used to live in this file is now the
+# platform-owned, cluster-scoped ClusterRole `platform-developer`
+# (4-platform-engineering/2-cluster-services/identity/platform-rbac-clusterroles.yaml)
+# — defined ONCE rather than re-rendered per team, which avoids every team's
+# ArgoCD Application fighting over ownership of an identically-named
+# cluster-scoped object. This RoleBinding is what scopes that shared
+# ClusterRole down to just this namespace; a RoleBinding may reference a
+# ClusterRole in roleRef and still only grant permissions within its own
+# namespace, which is the standard Kubernetes pattern this relies on.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
@@ -23,11 +15,33 @@ metadata:
 subjects:
   # Bind to a GROUP from the IdP, never to individual users — otherwise
   # onboarding a person becomes a platform-team ticket, which is exactly the
-  # toil an IDP exists to remove.
+  # toil an IDP exists to remove. Group name follows the Phase 7.0 contract:
+  # `platform:<team>:<tier>`, with the `oidc:` prefix the API server adds
+  # (--oidc-groups-prefix=oidc:, Phase 7.2) — chosen specifically so an IdP
+  # can never mint a group called system:masters and take the cluster.
   - kind: Group
-    name: "oidc:team-a"
+    name: "oidc:platform:team-a:developer"
     apiGroup: rbac.authorization.k8s.io
 roleRef:
-  kind: Role
-  name: team-a-developer
+  kind: ClusterRole
+  name: platform-developer
+  apiGroup: rbac.authorization.k8s.io
+---
+# Phase 7.5: break-glass. Bound to the oncall tier, never the developer
+# tier — nobody is a PERMANENT member of platform:<team>:oncall; membership
+# is granted through the IdP for a shift and revoked after. See the
+# ClusterRole's own comment for why the control is the membership lifecycle,
+# not this binding.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: team-a-breakglass
+  namespace: team-a
+subjects:
+  - kind: Group
+    name: "oidc:platform:team-a:oncall"
+    apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: ClusterRole
+  name: platform-breakglass
   apiGroup: rbac.authorization.k8s.io
