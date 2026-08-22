@@ -63,17 +63,17 @@ capabilities:
   postgres:
     provisioner: terraform   # stateful, expensive, wants a plan step
     module: aws/postgres     # provider is a path segment, not a name prefix
-    version: v1.2.0
+    version: v2.0.0
   s3:
     provisioner: ack         # cheap, recreatable, per-app
     module: aws/s3
-    version: v1.2.0
+    version: v2.0.0
     kind: Bucket
     group: s3.services.k8s.aws
   iam:
     provisioner: ack
     module: aws/iam
-    version: v1.2.0
+    version: v2.0.0
     kind: Role
     group: iam.services.k8s.aws
 
