@@ -8,8 +8,8 @@ this exists so the catalog is a *falsifiable* contract rather than an asserted o
 both with the same inputs, diff the trees, and any difference is a real finding. See
 [The Acceptance Test](#-the-acceptance-test).
 
-What Python adds on top of parity: pydantic validation of every input, deterministic
-VPC CIDR allocation (IPAM), and a REST surface a developer portal can call.
+What Python adds on top of parity: pydantic validation of every input, and a REST surface
+a developer portal can call.
 
 ---
 
@@ -52,15 +52,16 @@ tracked as skip-if-exists plus `--force` in [`TODO.md`](TODO.md).
 
 Go has no equivalent, so this is a genuine Python-side advantage.
 
-### 4. Deterministic IPAM
+### 4. No per-team VPC allocation (removed)
 
-`render.py` assigns non-overlapping `/16` CIDR blocks from `10.0.0.0/8`, recording them in
-`3-tenant-workloads/cloud_vpcs_allocated.yaml`. Overlapping VPC CIDRs break peering
-irreversibly, so allocation belongs to the platform, not to a team's Terraform.
-
-This is **Python-only** — Go has no VPC concept — so the engines are not interchangeable
-for `onboard-team`. Resolving that (port it, or declare Python the owner) is an open
-decision in [`TODO.md`](TODO.md).
+An earlier version of this engine allocated a unique `/16` VPC CIDR per team into
+`3-tenant-workloads/cloud_vpcs_allocated.yaml`, on the assumption that each team would get
+its own VPC (and implicitly, its own cluster). That's not the design that shipped — the
+platform runs one shared EKS cluster with namespace-per-team as the soft isolation
+boundary, and one AWS account per *environment* (not per team) as the hard one. The
+allocator was also already dead in practice: the CIDR it computed was never substituted
+into any template (`team-iam.tf.tmpl` hardcoded `10.0.0.0/16` regardless of team), so it
+computed and persisted a value nothing ever read. Removed rather than fixed.
 
 ---
 
@@ -72,7 +73,7 @@ decision in [`TODO.md`](TODO.md).
 ├── cli.py           # the two verbs: onboard-team, add-service
 ├── api.py           # FastAPI endpoints over the same engine
 ├── catalog.py       # loads + validates catalog.yaml (twin of Go's internal/catalog)
-├── render.py        # Jinja2 environment, path roots, IPAM
+├── render.py        # Jinja2 environment, path roots
 ├── schemas.py       # pydantic input models
 ├── pyproject.toml   # package metadata, dependencies, CLI entrypoint
 ├── uv.lock          # deterministic lockfile
@@ -149,8 +150,8 @@ the regex that rewrites `[[- if .X ]]` to `[% if X %]` cannot carry Go's `-` tri
 across, so without those flags a false conditional leaves an indented blank line behind.
 
 > Python has no `--output-root` yet (`TODO.md` Phase 3), so it always writes into the real
-> `3-tenant-workloads/`. Back up `cloud_vpcs_allocated.yaml` and remove the scratch team
-> afterwards, or use a team name you do not mind deleting.
+> `3-tenant-workloads/`. Remove the scratch team afterwards, or use a team name you do not
+> mind deleting.
 
 ---
 

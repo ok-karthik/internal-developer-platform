@@ -3,7 +3,7 @@
 # repo's side:
 #
 # 1. catalog.locations — add-service already emits catalog-info.yaml for
-#    every scaffolded service (1-platform-catalog/building-blocks/service-meta/,
+#    every scaffolded service (1-platform-catalog/per-service/apps/service-meta/,
 #    AGENTS.md decision 6). Backstage's catalog just needs to be told where
 #    to look; nothing in this repo has to change for entities to appear.
 # 2. auth.providers.oidc — points Backstage at Keycloak's `backstage` client

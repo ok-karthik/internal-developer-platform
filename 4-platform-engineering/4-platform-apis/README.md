@@ -37,7 +37,7 @@ spec:
 ```
 
 `XAWSBucket` is not yet in `team-a`'s `AppProject` `namespaceResourceWhitelist` — adding it
-is a one-line YAML change in `1-platform-catalog/blueprints/team/gitops/platform/team/appproject.yaml.tmpl`
+is a one-line YAML change in `1-platform-catalog/per-team/gitops/platform/team/appproject.yaml.tmpl`
 the moment this capability is offered for real, following the same pattern as every other
 kind in that file.
 

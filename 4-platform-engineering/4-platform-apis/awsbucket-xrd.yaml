@@ -12,7 +12,7 @@
 # a cluster-scoped ClusterSecretStore).
 #
 # WHY THIS EXISTS ALONGSIDE ACK'S S3 SUPPORT, NOT INSTEAD OF IT: ACK's
-# Bucket CR (1-platform-catalog/building-blocks/capabilities/s3.yaml.tmpl)
+# Bucket CR (1-platform-catalog/per-service/gitops/capabilities/s3.yaml.tmpl)
 # is a flat one-CR-to-one-resource mapping. This XRD demonstrates the thing
 # ACK cannot do — one CR (AWSBucket) fanning out into TWO composed managed
 # resources (a Bucket and its encryption config) via the Composition below.

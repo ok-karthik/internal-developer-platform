@@ -199,8 +199,8 @@ resolved once in the CLI and passed down; still outstanding.
 
 Add `--catalog-root` and `--output-root` to both verbs, same names as Go's. **The
 acceptance test in CI needs `--output-root`** — without it Python can only write into
-the real `3-tenant-workloads/`, which is why running the comparison above required
-backing up and restoring `cloud_vpcs_allocated.yaml`.
+the real `3-tenant-workloads/`, which is why running the comparison above requires
+removing the scratch team afterwards.
 
 **Delete while here** — all dead since the Copier removal:
 
@@ -225,25 +225,18 @@ Once Phase 0a makes it importable and Phase 2 gives you plans:
 
 ---
 
-## Phase 5 — IPAM hardening
+## Phase 5 — removed (was: IPAM hardening)
 
-`allocate_vpc_cidr_block()` (`render.py:128-157`) is the one genuinely interesting thing
-Python has that Go does not — deterministic, stateful, prevents overlapping VPC CIDRs
-that break peering irreversibly. Both bugs from the last plan are still open:
-
-- **No bounds check.** `next_index = max_index + 1` (`render.py:144`) emits
-  `10.256.0.0/16` past 255 teams. Use `ipaddress.ip_network` and let the stdlib reject it.
-- **Read-modify-write with no locking** (`render.py:133-154`). Two concurrent API
-  requests allocate the same block. A file lock, or a documented note that the registry
-  is the source of truth and CI serialises writes.
-
-Also: `typer.echo` sits *inside* the `with open(...)` block at `render.py:155`, so the
-log line is emitted mid-write. Cosmetic, but move it out.
-
-**Worth deciding explicitly:** IPAM makes the engines *not* interchangeable — Python
-writes `cloud_vpcs_allocated.yaml`, Go does not, and Go has no VPC concept at all. Either
-port it to Go, or document that `onboard-team` is Python-only in production and Go is the
-service-scaffolding path. Right now it is an accident rather than a decision.
+`allocate_vpc_cidr_block()` and `cloud_vpcs_allocated.yaml` are gone. They assumed each
+team would get its own VPC (and implicitly, its own cluster) — a design this platform
+moved away from in favor of one shared EKS cluster with namespace-per-team as the soft
+isolation boundary, and one AWS account per *environment* as the hard one. The allocator
+was also already dead in practice before removal: the CIDR it computed was never
+substituted into `team-iam.tf.tmpl` (hardcoded to `10.0.0.0/16` regardless of team), so it
+was computing and persisting a value nothing downstream read. If a per-team or per-spoke
+VPC is ever genuinely needed again, design it against the account model in
+`4-platform-engineering/1-cloud-foundation/aws/organization/`, not as a resurrection of
+this file.
 
 ---
 
@@ -299,7 +292,6 @@ git status --short ../../3-tenant-workloads/    # must be empty
 
 ## Out of scope
 
-- Porting IPAM to Go — decide the ownership question in Phase 5 first
 - Copier's Day-2 `update` flow — dropped with Copier; revisit if regeneration proves painful
 - Publishing to PyPI
 - Backstage integration beyond emitting `catalog-info.yaml`

@@ -72,7 +72,7 @@ def get_golden_paths(cat: CatalogDep):
 @api.get("/api/v1/meta/runtimes", tags=["Metadata"])
 def get_runtimes():
     """Runtimes with a scaffold template in the catalog."""
-    runtimes_dir = render.CATALOG_DIR / "building-blocks" / "runtimes"
+    runtimes_dir = render.CATALOG_DIR / "per-service" / "apps" / "runtimes"
     if not runtimes_dir.is_dir():
         raise HTTPException(503, f"runtimes directory not found: {runtimes_dir}")
     return {"runtimes": sorted(p.name for p in runtimes_dir.iterdir() if p.is_dir())}

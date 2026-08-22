@@ -22,16 +22,17 @@ golden-paths:
 runtimes:
 %s
 capabilities:
-  postgres: { module: aws-postgres, version: v1.1.0 }
+  postgres: { module: aws-postgres, version: v1.1.0, provisioner: terraform }
 
 destinations:
-  blueprints/team/apps: "{team}/apps/"
-  blueprints/team/infra: "{team}/infra/"
-  blueprints/team/gitops: "{team}/gitops/"
-  building-blocks/runtimes: "{team}/apps/{app}/"
-  building-blocks/service-meta: "{team}/apps/{app}/"
-  building-blocks/capabilities: "{team}/infra/apps/{app}/{env}/"
-  building-blocks/delivery/release: "{team}/gitops/apps/{app}/{env}/"
+  per-team/apps: "{team}/apps/"
+  per-team/infra: "{team}/infra/"
+  per-team/gitops: "{team}/gitops/"
+  per-service/apps/runtimes: "{team}/apps/{app}/"
+  per-service/apps/service-meta: "{team}/apps/{app}/"
+  per-service/infra/capabilities: "{team}/infra/apps/{app}/{env}/"
+  per-service/gitops/capabilities: "{team}/gitops/apps/{app}/{env}/"
+  per-service/gitops/release: "{team}/gitops/apps/{app}/{env}/"
 `, goldenPathRuntime, runtimes.String())
 
 }
@@ -78,7 +79,7 @@ func TestLoadCatalog(t *testing.T) {
 
 			// 2. Create folders specified in tt.runtimeDirs
 			for _, dir := range tt.runtimeDirs {
-				mockFS["building-blocks/runtimes/"+dir+"/main.tmpl"] = &fstest.MapFile{Data: []byte("x")}
+				mockFS["per-service/apps/runtimes/"+dir+"/main.tmpl"] = &fstest.MapFile{Data: []byte("x")}
 			}
 
 			// 3. Call LoadCatalog
@@ -110,9 +111,9 @@ func TestLoadCatalog(t *testing.T) {
 func TestLoadCatalog_UndeclaredRuntimeDirectoryIsIgnored(t *testing.T) {
 	mockFS := fstest.MapFS{
 		"catalog.yaml": {Data: []byte(catalogYAML("go", "go"))},
-		"building-blocks/runtimes/go/main.go.tmpl": {Data: []byte("package main")},
+		"per-service/apps/runtimes/go/main.go.tmpl": {Data: []byte("package main")},
 		// on disk, but absent from runtimes: — must not fail the load
-		"building-blocks/runtimes/rust/main.rs.tmpl": {Data: []byte("fn main() {}")},
+		"per-service/apps/runtimes/rust/main.rs.tmpl": {Data: []byte("fn main() {}")},
 	}
 	cat, err := LoadCatalog(mockFS)
 	if err != nil {

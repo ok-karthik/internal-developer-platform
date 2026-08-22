@@ -178,9 +178,9 @@ type blueprint struct {
 func (r *Renderer) RenderTenantFoundation(ctx context.Context, cfg Config) error {
 	teamBlueprints := []blueprint{
 		// Each destination key IS the source directory inside the catalog.yaml
-		{src: "blueprints/team/apps", destKey: "blueprints/team/apps"},     // CODEOWNERS for the app-source repo
-		{src: "blueprints/team/infra", destKey: "blueprints/team/infra"},   // CODEOWNERS + platform/ (providers, backend, team IAM)
-		{src: "blueprints/team/gitops", destKey: "blueprints/team/gitops"}, // CODEOWNERS + platform/ (tenancy boundary, ApplicationSet)
+		{src: "per-team/apps", destKey: "per-team/apps"},     // CODEOWNERS for the app-source repo
+		{src: "per-team/infra", destKey: "per-team/infra"},   // CODEOWNERS + platform/ (providers, backend, team IAM)
+		{src: "per-team/gitops", destKey: "per-team/gitops"}, // CODEOWNERS + platform/ (tenancy boundary, ApplicationSet)
 	}
 
 	return r.renderDestinations(ctx, teamBlueprints, cfg)
@@ -190,7 +190,7 @@ func (r *Renderer) RenderTenantFoundation(ctx context.Context, cfg Config) error
 func (r *Renderer) RenderService(ctx context.Context, cfg Config) error {
 	// Guard the exported boundary rather than trusting the caller: path.Join drops
 	// empty segments, so an empty Runtime would silently point the walk at
-	// building-blocks/runtimes and render EVERY runtime into the one app directory.
+	// per-service/apps/runtimes and render EVERY runtime into the one app directory.
 	if cfg.Runtime == "" {
 		return &ValidationError{
 			Field: "runtime",
@@ -199,9 +199,9 @@ func (r *Renderer) RenderService(ctx context.Context, cfg Config) error {
 	}
 
 	buildingBlocks := []blueprint{
-		{src: path.Join("building-blocks", "runtimes", cfg.Runtime), destKey: "building-blocks/runtimes"},
-		{src: "building-blocks/service-meta", destKey: "building-blocks/service-meta"},
-		{src: "building-blocks/delivery/release", destKey: "building-blocks/delivery/release"},
+		{src: path.Join("per-service", "apps", "runtimes", cfg.Runtime), destKey: "per-service/apps/runtimes"},
+		{src: "per-service/apps/service-meta", destKey: "per-service/apps/service-meta"},
+		{src: "per-service/gitops/release", destKey: "per-service/gitops/release"},
 	}
 
 	// Render Runtime, Service Meta, Delivery (Release)
@@ -209,11 +209,12 @@ func (r *Renderer) RenderService(ctx context.Context, cfg Config) error {
 		return err
 	}
 
-	// Render Infrastructure Capabilities
-	infraTargetDir := r.resolveDestination(r.Spec.Destinations["building-blocks/capabilities"], cfg)
-	if err := r.writer().MkdirAll(infraTargetDir); err != nil {
-		return err
-	}
+	// Render Infrastructure Capabilities. Phase 3.9: provisioner decides which
+	// ONE of the two directories a capability's template lives in and which
+	// destination it lands in — the directory is the router, so there is no
+	// extension-sniffing here, just a lookup keyed on a data field.
+	infraTargetDir := r.resolveDestination(r.Spec.Destinations["per-service/infra/capabilities"], cfg)
+	gitopsTargetDir := r.resolveDestination(r.Spec.Destinations["per-service/gitops/capabilities"], cfg)
 
 	for _, capName := range cfg.Capabilities {
 		// Check context
@@ -240,14 +241,30 @@ func (r *Renderer) RenderService(ctx context.Context, cfg Config) error {
 			CapabilitiesSourceBase: r.Spec.CapabilitiesSourceBase,
 		}
 
-		srcFile := path.Join("building-blocks", "capabilities", capName+".tf.tmpl")
-		destFile := filepath.Join(infraTargetDir, capName+".tf")
+		fmt.Printf("Adding infrastructure capability: %s (provisioner: %s)\n", capName, spec.Provisioner)
 
-		fmt.Printf("Adding infrastructure capability: %s\n", capName)
-
-		// 3. Pass `view` instead of `cfg`
-		if err := r.processSingleTemplate(ctx, srcFile, destFile, view); err != nil {
-			return fmt.Errorf("failed rendering capability %s: %w", capName, err)
+		// 3. Dispatch on provisioner — catalog.validate() already rejected
+		// anything outside these two, so this is exhaustive, not a default case
+		// silently doing nothing.
+		switch spec.Provisioner {
+		case "terraform":
+			if err := r.writer().MkdirAll(infraTargetDir); err != nil {
+				return err
+			}
+			srcFile := path.Join("per-service", "infra", "capabilities", capName+".tf.tmpl")
+			destFile := filepath.Join(infraTargetDir, capName+".tf")
+			if err := r.processSingleTemplate(ctx, srcFile, destFile, view); err != nil {
+				return fmt.Errorf("failed rendering capability %s: %w", capName, err)
+			}
+		case "ack":
+			if err := r.writer().MkdirAll(gitopsTargetDir); err != nil {
+				return err
+			}
+			srcFile := path.Join("per-service", "gitops", "capabilities", capName+".yaml.tmpl")
+			destFile := filepath.Join(gitopsTargetDir, capName+".yaml")
+			if err := r.processSingleTemplate(ctx, srcFile, destFile, view); err != nil {
+				return fmt.Errorf("failed rendering capability %s: %w", capName, err)
+			}
 		}
 	}
 
