@@ -4,7 +4,8 @@ go 1.26.5
 
 require (
 	github.com/briandowns/spinner v1.23.2
-	github.com/hashicorp/go-getter v1.8.6
+	github.com/hashicorp/go-getter v1.8.8
+	github.com/hashicorp/go-getter/v2 v2.2.3
 	github.com/spf13/cobra v1.10.2
 	gopkg.in/yaml.v3 v3.0.1
 )
