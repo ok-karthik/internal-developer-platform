@@ -7,7 +7,7 @@ terraform {
   }
   backend "s3" {
     bucket         = "acme-corp-terraform-state"
-    key            = "teams/[[ .TeamName ]]/terraform.tfstate"
+    key            = "teams/[[ .TenantName ]]/terraform.tfstate"
     region         = "us-east-1"
     dynamodb_table = "acme-corp-terraform-locks"
     encrypt        = true
@@ -18,7 +18,7 @@ provider "aws" {
   region = "us-east-1"
   default_tags {
     tags = {
-      Team      = "[[ .TeamName ]]"
+      Team      = "[[ .TenantName ]]"
       ManagedBy = "terraform"
     }
   }

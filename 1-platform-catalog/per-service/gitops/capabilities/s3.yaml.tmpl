@@ -17,14 +17,14 @@
 apiVersion: s3.services.k8s.aws/v1alpha1
 kind: Bucket
 metadata:
-  name: [[ .TeamName ]]-[[ .AppName ]]-[[ .Env ]]
-  namespace: [[ .TeamName ]]
+  name: [[ .TenantName ]]-[[ .AppName ]]-[[ .Env ]]
+  namespace: [[ .TenantName ]]
   labels:
-    team: [[ .TeamName ]]
+    team: [[ .TenantName ]]
     app: [[ .AppName ]]
     env: [[ .Env ]]
 spec:
-  name: [[ .TeamName ]]-[[ .AppName ]]-[[ .Env ]]
+  name: [[ .TenantName ]]-[[ .AppName ]]-[[ .Env ]]
   # S3 bucket names are globally unique across every AWS account on earth.
   # Unlike the Terraform path (random_string suffix), ACK offers no built-in
   # collision-avoidance — a naming collision fails reconciliation loudly rather
@@ -43,7 +43,7 @@ spec:
     status: Enabled
   tags:
     - key: Team
-      value: [[ .TeamName ]]
+      value: [[ .TenantName ]]
     - key: Service
       value: [[ .AppName ]]
     - key: Environment

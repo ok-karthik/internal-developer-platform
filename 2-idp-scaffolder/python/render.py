@@ -117,15 +117,15 @@ def list_available_cloud_services() -> list[str]:
     # Since these are now remote modules, we return the list of supported ones
     return ["aws-postgres", "aws-s3"]
 
-def list_tenant_repositories(team_name: str) -> list[str]:
-    """List all repos under a team"""
-    team_dir = Path(TENANT_WORKLOADS_DIR / team_name)
-    if not team_dir.exists():
+def list_tenant_repositories(tenant_name: str) -> list[str]:
+    """List all repos under a tenant"""
+    tenant_dir = Path(TENANT_WORKLOADS_DIR / tenant_name)
+    if not tenant_dir.exists():
         return []
-    return [template.name for template in team_dir.iterdir() if template.is_dir()]
+    return [template.name for template in tenant_dir.iterdir() if template.is_dir()]
 
-def list_onboarded_teams() -> list[str]:
-    """List all onboarded teams"""
+def list_onboarded_tenants() -> list[str]:
+    """List all onboarded tenants"""
     if not Path(TENANT_WORKLOADS_DIR).exists():
         return []
     return [template.name for template in Path(TENANT_WORKLOADS_DIR).iterdir() if template.is_dir()]

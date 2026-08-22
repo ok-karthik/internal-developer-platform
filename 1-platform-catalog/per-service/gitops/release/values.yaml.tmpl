@@ -1,4 +1,4 @@
-# Per-environment values for [[ .AppName ]] ([[ .TeamName ]]).
+# Per-environment values for [[ .AppName ]] ([[ .TenantName ]]).
 #
 # This file is the team's deployment API. It is the ONLY delivery artefact a team
 # edits, and the only one CI reads: CI renders the platform chart against exactly
@@ -11,7 +11,7 @@
 nameOverride: "[[ .AppName ]]"
 
 image:
-  repository: "ghcr.io/ok-karthik/internal-developer-platform/[[ .TeamName ]]/[[ .AppName ]]"
+  repository: "ghcr.io/ok-karthik/internal-developer-platform/[[ .TenantName ]]/[[ .AppName ]]"
   # CI renders whatever tag is pinned here — it never injects one. That keeps the
   # rendered manifests a pure function of (chart, this file), which is what makes
   # the git history an honest record of what is deployed. Swap for an immutable
@@ -34,7 +34,7 @@ podAnnotations:
   instrumentation.opentelemetry.io/inject-sdk: "[[ .AppName ]]-autoinstrumentation"
 
 podLabels:
-  team: "[[ .TeamName ]]"
+  team: "[[ .TenantName ]]"
 
 # Networking ----------------------------------------------------------------
 # NOTE: the "-dev" suffix is hardcoded because Config has no Env field yet — the

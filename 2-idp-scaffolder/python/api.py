@@ -81,29 +81,29 @@ def get_runtimes():
 # ---------------------------------------------------------------- Tenancy
 
 
-@api.get("/api/v1/teams", tags=["Tenancy"])
-def get_teams():
+@api.get("/api/v1/tenants", tags=["Tenancy"])
+def get_tenants():
     """Teams that have been onboarded."""
-    return {"teams": sorted(render.list_onboarded_teams())}
+    return {"tenants": sorted(render.list_onboarded_tenants())}
 
 
-@api.get("/api/v1/teams/{team_name}/repositories", tags=["Tenancy"])
-def get_repositories(team_name: str):
-    """The repo-kind directories (apps, infra, gitops) generated for a team."""
-    repos = render.list_tenant_repositories(team_name)
+@api.get("/api/v1/tenants/{tenant_name}/repositories", tags=["Tenancy"])
+def get_repositories(tenant_name: str):
+    """The repo-kind directories (apps, infra, gitops) generated for a tenant."""
+    repos = render.list_tenant_repositories(tenant_name)
     if not repos:
-        raise HTTPException(404, f"team {team_name!r} has no scaffolded repositories")
+        raise HTTPException(404, f"tenant {tenant_name!r} has no scaffolded repositories")
     return {"repositories": sorted(repos)}
 
 
-@api.post("/api/v1/teams", status_code=201, tags=["Tenancy"])
-def onboard_team(body: schemas.OnboardTeamInput):
-    """Scaffold the tenancy boundary for a new team (the `onboard-team` verb)."""
+@api.post("/api/v1/tenants", status_code=201, tags=["Tenancy"])
+def onboard_tenant(body: schemas.OnboardTenantInput):
+    """Scaffold the tenancy boundary for a new tenant (the `onboard-tenant` verb)."""
     try:
-        cli.onboard_team_workload(body.team_name)
+        cli.onboard_tenant_workload(body.tenant_name, body.owner)
     except Exception as e:
         raise HTTPException(500, f"{e.__class__.__name__}: {e}")
-    return {"team": body.team_name, "message": "team onboarded"}
+    return {"tenant": body.tenant_name, "message": "tenant onboarded"}
 
 
 # ---------------------------------------------------------------- Scaffolding
@@ -133,7 +133,7 @@ def scaffold_application(body: schemas.AddServiceInput, cat: CatalogDep):
 
     try:
         cli.add_service_workload(
-            team_name=body.team_name,
+            tenant_name=body.tenant_name,
             app_name=body.app_name,
             golden_path=body.golden_path,
             runtime=body.runtime,
@@ -145,7 +145,7 @@ def scaffold_application(body: schemas.AddServiceInput, cat: CatalogDep):
         raise HTTPException(500, f"{e.__class__.__name__}: {e}")
 
     return {
-        "team": body.team_name,
+        "tenant": body.tenant_name,
         "app": body.app_name,
         "message": "application scaffolded",
     }

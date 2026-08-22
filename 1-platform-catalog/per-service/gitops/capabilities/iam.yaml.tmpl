@@ -22,15 +22,15 @@
 apiVersion: iam.services.k8s.aws/v1alpha1
 kind: Role
 metadata:
-  name: [[ .TeamName ]]-[[ .AppName ]]-[[ .Env ]]
-  namespace: [[ .TeamName ]]
+  name: [[ .TenantName ]]-[[ .AppName ]]-[[ .Env ]]
+  namespace: [[ .TenantName ]]
   labels:
-    team: [[ .TeamName ]]
+    team: [[ .TenantName ]]
     app: [[ .AppName ]]
     env: [[ .Env ]]
 spec:
-  name: [[ .TeamName ]]-[[ .AppName ]]-[[ .Env ]]
-  description: "IRSA role for [[ .TeamName ]]/[[ .AppName ]] ([[ .Env ]]) — see the STILL A STUB note above."
+  name: [[ .TenantName ]]-[[ .AppName ]]-[[ .Env ]]
+  description: "IRSA role for [[ .TenantName ]]/[[ .AppName ]] ([[ .Env ]]) — see the STILL A STUB note above."
   assumeRolePolicyDocument: |
     {
       "Version": "2012-10-17",
@@ -43,7 +43,7 @@ spec:
           "Action": "sts:AssumeRoleWithWebIdentity",
           "Condition": {
             "StringEquals": {
-              "OIDC_PROVIDER_PLACEHOLDER:sub": "system:serviceaccount:[[ .TeamName ]]:[[ .TeamName ]]-[[ .AppName ]]",
+              "OIDC_PROVIDER_PLACEHOLDER:sub": "system:serviceaccount:[[ .TenantName ]]:[[ .TenantName ]]-[[ .AppName ]]",
               "OIDC_PROVIDER_PLACEHOLDER:aud": "sts.amazonaws.com"
             }
           }
@@ -52,7 +52,7 @@ spec:
     }
   tags:
     - key: Team
-      value: [[ .TeamName ]]
+      value: [[ .TenantName ]]
     - key: Service
       value: [[ .AppName ]]
     - key: Environment

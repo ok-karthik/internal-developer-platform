@@ -92,24 +92,23 @@ capabilities:
 # against each app's values.yaml and commits only the result into
 # {team}/gitops/apps/{app}/{env}/manifests/.
 destinations:
-  # Rendered once per team, by onboard-team. per-team/<kind>/ mirrors the tree it
+  # Rendered once per tenant, by onboard-tenant. per-tenant/<kind>/ mirrors the tree it
   # produces, so the nesting IS the path logic and no file needs its own rule. Each
   # target is a would-be repo root — and a `git subtree split` prefix — which is
   # what lets CODEOWNERS sit where GitHub actually honours it.
-  per-team/root:   "{team}/"
-  per-team/infra:  "{team}/infra/"
-  per-team/gitops: "{team}/gitops/"
+  per-tenant/root:   "{tenant}/"
+  per-tenant/infra:  "{tenant}/infra/"
+  per-tenant/gitops: "{tenant}/gitops/"
 
   # Composed per service, by add-service. {app}/{env} is spelled out here rather
   # than mirrored in the catalog layout, because per-service/ is selected by name
-  # (runtime: go) or by provisioner, not walked wholesale the way per-team/ is.
-  per-service/apps/runtimes:      "{team}/apps/{app}/"
-  per-service/apps/service-meta:  "{team}/apps/{app}/"
-  per-service/gitops/release:     "{team}/gitops/apps/{app}/{env}/"
+  per-service/apps/runtimes:      "{tenant}/apps/{app}/"
+  per-service/apps/service-meta:  "{tenant}/apps/{app}/"
+  per-service/gitops/release:     "{tenant}/gitops/apps/{app}/{env}/"
 
   # Phase 3.9: the directory IS the router between the two provisioners, which is
   # what makes `provisioner:` above a data fact the renderer acts on rather than a
   # label nobody reads. No file needs its own extension-sniffing rule, and no
   # phantom key — every source directory here has a real directory on disk.
-  per-service/infra/capabilities:  "{team}/infra/apps/{app}/{env}/"   # provisioner: terraform (*.tf.tmpl)
-  per-service/gitops/capabilities: "{team}/gitops/apps/{app}/{env}/"  # provisioner: ack (*.yaml.tmpl)
+  per-service/infra/capabilities:  "{tenant}/infra/apps/{app}/{env}/"   # provisioner: terraform (*.tf.tmpl)
+  per-service/gitops/capabilities: "{tenant}/gitops/apps/{app}/{env}/"  # provisioner: ack (*.yaml.tmpl)

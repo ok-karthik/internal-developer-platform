@@ -25,14 +25,14 @@ capabilities:
   postgres: { module: aws-postgres, version: v1.1.0, provisioner: terraform }
 
 destinations:
-  per-team/apps: "{team}/apps/"
-  per-team/infra: "{team}/infra/"
-  per-team/gitops: "{team}/gitops/"
-  per-service/apps/runtimes: "{team}/apps/{app}/"
-  per-service/apps/service-meta: "{team}/apps/{app}/"
-  per-service/infra/capabilities: "{team}/infra/apps/{app}/{env}/"
-  per-service/gitops/capabilities: "{team}/gitops/apps/{app}/{env}/"
-  per-service/gitops/release: "{team}/gitops/apps/{app}/{env}/"
+  per-tenant/root: "{tenant}/"
+  per-tenant/infra: "{tenant}/infra/"
+  per-tenant/gitops: "{tenant}/gitops/"
+  per-service/apps/runtimes: "{tenant}/apps/{app}/"
+  per-service/apps/service-meta: "{tenant}/apps/{app}/"
+  per-service/infra/capabilities: "{tenant}/infra/apps/{app}/{env}/"
+  per-service/gitops/capabilities: "{tenant}/gitops/apps/{app}/{env}/"
+  per-service/gitops/release: "{tenant}/gitops/apps/{app}/{env}/"
 `, goldenPathRuntime, runtimes.String())
 
 }

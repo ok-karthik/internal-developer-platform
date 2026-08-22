@@ -1,15 +1,15 @@
 apiVersion: argoproj.io/v1alpha1
 kind: AppProject
 metadata:
-  name: [[ .TeamName ]]
+  name: [[ .TenantName ]]
   namespace: argocd
 spec:
-  description: "Project for team [[ .TeamName ]]"
+  description: "Project for team [[ .TenantName ]]"
   sourceRepos:
     - "https://github.com/ok-karthik/internal-developer-platform.git"
   destinations:
     - server: "https://kubernetes.default.svc"
-      namespace: "[[ .TeamName ]]"
+      namespace: "[[ .TenantName ]]"
   clusterResourceWhitelist: []
   # namespaceResourceWhitelist is the tenant-facing API surface: every kind the
   # platform offers a team must appear here, or ArgoCD refuses to sync it even

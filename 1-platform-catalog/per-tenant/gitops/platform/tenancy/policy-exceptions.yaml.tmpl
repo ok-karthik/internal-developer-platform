@@ -1,8 +1,8 @@
 apiVersion: kyverno.io/v2
 kind: PolicyException
 metadata:
-  name: [[ .TeamName ]]-exceptions
-  namespace: [[ .TeamName ]]
+  name: [[ .TenantName ]]-exceptions
+  namespace: [[ .TenantName ]]
 spec:
   # Example: requesting an exception to the cluster-wide bucket encryption policy
   # for a specific public asset bucket.
@@ -17,6 +17,6 @@ spec:
           kinds:
             - AWSBucket
           namespaces:
-            - [[ .TeamName ]]
+            - [[ .TenantName ]]
           names:
-            - "[[ .TeamName ]]-public-assets"
+            - "[[ .TenantName ]]-public-assets"

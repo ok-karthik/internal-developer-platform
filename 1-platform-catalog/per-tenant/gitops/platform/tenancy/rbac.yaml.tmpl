@@ -10,8 +10,8 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: [[ .TeamName ]]-developer
-  namespace: [[ .TeamName ]]
+  name: [[ .TenantName ]]-developer
+  namespace: [[ .TenantName ]]
 subjects:
   # Bind to a GROUP from the IdP, never to individual users — otherwise
   # onboarding a person becomes a platform-team ticket, which is exactly the
@@ -19,9 +19,11 @@ subjects:
   # `platform:<team>:<tier>`, with the `oidc:` prefix the API server adds
   # (--oidc-groups-prefix=oidc:, Phase 7.2) — chosen specifically so an IdP
   # can never mint a group called system:masters and take the cluster.
+[[- range .Owners ]]
   - kind: Group
-    name: "oidc:platform:[[ .TeamName ]]:developer"
+    name: "oidc:platform:[[ . ]]:developer"
     apiGroup: rbac.authorization.k8s.io
+[[- end ]]
 roleRef:
   kind: ClusterRole
   name: platform-developer
@@ -35,12 +37,14 @@ roleRef:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: [[ .TeamName ]]-breakglass
-  namespace: [[ .TeamName ]]
+  name: [[ .TenantName ]]-breakglass
+  namespace: [[ .TenantName ]]
 subjects:
+[[- range .Owners ]]
   - kind: Group
-    name: "oidc:platform:[[ .TeamName ]]:oncall"
+    name: "oidc:platform:[[ . ]]:oncall"
     apiGroup: rbac.authorization.k8s.io
+[[- end ]]
 roleRef:
   kind: ClusterRole
   name: platform-breakglass
