@@ -9,7 +9,7 @@
 # Tags are inlined below instead, so each file stays self-contained.
 
 module "postgres" {
-  source = "git::https://github.com/ok-karthik/internal-developer-platform.git//4-platform-engineering/3-capability-modules/aws/postgres?ref=v1.2.0"
+  source = "git::https://github.com/ok-karthik/internal-developer-platform.git//4-platform-engineering/3-capability-modules/aws/postgres?ref=v2.0.0"
 
   team_name = "team-a"
   app_name  = "app-a"

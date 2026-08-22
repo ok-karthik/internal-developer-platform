@@ -4,6 +4,10 @@ What each phase of this platform's build-out actually did. Kept short on purpose
 a changelog, not the design doc. The original 1,780-line planning document (with the full
 reasoning behind each decision) is retrievable from git history: `git log --all -- PLAN.md`.
 
+Phases 0 through 10 below are tagged **`v2.0.0`** — also the git tag every Terraform module
+source in `catalog.yaml` resolves against (`?ref=v2.0.0`), so the tag isn't just a label,
+it's the actual pinned version tenants build against.
+
 ---
 
 **Phase 0 — Truth-up.** Fixed two real `NetworkPolicy` bugs (Traefik couldn't reach tenant

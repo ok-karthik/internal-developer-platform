@@ -1,5 +1,7 @@
 # 🏛️ Platform Engineering: IDP & GitOps Reference Architecture
 
+[![Version](https://img.shields.io/badge/version-v2.0.0-blue)](https://github.com/ok-karthik/internal-developer-platform/releases/tag/v2.0.0)
+
 **A self-service platform where a developer types one command and gets a running
 microservice — with its own database, its own network policy, its own dashboards, and its
 own place in the org's tenancy model — without filing a ticket.**
