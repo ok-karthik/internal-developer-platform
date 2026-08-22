@@ -5,7 +5,7 @@ kind: ServiceAccount
 metadata:
   name: app-a
   labels:
-    helm.sh/chart: service-0.1.0
+    helm.sh/chart: service-2.1.0
     app.kubernetes.io/name: app-a
     app.kubernetes.io/instance: app-a
     app.kubernetes.io/version: "1.0.0"
@@ -20,7 +20,7 @@ kind: Service
 metadata:
   name: app-a
   labels:
-    helm.sh/chart: service-0.1.0
+    helm.sh/chart: service-2.1.0
     app.kubernetes.io/name: app-a
     app.kubernetes.io/instance: app-a
     app.kubernetes.io/version: "1.0.0"
@@ -44,7 +44,7 @@ kind: Deployment
 metadata:
   name: app-a
   labels:
-    helm.sh/chart: service-0.1.0
+    helm.sh/chart: service-2.1.0
     app.kubernetes.io/name: app-a
     app.kubernetes.io/instance: app-a
     app.kubernetes.io/version: "1.0.0"
@@ -61,7 +61,7 @@ spec:
       annotations:
         instrumentation.opentelemetry.io/inject-sdk: app-a-autoinstrumentation
       labels:
-        helm.sh/chart: service-0.1.0
+        helm.sh/chart: service-2.1.0
         app.kubernetes.io/name: app-a
         app.kubernetes.io/instance: app-a
         app.kubernetes.io/version: "1.0.0"
@@ -105,7 +105,7 @@ kind: Ingress
 metadata:
   name: app-a
   labels:
-    helm.sh/chart: service-0.1.0
+    helm.sh/chart: service-2.1.0
     app.kubernetes.io/name: app-a
     app.kubernetes.io/instance: app-a
     app.kubernetes.io/version: "1.0.0"
@@ -132,7 +132,7 @@ kind: Instrumentation
 metadata:
   name: app-a-autoinstrumentation
   labels:
-    helm.sh/chart: service-0.1.0
+    helm.sh/chart: service-2.1.0
     app.kubernetes.io/name: app-a
     app.kubernetes.io/instance: app-a
     app.kubernetes.io/version: "1.0.0"
