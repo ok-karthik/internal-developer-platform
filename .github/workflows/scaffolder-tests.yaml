@@ -57,7 +57,7 @@ jobs:
 
       - name: Build Go CLI
         working-directory: 2-idp-scaffolder/golang
-        run: go build -o idp-cli ./cmd/cli
+        run: go build -o idp-cli .
 
       - name: Generate Go Output
         run: |
