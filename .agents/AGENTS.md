@@ -45,17 +45,35 @@ platform-engineering-idp-gitops-reference-architecture/
 │           │   ├── team/               # AppProject, Namespace, NetworkPolicy, PolicyException
 │           │   └── applicationsets/    # One <team>.yaml ApplicationSet per team
 │           └── apps/<app>/<env>/       # Team-owned values.yaml + CI-rendered manifests/
-└── 4-platform-engineering/             # Platform Control Plane Infrastructure
-    ├── clusters/                        # Cluster definition. k3d today (Makefile-driven,
-    │                                     # no committed config); EKS Terraform later.
-    ├── addons/                          # ArgoCD App-of-Apps declarations (App manifests
+└── 4-platform-engineering/             # Platform Control Plane Infrastructure — numbered
+    │                                     # in order of operations (Phase 3.8). Each of the
+    │                                     # four gets its own README.md.
+    ├── bootstrap.yaml                   # Root of the App-of-Apps pattern — stays put
+    ├── 1-cloud-foundation/              # Terraform the PLATFORM TEAM applies, BEFORE a
+    │   │                                 # cluster exists.
+    │   ├── aws/                          #   Provider-specific → nested by provider. Only
+    │   │   │                             #   the subdirs below are real; the rest are the
+    │   │   │                             #   Phase 5/7 target layout, documented not built.
+    │   │   ├── organization/             #   Organizations, OUs, SCPs      (Phase 5.4)
+    │   │   ├── network/                  #   VPC, subnets, NAT            (Phase 5.1)
+    │   │   ├── cluster/                  #   EKS. Held to `plan`-clean.   (Phase 5.1)
+    │   │   ├── cluster-access/           #   Access Entries + Identity Ctr(Phase 7.2b)
+    │   │   └── workload-identity/        #   Pod Identity / IRSA seam     (Phase 7.2c)
+    │   └── local/                        #   k3d. A TEST HARNESS — never the reference.
+    ├── 2-cluster-services/               # ArgoCD App-of-Apps declarations (App manifests
     │                                     # per addon) merged with the raw resources some
-    │                                     # of them deploy, e.g. addons/traefik/,
-    │                                     # addons/otel/ — one concept, one directory.
-    ├── apis/                            # Platform API definitions (KRO RGDs / Crossplane
-    │                                     # XRDs). Empty with a README until Phase 5.
-    ├── bootstrap.yaml                   # Root of the App-of-Apps pattern
-    └── cloud-services-terraform-modules/ # Reusable AWS Terraform modules (networking, iam, s3, postgres)
+    │                                     # of them deploy, e.g. ingress-routing/middlewares.yaml,
+    │                                     # observability/otel-instrumentation.yaml — one
+    │                                     # concept, one directory. Portable Kubernetes →
+    │                                     # NOT nested by provider.
+    ├── 3-capability-modules/             # Terraform modules TENANTS consume, resolved
+    │   └── aws/                          # from catalog.yaml `capabilities:`. Nobody here
+    │       ├── postgres/                 # applies these — they are rendered into tenant
+    │       ├── s3/                       # repos and applied there.
+    │       ├── iam/
+    │       └── networking/
+    └── 4-platform-apis/                 # Platform API definitions (KRO RGDs / Crossplane
+                                          # XRDs). Empty with a README until Phase 5.
 ```
 
 ---
@@ -80,6 +98,22 @@ Every path below is relative to `1-platform-catalog/` on the left and
 | `building-blocks/capabilities/<cap>.tf.tmpl` | `{team}/infra/apps/{app}/{env}/` | `add-service` | one file per requested capability with `provisioner: terraform` |
 | `building-blocks/delivery/release/` | `{team}/gitops/apps/{app}/{env}/` | `add-service` | once per service per env |
 | `charts/service/` | **nothing** — never scaffolded | CI, via `helm template` | output only, into `{team}/gitops/apps/{app}/{env}/manifests/` |
+
+**Addon namespace rule.** `4-platform-engineering/2-cluster-services/` (bootstrap.yaml's App-of-Apps
+root) is applied with `directory.recurse: true` and `destination.namespace: argocd`. Every
+namespaced resource under that tree — `ConfigMap`, `Ingress`, `Middleware`,
+`Instrumentation`, and any future kind — **must set `metadata.namespace` explicitly**.
+Only ArgoCD `Application`/`ApplicationSet` objects may rely on the bootstrap default,
+because `argocd` genuinely is where those belong. A file that omits the namespace is
+silently created in `argocd` instead — nothing reports an error, and whatever depends on
+it (a `PrometheusRule` never selected by Prometheus, for instance) fails quietly with
+every manifest still showing Synced/Healthy. Every file in the addon tree carries an explicit `argocd.argoproj.io/sync-wave`
+too, so ordering is fully specified rather than half-implied by `SkipDryRunOnMissingResource`:
+`0` = CRD-providing installers (kyverno, cert-manager, traefik, opentelemetry, prometheus,
+ACK), `1` = remaining installers (loki, tempo, promtail, argo-rollouts, sealed-secrets),
+`2` = namespaced config (ingresses, middlewares, instrumentation, grafana-datasources),
+`3` = policies and the tenant `ApplicationSet` — last, so they never gate the platform's
+own boot.
 
 Two gaps this table makes visible, both real and both tracked in `PLAN.md`:
 
@@ -107,14 +141,16 @@ The scaffolder templates are organised around **platform lifecycle verbs**, not 
 | `onboard-team` | `blueprints/team/{apps,infra,gitops}/` | once per team | tenancy boundary — AppProject, Namespace + ResourceQuota + LimitRange, default-deny NetworkPolicy, CODEOWNERS, Kyverno PolicyException, team Terraform providers + IAM — plus the team ApplicationSet |
 | `add-service` | `building-blocks/**` | repeatable | a golden path — runtime + service-meta + delivery values + capabilities |
 
-**Golden paths** (`catalog.yaml`) compose three pieces: a runtime (`building-blocks/runtimes/<lang>/`), infra **capabilities** (`building-blocks/capabilities/<cap>.tf.tmpl`), and delivery (`building-blocks/delivery/release/`). Capabilities are declarative claims mapped to blessed, version-pinned Terraform modules — e.g. `postgres → aws-postgres@v1.0.2`, `s3 → aws-s3`, `iam → aws-iam`. `building-blocks/service-meta/` is runtime-agnostic and rendered for every service, which is why it is a sibling of `runtimes/` rather than living inside it.
+**Golden paths** (`catalog.yaml`) compose three pieces: a runtime (`building-blocks/runtimes/<lang>/`), infra **capabilities** (`building-blocks/capabilities/<cap>.tf.tmpl`), and delivery (`building-blocks/delivery/release/`). Capabilities are declarative claims mapped to blessed, version-pinned Terraform modules — e.g. `postgres → aws/postgres@v1.2.0`, `s3 → aws/s3`, `iam → aws/iam`. `building-blocks/service-meta/` is runtime-agnostic and rendered for every service, which is why it is a sibling of `runtimes/` rather than living inside it.
 
 Key decisions:
 - **Go is the definitive scaffolder; Python is a second engine, not a legacy one.** Both implement `onboard-team` and `add-service` against the same `catalog.yaml`. The point of keeping two is that it makes the catalog a *falsifiable* contract: run both with the same inputs and `diff -r` the trees. **The two trees are currently byte-identical**, both verbs, every file. If a change makes them disagree, either the engines drifted or the catalog is under-specified — both are findings, and neither should be papered over. Matching Go's whitespace depends on `trim_blocks`/`lstrip_blocks` in the Python Jinja environment, because the regex that converts `[[- if ]]` to `[% if %]` cannot carry Go's `-` trim markers across.
 - **git-as-PR.** `add-service` writes into the git-tracked `3-tenant-workloads/` tree; the resulting `git diff` simulates the PR that would be opened against a real tenant repo.
 - **Monorepo output, polyrepo mapping.** Everything lands under `3-tenant-workloads/<team>/{apps,infra,gitops}/`; in production each of those three maps to a standalone repo (`<org>/<team>-apps`, `-infra`, `-gitops`) under a department subgroup. The mapping is documented here rather than encoded in the directory name, so the monorepo stays tenant-first and `git subtree split --prefix=3-tenant-workloads/<team>/apps` remains the split path.
 - **Two naming axes, kept deliberately distinct.** `apps` / `infra` / `gitops` is the **repo kind** (what sort of artifact; each becomes a real repo). `platform` / `apps` inside `infra/` and `gitops/` is **ownership** (`platform/` is platform-owned and CODEOWNERS-protected; `apps/` belongs to the team). `apps` is reused on purpose — it always means team-owned per-service content, and the enclosing repo kind says whether that is source code, Terraform, or Helm values. Ownership therefore reduces to two glob lines.
-- **IRSA / Pod Identity is the missing fourth wall of the tenancy model.** `onboard-team` builds three walls per namespace: what ArgoCD may deploy (`AppProject`), what pods may talk to (`NetworkPolicy`), and what a human may do with `kubectl` (RBAC `Role`/`RoleBinding`). None of that constrains what AWS a pod's *own* credentials can reach. ACK controllers (`4-platform-engineering/addons/aws-controllers/`) grant AWS permissions **per namespace** via IRSA (EKS) or Pod Identity — a `Bucket`/`Role` CR reconciled in `team-a`'s namespace only ever gets `team-a`'s AWS permissions, because the trust policy is scoped to the namespace/service-account pair, not to the controller process as a whole. That is the mechanism that makes ACK safe to run multi-tenant, and it is the reason `AppProject` + `Namespace` + `NetworkPolicy` + RBAC is not yet the complete tenancy boundary — this is the fourth control, expressed in AWS IAM rather than Kubernetes RBAC. It is not yet real in this repo: `blueprints/team/infra/platform/team-iam.tf.tmpl` calls the `aws-iam` module, which is a documented stub (`4-platform-engineering/cloud-services-terraform-modules/aws-iam/main.tf`) that provisions no identity — a federated assume-role trust policy needs the cluster's OIDC issuer URL, and nothing in this repo runs a real EKS cluster yet (`4-platform-engineering/clusters/` is k3d locally; EKS Terraform is future work). Wiring real IRSA is therefore gated on the cluster work, not on anything in this plan.
+- **IRSA / Pod Identity is the missing fourth wall of the tenancy model.** `onboard-team` builds three walls per namespace: what ArgoCD may deploy (`AppProject`), what pods may talk to (`NetworkPolicy`), and what a human may do with `kubectl` (RBAC `Role`/`RoleBinding`). None of that constrains what AWS a pod's *own* credentials can reach. ACK controllers (`4-platform-engineering/2-cluster-services/aws-controllers/`) grant AWS permissions **per namespace** via IRSA (EKS) or Pod Identity — a `Bucket`/`Role` CR reconciled in `team-a`'s namespace only ever gets `team-a`'s AWS permissions, because the trust policy is scoped to the namespace/service-account pair, not to the controller process as a whole. That is the mechanism that makes ACK safe to run multi-tenant, and it is the reason `AppProject` + `Namespace` + `NetworkPolicy` + RBAC is not yet the complete tenancy boundary — this is the fourth control, expressed in AWS IAM rather than Kubernetes RBAC. It is not yet real in this repo: `blueprints/team/infra/platform/team-iam.tf.tmpl` calls the `aws-iam` module, which is a documented stub (`4-platform-engineering/3-capability-modules/aws/iam/main.tf`) that provisions no identity. Phase 5.1 added real, `terraform validate`-clean EKS Terraform (`1-cloud-foundation/aws/cluster/`) that outputs the OIDC issuer URL IRSA needs — but that Terraform has not been applied to a real account, so the issuer URL does not exist yet either. Wiring real IRSA is therefore gated on an actual `terraform apply`, not on missing code.
+
+- **The full chain, once a real hub cluster exists (Phase 5.1-5.3).** `namespace` (Phase 1) → `IRSA/Pod Identity role` (Phase 7.2c, `1-cloud-foundation/aws/workload-identity/`) → `assumed spoke-account role` (Phase 5.2, `1-cloud-foundation/aws/organization/ack-cross-account.tf`) → blast radius is **one tenant's AWS account**, not just one tenant's IAM policy. This is the fourth wall with a real account boundary behind it: a compromised ACK controller reconciling a `team-a` `Bucket` CR can only ever assume `team-a`'s spoke role, in `team-a`'s spoke account — it has no path to `team-b`'s resources even if `team-b`'s Bucket CR sits in the same hub cluster, because the trust chain (namespace → IRSA role → spoke role) never crosses. The direction matters: **the spoke trusts the hub, never the reverse** — see the comment in `ack-cross-account.tf` for why getting this backwards reopens the confused-deputy problem the `ExternalId` condition exists to close.
 - **Ownership is enforceable, not just documented.** `onboard-team` writes a CODEOWNERS at each of the three would-be repo roots (`<team>/{apps,infra,gitops}/`), because GitHub honours CODEOWNERS only at a repo root, `.github/`, or `docs/` — nesting it under `platform/` would make it decorative. Each file is two rules: the team owns `*`, then `/platform/` reverts to the platform team (last match wins); the gitops one adds security review on `policy-exceptions.yaml`.
 - **Blueprints mirror their output.** `blueprints/team/<kind>/` is laid out exactly like the tree it produces, so the nesting inside a blueprint *is* the path logic and no file needs its own destination rule. Three keys — one per repo kind — replace what would otherwise be one key per output directory.
 - **Helm only** for delivery (no Kustomize); **`1-platform-catalog/catalog.yaml`** is the source of truth for golden paths and the capability → module mapping.
@@ -160,9 +196,9 @@ Key decisions:
 - **IPAM Engine**: `render.py` handles deterministic `/16` VPC CIDR allocations saved in `3-tenant-workloads/cloud_vpcs_allocated.yaml`. Python-only; Go has no VPC concept.
 - **Declare your dependencies.** `copier` was imported while absent from `pyproject.toml` and `uv.lock`, working only from a stale local `.venv` — every fresh checkout had a CLI that could not start. Verify with `rm -rf .venv && uv sync && uv run python -c "import cli, api"`.
 
-### 4. Terraform Cloud Modules (`4-platform-engineering/cloud-services-terraform-modules/`)
+### 4. Terraform Cloud Modules (`4-platform-engineering/3-capability-modules/aws/`)
 - Module git source URLs:
-  `git::https://github.com/ok-karthik/internal-developer-platform.git//4-platform-engineering/cloud-services-terraform-modules/<module_name>?ref=v1.0.2`
+  `git::https://github.com/ok-karthik/internal-developer-platform.git//4-platform-engineering/3-capability-modules/aws/<module_name>?ref=v1.2.0`
 - **`random_string` flags mean "include this class", not "restrict to it".** `upper` defaults to `true`, so setting only `lower = true` does nothing. S3 bucket names and RDS identifiers are lowercase-only — always set `upper = false` for a name suffix. This shipped broken and would have failed at `apply` roughly half the time.
 - **Never declare `provider "..." {}` inside a module.** It blocks `count`/`for_each` on the module and prevents clean removal, because Terraform requires the provider config to outlive the resources. Use `required_providers` in the `terraform {}` block; providers are configured once in the root module.
 - **Guardrails are not knobs.** Encryption, public-access blocks, versioning, and backup retention are set by the module and not exposed to tenants — that is the argument for a platform module over raw resources. Note `aws_db_instance.backup_retention_period` defaults to `0` in Terraform, i.e. backups off, so it must be set explicitly.

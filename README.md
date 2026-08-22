@@ -31,7 +31,7 @@ To make it easier to understand how this platform operates from end-to-end, the 
 4. **`3-tenant-workloads/` (Simulated Monorepo)**  
    The generated output, organised tenant-first as `<team>/{apps,infra,gitops}/` — each of those three maps to a standalone repo in production. `apps/` always means team-owned per-service content; the enclosing repo kind says whether that is source code, Terraform, or Helm values. There is no `<system>/` directory level — Backstage's System grouping lives in `catalog-info.yaml` instead. Inside `infra/` and `gitops/`, `platform/` is platform-owned, and a CODEOWNERS at each of the three roots makes that enforceable. ArgoCD monitors the CI-rendered `manifests/` directories for automatic deployment.
 5. **`4-platform-engineering/` (Platform Infrastructure & Control Plane)**  
-   Contains reusable AWS Terraform modules (`cloud-services-terraform-modules/`), the cluster definition (`clusters/`), and ArgoCD App-of-Apps declarations plus the addon resources they deploy (`addons/`) — Traefik ingress, OpenTelemetry, observability, and security/governance.
+   Numbered in order of operations: `1-cloud-foundation/` is Terraform the platform team applies before a cluster exists (`aws/` nested by provider, `local/` for the k3d test harness); `2-cluster-services/` is portable ArgoCD `Application`/`ApplicationSet` declarations the platform team reconciles after a cluster exists — Traefik ingress, OpenTelemetry, observability, and security/governance, merged with the raw resources they deploy; `3-capability-modules/` holds the version-pinned AWS Terraform modules tenants consume via `catalog.yaml`; `4-platform-apis/` is empty until Phase 5. Each has its own `README.md`.
 
 ---
 
@@ -165,6 +165,55 @@ below roughly 1000 engineers:
 3. vCluster — isolated control plane, shared nodes.
 4. Separate clusters — full isolation, full operational cost.
 
+### 3.1 The Second Axis: Accounts, Not Namespaces
+
+Everything above is the **soft** axis. Real organizations run a **hard** axis too, at a
+different granularity:
+
+| Axis | Unit | Boundary strength | Enforced by | Typical granularity |
+|---|---|---|---|---|
+| **Soft** | Namespace | cooperative | RBAC, ResourceQuota, NetworkPolicy, PSA | per **team** |
+| **Hard** | AWS account | real — separate IAM, billing, blast radius | Organizations, SCPs | per **environment** |
+
+The common shape is **not** "an account per team" and **not** "a namespace per team" — it
+is **an account per environment, with a namespace per team inside it.** Teams share a
+cluster; production does not share an account with development. ("Would you give every
+team their own cluster?" is a standard interview probe — "no, and here is the axis I'd use
+instead" is the answer that lands.)
+
+AWS Organizations is the primitive: accounts, Organizational Units, and **SCPs**. The
+mental model that matters: **an SCP is a permission ceiling, not a grant** — it cannot give
+anyone access, only cap what any principal (including the account root) may do. That
+inversion is what makes the account boundary *hard* where a NetworkPolicy is *soft*. Real,
+`terraform validate`-clean HCL for this lives in
+[`4-platform-engineering/1-cloud-foundation/aws/organization/`](4-platform-engineering/1-cloud-foundation/aws/organization/)
+— two OUs (Production, NonProduction) and three SCPs (deny leaving the org, deny disabling
+CloudTrail, deny regions outside `eu-central-1` as a data-residency control, not just a
+latency one).
+
+**Account vending is the same pattern as the scaffolder, one level up:**
+
+| Step | `onboard-team` (soft axis) | Account Factory for Terraform (hard axis) |
+|---|---|---|
+| Request | `--team payments` | a vend-request PR |
+| Validation | `catalog.yaml` required-fields check | AFT account-request schema |
+| Baseline | `NetworkPolicy`, `ResourceQuota`, PSA label | SCPs, CloudTrail, GuardDuty, Config |
+| Policy attach | `AppProject` whitelist, RBAC `Role` | OU placement, permission sets |
+| Registration | ArgoCD `ApplicationSet` glob picks it up | account joins the Organization |
+
+Same guarantees, different substrate: a git-reviewed request produces a governed unit with
+policy already attached, no ClickOps. One is this platform's soft axis; AFT is AWS's
+version of the hard one.
+
+**Cross-account IAM for ACK — the fourth wall gets a real account behind it.** ACK
+controllers run in the hub cluster (Phase 5.1) but must create resources in a tenant's
+spoke account. The chain: `namespace → IRSA/Pod Identity role → assumed spoke-account role
+→ blast radius is one tenant's AWS account`, not just an IAM policy condition. **The spoke
+trusts the hub, never the reverse** — a spoke account grants a narrow, revocable door to
+its own resources; the hub never widens its own trust boundary to let spokes in. See
+[`ack-cross-account.tf`](4-platform-engineering/1-cloud-foundation/aws/organization/ack-cross-account.tf)
+for the `sts:AssumeRole` + `ExternalId` trust policy this implies.
+
 ---
 
 ## 🔬 One Catalog, Two Engines
@@ -193,12 +242,12 @@ This blueprint integrates best-in-class cloud-native tooling to form a cohesive 
 | :--- | :--- | :--- |
 | **Local Cluster** | **K3d (K3s)** | Lightweight, ephemeral Kubernetes environment optimized for ARM64/Silicon. |
 | **GitOps Engine** | **Argo CD** | Declarative CD, state reconciliation, and multi-tenant auto-discovery. |
-| **Infra as Code** | **Terraform** | Version-pinned modules (`4-platform-engineering/cloud-services-terraform-modules/`), claimed per-capability via `catalog.yaml` and scaffolded into each service's `infra/apps/<app>/<env>/`. |
+| **Infra as Code** | **Terraform** | Version-pinned modules (`4-platform-engineering/3-capability-modules/aws/`), claimed per-capability via `catalog.yaml` and scaffolded into each service's `infra/apps/<app>/<env>/`. |
 | **Policy as Code** | **Kyverno** | Admission control. Enforces cluster security boundaries and standards. |
 | **Prog. Delivery** | **Argo Rollouts** | Automated Canary & Blue-Green deployments integrated with edge routing. |
 | **Edge Gateway** | **Traefik** | L7 ingress, API gateway, rate-limiting, and middleware injection. |
 | **Secrets Ops** | **Sealed Secrets** | Asymmetric encryption enabling safe storage of secrets in Git. |
-| **Observability** | **Grafana Stack**| Unified metrics (Prometheus), logs (Loki), and traces (Tempo). |
+| **Observability** | **Grafana Stack**| Unified metrics (Prometheus), logs (Loki), and traces (Tempo) — plus SLO-based, multi-window multi-burn-rate alerting on `app-a` routed through Alertmanager, each alert linked to a runbook (`4-platform-engineering/2-cluster-services/observability/slo/`, `docs/runbooks/`). |
 | **Dep. Management**| **Renovate** | Automated dependency bumps. `go.mod` and `pyproject.toml` are covered by the built-in managers; one custom regex manager handles the version pins in `catalog.yaml`, which no package manager understands. |
 
 ---
@@ -229,7 +278,7 @@ make install-argocd
 ```
 
 ### 3. Bootstrap the Platform
-The `bootstrap.yaml` file acts as the root of the "App of Apps" pattern. It points Argo CD to the `4-platform-engineering/addons/` directory to deploy all cluster add-ons simultaneously.
+The `bootstrap.yaml` file acts as the root of the "App of Apps" pattern. It points Argo CD to the `4-platform-engineering/2-cluster-services/` directory to deploy all cluster add-ons simultaneously.
 ```bash
 make bootstrap
 ```
@@ -307,5 +356,5 @@ To mature this architecture for production environments, the following capabilit
 
 - [ ] **Scaffolder Identity (authn/authz):** The CLI and REST API currently trust `--team` as a plain string — anyone who can run the binary can scaffold into any team's directory, with the pull request and `CODEOWNERS` acting as the real gate. Roadmapped: OIDC device-authorisation flow against the platform IdP for the CLI, JWKS bearer-token validation for the API, and one authorisation rule — *the caller's group claims must contain the team being scaffolded into*. Deliberately the **same** identity that drives Kubernetes RBAC and the Argo CD `policy.csv`, so one group membership governs every plane rather than a second, parallel group system. Design notes in [.agents/AGENTS.md](.agents/AGENTS.md#-roadmap--scaffolder-identity-not-planned-work-direction-only).
 - [ ] **Backstage Integration:** Migrating the python CLI generator into Backstage Software Templates for a unified GUI developer portal.
-- [ ] **AIOps / Observability:** Full instrumentation using OpenTelemetry to map service dependencies and reduce MTTR via correlation.
+- [ ] **AIOps / Observability:** SLOs, multi-window multi-burn-rate alerting, Alertmanager routing, and runbooks now exist for `app-a` (`4-platform-engineering/2-cluster-services/observability/slo/`, `docs/runbooks/`) — see the Component Matrix note below. What remains roadmapped: wiring the metrics scrape path those alerts assume (an `OpenTelemetryCollector` + `ServiceMonitor`/`PodMonitor` — traces already reach Tempo via the `Instrumentation` CR, metrics do not yet reach Prometheus), and using OTel to map service dependencies for correlation-driven MTTR reduction across more than one service.
 - [ ] **FinOps Automation:** Operator-driven cost controls to scale non-production idle workloads to zero using KEDA.
