@@ -279,7 +279,7 @@ registered by hand.
 flowchart TB
     subgraph AWS ["🔒 AWS Account (hard boundary — SCPs, billing, blast radius)"]
         direction LR
-        A["Namespace: team-a<br/><br/>(soft boundary)<br/>RBAC, NetworkPolicy<br/>ResourceQuota"]
+        A["Namespace: tenant-a<br/><br/>(soft boundary)<br/>RBAC, NetworkPolicy<br/>ResourceQuota"]
         B["Namespace: team-b<br/><br/>(soft boundary)<br/>RBAC, NetworkPolicy<br/>ResourceQuota"]
         C["Namespace: team-c<br/><br/>(soft boundary)<br/>RBAC, NetworkPolicy<br/>ResourceQuota"]
     end
@@ -347,8 +347,8 @@ other way around. Details:
 
 ## 🔐 Identity & Single Sign-On
 
-Every rule above ("team-a can only touch team-a's namespace") only means something if
-there's a real login system deciding who *is* team-a. This platform runs
+Every rule above ("tenant-a can only touch tenant-a's namespace") only means something if
+there's a real login system deciding who *is* tenant-a. This platform runs
 [Keycloak](https://www.keycloak.org/) as a stand-in for a corporate login system (Entra ID,
 Okta, or similar), and wires the same group membership into five different tools —
 Kubernetes, ArgoCD, Grafana, Backstage, and AWS — so one group decides access everywhere,
@@ -514,12 +514,12 @@ find 3-tenant-workloads 4-platform-engineering -name '*.yaml' \
 # The chart still renders and lints
 helm lint 1-platform-catalog/charts/service
 helm template app-a 1-platform-catalog/charts/service \
-  -f 3-tenant-workloads/team-a/gitops/apps/app-a/dev/values.yaml
+  -f 3-tenant-workloads/tenant-a/gitops/apps/app-a/dev/values.yaml
 
-# Templates and rendered output agree (expect only [[ .TeamName ]] -> team-a)
-diff <(sed 's/\[\[ \.TeamName \]\]/team-a/g' \
+# Templates and rendered output agree (expect only [[ .TenantName ]] -> tenant-a)
+diff <(sed 's/\[\[ \.TenantName \]\]/tenant-a/g' \
         1-platform-catalog/per-tenant/gitops/platform/team/namespace.yaml.tmpl) \
-     3-tenant-workloads/team-a/gitops/platform/team/namespace.yaml
+     3-tenant-workloads/tenant-a/gitops/platform/team/namespace.yaml
 
 # Burn-rate alert PromQL is syntactically valid
 promtool check rules 4-platform-engineering/2-cluster-services/observability/slo/app-a-alerts.yaml
@@ -539,9 +539,9 @@ terraform -chdir=4-platform-engineering/1-cloud-foundation/aws/cluster plan
 <summary><strong>Live cluster checks</strong> — after <code>make setup</code> + <code>make wait-for-apps</code></summary>
 
 ```bash
-kubectl auth can-i --list --as=system:serviceaccount:team-a:default -n team-a
-kubectl describe resourcequota -n team-a
-kubectl get networkpolicy -n team-a          # expect 5 named policies
+kubectl auth can-i --list --as=system:serviceaccount:tenant-a:default -n tenant-a
+kubectl describe resourcequota -n tenant-a
+kubectl get networkpolicy -n tenant-a          # expect 5 named policies
 ```
 
 **A green `kubectl`/`helm` run on k3d does not mean the platform works against real AWS.**

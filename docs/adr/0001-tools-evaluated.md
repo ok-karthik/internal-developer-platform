@@ -1,0 +1,16 @@
+# ADR 001 — Tools Evaluated and Not Adopted
+
+A list of tools that were considered for this platform and set aside, with the specific
+reason and the condition that would flip the decision. A rejection without a reason to
+reverse it is just an opinion, not a decision.
+
+| Tool | What it does | Why it's not here | What would change that |
+|---|---|---|---|
+| **Capsule** (Clastix) | A `Tenant` CRD that owns many namespaces at once — shared quota across them, self-service namespace creation, auto-copied RBAC/NetworkPolicy. | Its main feature (self-service namespace creation) is a second way to answer a question this platform already answers with `onboard-team` + a pull request. Adding it means an extra imperative path alongside the GitOps one, plus an admission webhook in the critical path. | A team whose total resource usage needs to be capped *across* several namespaces, or teams who need to create namespaces without a PR. Neither is true at this platform's size. |
+| **HNC** (Hierarchical Namespace Controller) | Subnamespaces with automatic RBAC/quota propagation. | Same quota problem as Capsule, lighter weight, but still adds a controller to manage a hierarchy this platform already expresses as a flat, generated list. | Team → squad → service nesting deep enough that a flat list stops being readable. |
+| **vCluster** | A full virtual Kubernetes control plane per tenant. | Genuinely solves things namespaces can't (cluster-scoped isolation, conflicting CRD versions) — but at the cost of a control plane per tenant. | An untrusted tenant, or one that needs a cluster-scoped resource namespaces can't provide. Roughly the point where a company has 1000+ engineers. |
+| **AWS Control Tower** | A managed "Landing Zone" — automated multi-account setup, guardrails, centralized audit logging. | The *concepts* (Organizations, OUs, SCPs) are implemented directly in this repo's Terraform, which is more instructive to read than a managed product. Control Tower itself needs a real AWS Organization to try. | Actually running a multi-account AWS estate day to day, not just demonstrating the pattern. |
+| **Kargo** | Multi-stage deployment promotion (dev → staging → prod) with automated tracking. | This repo already demonstrates promotion as a pull request copying `dev/values.yaml` to `prod/values.yaml` — no extra controller needed, and easier to explain in an interview. | More than three environments, or a promotion process too complex for a plain PR to express. |
+| **kro** | A composition engine — one custom object expands into several Kubernetes resources. | Doesn't talk to AWS on its own; it needs ACK underneath it, which means a kro-based setup is stuck on AWS. | Reaching general availability, *and* deciding to stay on AWS permanently. |
+| **Crossplane** | Composition **and** cloud provider, with AWS/Azure/GCP support out of the box. | **Adopted, not rejected** — see `4-platform-engineering/4-platform-apis/`. It won over kro specifically because it doesn't lock the platform to one cloud. | N/A — already in use. |
+| **Humanitec / Port** | Commercial internal developer platforms. | Nothing you can self-host and show in a public repo — a product trial isn't something a reader can inspect. | Working somewhere that already runs one of these, and learning that specific product rather than building a substitute. |

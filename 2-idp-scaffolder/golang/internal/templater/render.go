@@ -136,7 +136,7 @@ func (r *Renderer) writer() Writer {
 	return OSWriter{}
 }
 
-// renderPath takes a path string like "[[ .TeamName ]]/app" and evaluates the template variables inside it
+// renderPath takes a path string like "[[ .TenantName ]]/app" and evaluates the template variables inside it
 func renderPath(pathStr string, cfg Config) (string, error) {
 	tmpl, err := template.New("path").Delims("[[", "]]").Parse(pathStr)
 	if err != nil {
