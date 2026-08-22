@@ -351,6 +351,50 @@ not the other way around.
 > capabilities to a continuously-reconciling controller — is the next infrastructure
 > milestone.
 
+---
+
+## ☁️ Cloud Portability — What "Cloud-Agnostic" Means Here (Phase 10)
+
+Phase 2.4 deleted an earlier roadmap item promising Azure AKS and GCP GKE support. That
+was correct and stays correct — it promised **breadth** (running everywhere), which costs
+months and dilutes a story in a market where AWS is 53.2% mentioned and 27% Req against
+Azure's 11% and GCP's 7%. What follows is a **seam**, not breadth: naming exactly what
+would change, and proving it on one capability rather than claiming it for the whole
+platform.
+
+| Layer | Portable? | Why |
+|---|---|---|
+| Helm chart, ArgoCD, Kyverno, observability stack, Argo Rollouts, ESO | ✅ | Plain Kubernetes — runs on any conformant cluster |
+| `catalog.yaml` capability *names* (`postgres`, `s3`) | ✅ | Already provider-neutral |
+| Terraform modules under `3-capability-modules/<provider>/` | ❌ | Provider-specific by definition — nested by provider for exactly this reason |
+| The cluster itself (`1-cloud-foundation/<provider>/cluster/`) | ❌ | EKS/AKS/GKE differ in node groups, networking, identity |
+| **ACK** | ❌ **hard blocker** | AWS-only. No ACK for Azure or STACKIT — Crossplane (Phase 9) is the fallback if portability ever matters for real, since it has first-party providers for all three |
+| IRSA / Pod Identity | ❌ | Azure Workload Identity, GCP Workload Identity Federation are analogues, not equivalents — the concept ports, the config does not |
+
+**The seam, proved on exactly one capability:** `4-platform-engineering/3-capability-modules/azure/postgres/`
+exposes the identical `team_name`/`app_name`/`env`/`tags` input contract and
+`db_identifier`/`db_endpoint` output contract as `aws/postgres/` — diff the two `main.tf`
+files to check this claim rather than trust it. Because `module:` in `catalog.yaml` is
+already a path segment, not a name prefix (Phase 3.8), switching this platform's postgres
+capability to Azure would be one line (`module: azure/postgres`) with no renderer change in
+either scaffolder engine. **`catalog.yaml` deliberately still points at `aws/postgres`** —
+the seam is proved by the module existing with a matching contract, not by actually
+switching this platform's live target away from AWS/EKS.
+
+**The ceiling, stated plainly:** this platform does **not** run on three clouds. `s3` and
+`iam` have no portability seam at all, because ACK has no Azure/STACKIT equivalent — closing
+that gap means Crossplane (Phase 9) replacing ACK entirely, not adding a module. Workload
+identity has an *analogue* on each cloud, not a shared implementation. One competent
+follow-up question — "so run this on Azure right now" — ends an overclaimed version of this
+conversation badly; the honest version (one proven seam, one named blocker, one ceiling)
+does not.
+
+**Not built: `stackit/postgres`.** STACKIT (Schwarz Group's EU-sovereign cloud) appears in
+zero of the 577 postings this repo's phase ordering is measured against — the argument for
+it is differentiation and data-residency conversation value in the German market, not
+keywords, and it is cheaper to add *after* Azure since the contract is already settled by
+then. Treated here as a named next step, not a claimed capability.
+
 ## 🚀 Deployment Guide (Local Demo Mode)
 
 You can spin up this entire reference architecture locally to evaluate the developer experience and platform guardrails. We provide a `Makefile` to simplify the setup process.

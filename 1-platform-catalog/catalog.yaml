@@ -44,6 +44,22 @@ capabilities_source_base: "git::https://github.com/ok-karthik/internal-developer
 # documented follow-up), so the existing Terraform capability templates
 # (s3.tf.tmpl, iam.tf.tmpl) must keep working until they do.
 capabilities:
+  # Phase 10.2: the portability seam, proved with exactly one capability on
+  # exactly one second provider, and stopped there. postgres stays on
+  # aws/postgres because AWS/EKS is this platform's stated target (see
+  # PLAN.md's Target Environment section) — 3-capability-modules/azure/postgres/
+  # exists with the SAME variable/output contract (team_name, app_name, env,
+  # tags in; db_identifier, db_endpoint out) specifically so switching this
+  # platform's cloud is provably this one line:
+  #   module: azure/postgres
+  # and nothing else — no renderer change, no template edit, because the
+  # provider was already a path segment in `module:`, not a separate field
+  # (Phase 3.8). The developer requesting postgres never learns which
+  # provider they got either way — same abstraction argument as
+  # `provisioner:` above, one level up. Do not actually flip this line;
+  # doing so would silently break every golden-path service currently
+  # pointed at AWS. The seam is proved by the module existing with a
+  # matching contract, not by switching the platform's live target.
   postgres:
     provisioner: terraform   # stateful, expensive, wants a plan step
     module: aws/postgres     # provider is a path segment, not a name prefix
