@@ -1,0 +1,26 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: require-default-deny
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+spec:
+  validationFailureAction: Enforce
+  background: true
+  rules:
+    - name: require-default-deny
+      match:
+        any:
+        - resources:
+            kinds:
+              - NetworkPolicy
+            names:
+              - default-deny-all
+      validate:
+        message: "default-deny-all NetworkPolicy must have empty podSelector and both Ingress and Egress policyTypes."
+        pattern:
+          spec:
+            podSelector: {}
+            policyTypes:
+              - Ingress
+              - Egress

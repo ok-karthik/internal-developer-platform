@@ -22,7 +22,8 @@ on:
     branches:
       - main
     paths:
-      - '3-tenant-workloads/**'
+      - '3-tenant-workloads/*/apps/**'
+      - '3-tenant-workloads/*/gitops/apps/**/values.yaml'
       - '1-platform-catalog/charts/service/**'
       - '.github/workflows/tenant-workloads-ci-cd.yaml'
 

@@ -1,0 +1,24 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: restrict-applicationset
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+spec:
+  validationFailureAction: Enforce
+  background: true
+  rules:
+    - name: restrict-applicationset
+      match:
+        any:
+        - resources:
+            kinds:
+              - ApplicationSet
+      validate:
+        message: "ApplicationSet git generator directories must stay under the team's own path."
+        pattern:
+          spec:
+            generators:
+              - git:
+                  directories:
+                    - path: "3-tenant-workloads/{{request.object.metadata.name}}/*"
