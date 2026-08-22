@@ -31,7 +31,7 @@ platform-engineering-idp-gitops-reference-architecture/
 │   └── python/                         # Python implementation of the IDP Scaffolder CLI & REST API
 │       ├── cli.py / api.py             # Typer CLI and FastAPI REST endpoints
 │       ├── catalog.py                  # pydantic twin of internal/catalog — loads + validates catalog.yaml
-│       ├── render.py                   # Jinja2 engine, roots, IPAM CIDR allocation (was utils.py)
+│       ├── render.py                   # Jinja2 engine, path roots (was utils.py)
 │       └── TODO.md                     # Remaining Python work, phased, with an answer key
 ├── 3-tenant-workloads/                 # Simulated tenant monorepo target directory (Monitored by ArgoCD)
 │   └── <team>/                         # Tenant-first: one directory per team
@@ -158,7 +158,7 @@ Key decisions:
 >
 > The Go CLI defaults to fetching the catalog from GitHub via `go-getter`, so local edits to `1-platform-catalog/` do not take effect until pushed — **pass `--catalog-root ../../1-platform-catalog` when working locally.** `--output-root` likewise redirects the generated tree, which is what makes the two-engine `diff` possible without writing into the repo. The fetched ref is still hardcoded to a branch (`root.go`); pinning it is Phase 4 of the Go TODO.
 >
-> The Python CLI has no root flags yet, so it always writes into the real `3-tenant-workloads/` — Phase 3 of the Python TODO. It also allocates a VPC CIDR into `3-tenant-workloads/cloud_vpcs_allocated.yaml` on `onboard-team`, which Go does not do; the engines are therefore not interchangeable for that verb.
+> The Python CLI has no root flags yet, so it always writes into the real `3-tenant-workloads/` — Phase 3 of the Python TODO.
 
 ---
 
@@ -222,7 +222,6 @@ permission sets) can only match on the group string it receives — see Phase 7.
 - **Templating**: Jinja2, **not Copier** (dropped — it renders to a directory and cannot return rendered bytes, which blocks Plan-then-Write). Configure it to match Go: `variable_start_string="[["`, `block_start_string="[%"`, `keep_trailing_newline=True`, and `undefined=StrictUndefined` so a typo'd variable fails instead of rendering an empty string.
 - **Go→Jinja conversion**: `render.render_template_string()` rewrites `[[ .Var ]]` → `[[ Var ]]` and `[[- if .X ]]` → `[% if X %]` by regex. The `-` trim markers are lost in that conversion, which is why the environment needs `trim_blocks`/`lstrip_blocks` to match Go's whitespace behaviour.
 - **Validation at the load boundary**: `catalog.py` mirrors `internal/catalog/catalog.go`, including a `REQUIRED_DESTINATIONS` list that **must stay textually identical to Go's `requiredDestinations`** — if they drift, one engine accepts a catalog the other rejects.
-- **IPAM Engine**: `render.py` handles deterministic `/16` VPC CIDR allocations saved in `3-tenant-workloads/cloud_vpcs_allocated.yaml`. Python-only; Go has no VPC concept.
 - **Declare your dependencies.** `copier` was imported while absent from `pyproject.toml` and `uv.lock`, working only from a stale local `.venv` — every fresh checkout had a CLI that could not start. Verify with `rm -rf .venv && uv sync && uv run python -c "import cli, api"`.
 
 ### 4. Terraform Cloud Modules (`4-platform-engineering/3-capability-modules/aws/`)
@@ -281,8 +280,8 @@ git worktree remove --force /tmp/wt
 ### The two-engine acceptance test
 
 The catalog is only a contract if both engines agree. Python has no `--output-root` yet
-(Python TODO Phase 3), so today this needs backing up `3-tenant-workloads/cloud_vpcs_allocated.yaml`
-and removing the scratch team afterwards.
+(Python TODO Phase 3), so today this needs removing the scratch team from
+`3-tenant-workloads/` afterwards.
 
 ```bash
 diff -r /tmp/go-out/3-tenant-workloads/<team> 3-tenant-workloads/<team>

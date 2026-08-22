@@ -19,7 +19,7 @@ variable "env" {
 variable "vpc_cidr" {
   type        = string
   default     = "10.100.0.0/16"
-  description = "Hub VPC CIDR. Deliberately outside 10.0.0.0/8 to avoid colliding with the tenant VPCs the Python scaffolder allocates (3-tenant-workloads/cloud_vpcs_allocated.yaml)."
+  description = "Hub VPC CIDR. Deliberately outside 10.0.0.0/8, the range this platform's tenant namespaces (not VPCs -- see README.md's Two Layers of Isolation) are conceptually addressed under, so a future spoke-account VPC can pick a block in that range with no risk of colliding with the hub."
 }
 
 variable "azs" {

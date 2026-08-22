@@ -25,10 +25,6 @@ env = Environment(
     undefined=StrictUndefined,    # fail on unhandled variables (matches Go behavior)
 )
 
-# IPAM registry file for tracking VPC CIDR allocations
-IPAM_REGISTRY_FILE = TENANT_WORKLOADS_DIR / "cloud_vpcs_allocated.yaml"
-
-
 REMOTE_TEMPLATE_REPO = "" # "https://github.com/ok-karthik/internal-developer-platform@version=feature/python-scaffolder"
 
 def create_jinja_env(catalog_root: Path) -> Environment:
@@ -134,33 +130,3 @@ def list_onboarded_teams() -> list[str]:
         return []
     return [template.name for template in Path(TENANT_WORKLOADS_DIR).iterdir() if template.is_dir()]
 
-def allocate_vpc_cidr_block(team_name: str) -> str:
-    """Gets the existing CIDR block for a team, or allocates the next available /16 range."""
-    
-    # 1. Load the existing allocations
-    cloud_vpcs_allocated = {}
-    if IPAM_REGISTRY_FILE.exists() and IPAM_REGISTRY_FILE.stat().st_size > 0:
-        with open(IPAM_REGISTRY_FILE, "r") as f:
-            cloud_vpcs_allocated = yaml.safe_load(f) or {}
-
-    # 2. Get or calculate allocation
-    if team_name in cloud_vpcs_allocated:
-        return cloud_vpcs_allocated[team_name]
-    
-    # Determine the next second octet (10.x.0.0/16)
-    if cloud_vpcs_allocated:
-        max_index = max([int(cidr.split(".")[1]) for cidr in cloud_vpcs_allocated.values()])
-        next_index = max_index + 1
-    else:
-        next_index = 0  # Start at 10.0.0.0/16
-        
-    vpc_cidr = f"10.{next_index}.0.0/16"
-    
-    # 3. Save the new allocation back to the YAML file
-    cloud_vpcs_allocated[team_name] = vpc_cidr
-    TENANT_WORKLOADS_DIR.mkdir(parents=True, exist_ok=True)
-    with open(IPAM_REGISTRY_FILE, "w") as f:
-        yaml.safe_dump(cloud_vpcs_allocated, f)
-        typer.echo(f"Allocated VPC CIDR: {vpc_cidr}")
-        
-    return vpc_cidr

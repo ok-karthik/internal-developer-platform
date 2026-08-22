@@ -106,9 +106,8 @@ def add_service_workload(
 
 def onboard_team_workload(team_name: str) -> bool:
     catalog_dir = render.CATALOG_DIR
-    vpc_cidr = render.allocate_vpc_cidr_block(team_name)
     env = render.create_jinja_env(catalog_dir)
-    data = {"TeamName": team_name, "VpcCidr": vpc_cidr}
+    data = {"TeamName": team_name}
 
     # Render the per-team tree (apps, infra, gitops) — rendered ONCE per team
     for blueprint_kind in ["apps", "infra", "gitops"]:

@@ -1,10 +1,16 @@
 ## Tenant Idempotent Infrastructure Modules ## - Do not remove these - Danger zone start!
-module "aws-vpc" {
-    source    = "git::https://github.com/ok-karthik/internal-developer-platform.git//4-platform-engineering/3-capability-modules/aws/networking?ref=v2.0.0"
-    team_name = "team-a"
-    app_name  = "shared"
-    vpc_cidr  = "10.0.0.0/16"
-}
+# A per-team "aws-vpc" module used to be rendered here, backed by a CIDR the
+# Python engine allocated into 3-tenant-workloads/cloud_vpcs_allocated.yaml.
+# Removed: it assumed each team would get its own VPC (and implicitly, its
+# own cluster) — an earlier design this platform moved away from. What
+# actually got built (Phase 1 + Phase 5) is one shared EKS cluster with
+# namespace-per-team as the soft isolation boundary, and one AWS account per
+# ENVIRONMENT (not per team) as the hard one — see README.md's "Two Layers
+# of Isolation". The removed module was also already dead in practice: its
+# vpc_cidr was hardcoded to "10.0.0.0/16" regardless of team, so the
+# allocator's per-team CIDR was computed, persisted, and never actually
+# substituted into this file — every team would have collided on the same
+# block had this ever been applied.
 
 # This is where per-namespace IRSA/Pod Identity trust-policy scoping attaches
 # once a real EKS cluster's OIDC issuer exists (4-platform-engineering/1-cloud-foundation/
