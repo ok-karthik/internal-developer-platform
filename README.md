@@ -490,3 +490,78 @@ To mature this architecture for production environments, the following capabilit
 - [ ] **Backstage Integration:** Backstage *calls* the CLI — it does not replace it. Catalog validation, golden-path resolution and destination routing stay in `2-idp-scaffolder/golang/`; Backstage is a presentation layer that shells out to the existing CLI (approach (b) in `PLAN.md` Phase 8.0) rather than a second implementation of the scaffolder in TypeScript. `docs/backstage/` has the Software Template and `app-config.yaml` fragment this would need — deliberately not a running Backstage instance, since standing one up is a different category of work (its own TypeScript app) than the rest of this repo, and the phase is 1.2% of the target market against Phases 4-7's measured demand.
 - [ ] **AIOps / Observability:** SLOs, multi-window multi-burn-rate alerting, Alertmanager routing, and runbooks now exist for `app-a` (`4-platform-engineering/2-cluster-services/observability/slo/`, `docs/runbooks/`) — see the Component Matrix note below. What remains roadmapped: wiring the metrics scrape path those alerts assume (an `OpenTelemetryCollector` + `ServiceMonitor`/`PodMonitor` — traces already reach Tempo via the `Instrumentation` CR, metrics do not yet reach Prometheus), and using OTel to map service dependencies for correlation-driven MTTR reduction across more than one service.
 - [ ] **FinOps Automation:** Operator-driven cost controls to scale non-production idle workloads to zero using KEDA.
+
+---
+
+## ✅ Appendix B — Verification
+
+Per-phase checks, runnable without a live cluster:
+
+```bash
+# Every manifest still parses
+find 3-tenant-workloads 4-platform-engineering -name '*.yaml' \
+  -exec kubectl apply --dry-run=client -f {} \; 2>&1 | grep -i error
+
+# The chart still renders and lints
+helm lint 1-platform-catalog/charts/service
+helm template app-a 1-platform-catalog/charts/service \
+  -f 3-tenant-workloads/team-a/gitops/apps/app-a/dev/values.yaml
+
+# Templates and rendered output agree (expect only [[ .TeamName ]] -> team-a)
+diff <(sed 's/\[\[ \.TeamName \]\]/team-a/g' \
+        1-platform-catalog/blueprints/team/gitops/platform/team/namespace.yaml.tmpl) \
+     3-tenant-workloads/team-a/gitops/platform/team/namespace.yaml
+
+# Burn-rate alert PromQL is syntactically valid
+promtool check rules 4-platform-engineering/2-cluster-services/observability/slo/app-a-alerts.yaml
+```
+
+Full local run, once `make setup` has converged (`make wait-for-apps`):
+
+```bash
+kubectl auth can-i --list --as=system:serviceaccount:team-a:default -n team-a
+kubectl describe resourcequota -n team-a
+kubectl get networkpolicy -n team-a          # expect 5 named policies
+```
+
+Terraform under `1-cloud-foundation/` and `3-capability-modules/`, per each module being
+its own independently-`validate`-able root:
+
+```bash
+for d in 4-platform-engineering/1-cloud-foundation/aws/* 4-platform-engineering/3-capability-modules/*/*; do
+  terraform -chdir="$d" init -backend=false >/dev/null && terraform -chdir="$d" validate
+done
+tflint --recursive 4-platform-engineering/
+
+# Tier 2 — the one that actually proves something. Creates nothing.
+terraform -chdir=4-platform-engineering/1-cloud-foundation/aws/cluster plan
+```
+
+**A green `kubectl`/`helm` run on k3d does not mean the platform works.** Re-read "What the
+local loop does not test" in the Deployment Guide before treating any phase touching IAM,
+load balancers, storage or cluster auth as verified. For those, `terraform plan` against a
+real account is the verification — not a local apply.
+
+**Report honestly.** If a phase is partly done, say which tasks were skipped and why. Every
+known gap in this repo is named in-line where it applies (grep for "KNOWN GAP" and "not yet
+wired") rather than collected into one optimistic-sounding status page — the gap and the
+code it applies to should never be more than a scroll apart.
+
+---
+
+## 🗂️ Appendix C — Tools Evaluated and Not Adopted
+
+A "considered and rejected, with the condition that would change my mind" list — the thing
+that separates *chose* from *only ever found one tutorial*. Every row carries the third
+column; a rejection without a trigger is just an opinion.
+
+| Tool | What it actually does | Why not here | What would change my mind |
+|---|---|---|---|
+| **Capsule** (Clastix) | A `Tenant` CRD owning *many* namespaces: cross-namespace quota, self-service namespace creation within limits, auto-propagated RBAC/NetworkPolicy/LimitRange. `capsule-proxy` also fixes the `kubectl get namespaces` gap (Phase 7.4). | It is the productised version of Phases 1 + 7.4, and its headline feature — self-service namespace creation — is a *second* answer to a question this platform already answers declaratively, through `onboard-team` and git. Adopting it puts an imperative path beside the GitOps one and a mutating webhook in the admission critical path. | A team needing its **total** footprint capped across several namespaces, or tenants who must create namespaces without a PR. Both real; neither true at this size. |
+| **HNC** (kubernetes-sigs) | Subnamespaces under a parent, with RBAC/object propagation and a `HierarchicalResourceQuota`. | Lighter than Capsule, solves the same quota gap, but still adds a controller to model a hierarchy this platform expresses as a flat, generated list of namespaces. | Team → squad → service nesting deep enough that flat generation stops being readable. |
+| **vCluster** (Loft) | A virtual control plane per tenant — own API server, own CRDs, own cluster-scoped resources. | Genuinely solves what namespaces cannot (cluster-scoped isolation, per-tenant CRDs), at the cost of a control plane per tenant. Already on Phase 1.6's escalation ladder. | Tenants needing conflicting CRD versions, or an untrusted/adversarial tenant — roughly 1000 engineers, per Phase 1.6. |
+| **AWS Control Tower** | Landing Zone, Account Factory, OU guardrails, centralised Log Archive/Audit accounts. | **Concepts adopted, product not deployed** — Phase 5.4 documents Organizations, OUs and SCPs directly, which is where the transferable understanding is. A managed Landing Zone needs a real AWS Organization and adds nothing a reader can inspect in git. | Actually operating a multi-account estate, not documenting one. |
+| **Kargo** | Multi-stage promotion (dev → staging → prod) with automated freight tracking. | **0 of 577 postings.** Phase 2.3 already demonstrates promotion as a PR copying `dev/values.yaml` to `prod/values.yaml` — simpler, no controller, easier to explain. | More than three environments, or promotion gates complex enough a PR stops being expressive. |
+| **kro** | Composition layer — one custom CR expanding into many. | Still not GA, and cannot provision AWS on its own — needs ACK underneath, which keeps a kro-based platform AWS-locked (Phase 10.1). | It reaches GA **and** this platform has decided to stay on AWS permanently. |
+| **Crossplane** | Composition **and** provider, across AWS/Azure/GCP. | **Adopted (Phase 9)**, not rejected — see `4-platform-apis/`. Listed here for the tiebreak record: it won over kro specifically because Phase 10 portability makes cross-cloud providers decisive rather than a nice-to-have. | N/A — already in use. |
+| **Humanitec / Port** | Commercial IDPs, strong in DACH. | Nothing self-hostable to show in a repo; a trial tenant is not an artefact. | Interviewing somewhere that runs one — then learn *their* model, not a substitute. |
