@@ -52,12 +52,12 @@ tracked as skip-if-exists plus `--force` in [`TODO.md`](TODO.md).
 
 Go has no equivalent, so this is a genuine Python-side advantage.
 
-### 4. No per-team VPC allocation (removed)
+### 4. No per-tenant VPC allocation (removed)
 
 An earlier version of this engine allocated a unique `/16` VPC CIDR per team into
 `3-tenant-workloads/cloud_vpcs_allocated.yaml`, on the assumption that each team would get
 its own VPC (and implicitly, its own cluster). That's not the design that shipped — the
-platform runs one shared EKS cluster with namespace-per-team as the soft isolation
+platform runs one shared EKS cluster with namespace-per-tenant as the soft isolation
 boundary, and one AWS account per *environment* (not per team) as the hard one. The
 allocator was also already dead in practice: the CIDR it computed was never substituted
 into any template (`team-iam.tf.tmpl` hardcoded `10.0.0.0/16` regardless of team), so it

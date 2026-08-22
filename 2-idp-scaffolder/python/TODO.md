@@ -229,11 +229,11 @@ Once Phase 0a makes it importable and Phase 2 gives you plans:
 
 `allocate_vpc_cidr_block()` and `cloud_vpcs_allocated.yaml` are gone. They assumed each
 team would get its own VPC (and implicitly, its own cluster) — a design this platform
-moved away from in favor of one shared EKS cluster with namespace-per-team as the soft
+moved away from in favor of one shared EKS cluster with namespace-per-tenant as the soft
 isolation boundary, and one AWS account per *environment* as the hard one. The allocator
 was also already dead in practice before removal: the CIDR it computed was never
 substituted into `team-iam.tf.tmpl` (hardcoded to `10.0.0.0/16` regardless of team), so it
-was computing and persisting a value nothing downstream read. If a per-team or per-spoke
+was computing and persisting a value nothing downstream read. If a per-tenant or per-spoke
 VPC is ever genuinely needed again, design it against the account model in
 `4-platform-engineering/1-cloud-foundation/aws/organization/`, not as a resurrection of
 this file.

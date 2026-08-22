@@ -13,7 +13,7 @@
 # while granting permissions only within its own namespace — that is the
 # standard Kubernetes pattern this file relies on, and it is what lets the
 # ClusterRole be defined exactly once here while every team's RoleBinding
-# still stays a per-team, blueprint-rendered file.
+# still stays a per-tenant, blueprint-rendered file.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:

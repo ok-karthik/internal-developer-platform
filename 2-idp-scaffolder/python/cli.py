@@ -114,7 +114,7 @@ def onboard_tenant_workload(tenant_name: str, owner: list[str]) -> bool:
     # Render the per-tenant tree (apps, infra, gitops) — rendered ONCE per team
     for dest_key in ["per-tenant/root", "per-tenant/infra", "per-tenant/gitops"]:
         src_dir = catalog_dir / dest_key
-        dst_dir = render.TENANT_WORKLOADS_DIR / cat_data.destinations[dest_key].format(team=tenant_name)
+        dst_dir = render.TENANT_WORKLOADS_DIR / cat_data.destinations[dest_key].format(tenant=tenant_name)
         
         if not src_dir.exists():
             continue

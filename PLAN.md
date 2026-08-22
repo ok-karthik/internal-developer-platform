@@ -79,6 +79,73 @@ enough to *record* a decision, and not enough to *perform* one.
 
 ---
 
+## Phase 11a — Prerequisite: put the scaffolder under CI
+
+**Do this before Phase 11.** It is a single workflow file and it is the safety net that
+Phases 11 and 13 both assume already exists.
+
+**What is missing.** `.github/workflows/` holds exactly two workflows — `Platform Policy
+Gate` and `Tenant Workloads - CI/CD Pipeline`. **Neither touches `2-idp-scaffolder/`.**
+Concretely:
+
+- `go test` never runs in CI, though `internal/catalog/catalog_test.go`,
+  `internal/templater/resolve_test.go` and `render_test.go` exist and pass locally.
+- `golang/.golangci.yml` is committed and **nothing executes it**.
+- The Python engine has **zero tests** and declares no test dependency in
+  `pyproject.toml`.
+- The two-engine acceptance test is documented in `.agents/AGENTS.md` as a manual
+  procedure and is never run automatically.
+
+**Why it blocks Phase 11.** The repository's headline claim is *one catalog, two engines,
+identical output* — and only one engine is tested at all. Worse, Phase 11 step 5
+**deliberately breaks the coincidence** that currently makes the two engines agree: Python
+hardcodes `TENANT_WORKLOADS_DIR / team_name / blueprint_kind` while Go resolves through
+`destinations:`. If the Python rewrite is subtly wrong, the failure is silent divergence in
+generated output — the single defect this repo is least able to detect today, handed to an
+agent that will report success because every command it ran exited zero.
+
+### The workflow
+
+New `.github/workflows/scaffolder-ci.yaml`, on `pull_request` and `push` to `main`, with
+`paths: ['2-idp-scaffolder/**', '1-platform-catalog/**']`. Four jobs:
+
+1. **`go`** — `go vet ./...`, `go test ./... -race`, `golangci-lint run` (the config is
+   already there).
+2. **`python`** — `ruff check`, then `pytest`. Add `pytest` to `pyproject.toml` first.
+3. **`acceptance`** — the job that actually matters. Render the same tenant with both
+   engines into two temp directories and diff them:
+
+   ```bash
+   go run . onboard-team --catalog-root ../../1-platform-catalog --team-name ci-probe
+   uv run python main.py onboard-team --team-name ci-probe
+   diff -r /tmp/go-out/3-tenant-workloads/ci-probe /tmp/py-out/3-tenant-workloads/ci-probe
+   ```
+
+   Follow `AGENTS.md § "The two-engine acceptance test"` for the exact invocation — it
+   already specifies the output roots. Do the same for `add-service` across at least one
+   `terraform`-provisioned and one `ack`-provisioned capability, so the Phase 3.9 dispatch
+   is covered on both paths.
+
+4. **`catalog`** — the destinations-integrity check from Phase 11's Verify block, so a
+   destination key pointing at a non-existent directory fails at PR time rather than
+   mid-render.
+
+### Minimum Python tests
+
+Not parity with Go — just enough that `pytest` is not an empty run. Port the two checks
+that already exist on the Go side and guard real invariants:
+
+- a golden path naming an undeclared runtime is rejected at catalog load
+- a runtime directory that exists but is **not** declared in `runtimes:` stays invisible
+  (this is deliberate behaviour per AGENTS.md decision 13, and the kind of thing a future
+  agent will "fix" unless a test says otherwise)
+
+**Verify:** open a throwaway PR that changes one Python destination path and confirm the
+`acceptance` job fails. A gate never seen to fail is not known to work — same rule as
+Phase 12.
+
+---
+
 ## Phase 11 — Collapse the tenant split from three repos to two
 
 > **Scope note.** This phase edits `2-idp-scaffolder/golang/`. That tree is normally

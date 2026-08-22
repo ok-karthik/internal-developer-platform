@@ -43,7 +43,7 @@ At its core, the Go IDP Scaffolder performs one fundamental task:
                            ┌────────────────────────────────────────────────────────┐
                            │                  1-platform-catalog/                   │
                            │  - catalog.yaml (Schema, Golden Paths, Destinations)   │
-                           │  - per-team/ (Team tenancy foundations: apps, infra)   │
+                           │  - per-tenant/ (Team tenancy foundations: apps, infra)   │
                            │  - per-service/ (Runtimes, Service-Meta, Capabilities) │
                            └──────────────────────────┬─────────────────────────────┘
                                                       │
@@ -81,7 +81,7 @@ At its core, the Go IDP Scaffolder performs one fundamental task:
 ├── main.go                       → Minimal process entrypoint; delegates to cli.Execute()
 ├── cmd/cli/
 │   ├── root.go                   → Root Cobra command, signal trapping, version pinning, remote fetching
-│   ├── onboard_team.go           → Subcommand for initial team tenancy scaffolding (per-team/)
+│   ├── onboard_team.go           → Subcommand for initial team tenancy scaffolding (per-tenant/)
 │   └── add_service.go            → Subcommand for service golden-path scaffolding (per-service/)
 └── internal/
     ├── catalog/
@@ -311,7 +311,7 @@ func LoadCatalog(catalogFS fs.FS) (*Catalog, error) {
 ```
 
 Validation ensures:
-1. Every destination in `requiredDestinations` (`per-team/apps`, `per-team/infra`, `per-team/gitops`, `per-service/apps/runtimes`, etc.) is declared.
+1. Every destination in `requiredDestinations` (`per-tenant/apps`, `per-tenant/infra`, `per-tenant/gitops`, `per-service/apps/runtimes`, etc.) is declared.
 2. Every declared runtime points to a directory that actually exists on `CatalogFS`.
 3. Every golden path references a runtime declared in `runtimes:`.
 
@@ -403,9 +403,9 @@ func (r *Renderer) resolveDestination(destTemplate string, cfg Config) string {
 
 | Source Directory | Output Path (`destinations:`) | Triggered By | Frequency |
 |---|---|---|---|
-| `per-team/apps/` | `{team}/apps/` | `onboard-team` | Once per team |
-| `per-team/infra/` | `{team}/infra/` | `onboard-team` | Once per team |
-| `per-team/gitops/` | `{team}/gitops/` | `onboard-team` | Once per team |
+| `per-tenant/apps/` | `{team}/apps/` | `onboard-team` | Once per team |
+| `per-tenant/infra/` | `{team}/infra/` | `onboard-team` | Once per team |
+| `per-tenant/gitops/` | `{team}/gitops/` | `onboard-team` | Once per team |
 | `per-service/apps/runtimes/<lang>/` | `{team}/apps/{app}/` | `add-service` | Once per service |
 | `per-service/apps/service-meta/` | `{team}/apps/{app}/` | `add-service` | Once per service |
 | `per-service/gitops/release/` | `{team}/gitops/apps/{app}/{env}/` | `add-service` | Per service per env |

@@ -161,11 +161,11 @@ make destroy
 
 | Catalog directory | Rendered by | When | What reaches a tenant repo |
 | :--- | :--- | :--- | :--- |
-| `per-team/` | `onboard-team` | once per team | the files themselves, copied |
+| `per-tenant/` | `onboard-team` | once per team | the files themselves, copied |
 | `per-service/` | `add-service` | once per service (or once per capability requested) | the files themselves, copied |
 | `charts/` | **GitHub Actions**, never the CLI | every push touching a `values.yaml` or the chart | **only its rendered output**, into `manifests/` |
 
-The directory name tells you *how often* a thing renders — `per-team` vs `per-service` — and
+The directory name tells you *how often* a thing renders — `per-tenant` vs `per-service` — and
 the path underneath tells you *where it lands*. `per-service/` has a second split baked in:
 `per-service/infra/capabilities/` is Terraform (applied by a `terraform` run), while
 `per-service/gitops/capabilities/` is a Kubernetes-native alternative (applied by ArgoCD) —
@@ -183,9 +183,9 @@ instead of being copy-pasted into N repos.
 
 | Catalog source | Rendered | Lands at |
 | :--- | :--- | :--- |
-| `per-team/root/` | once per team | `<team>/` |
-| `per-team/infra/` | once per team | `<team>/infra/` |
-| `per-team/gitops/` | once per team | `<team>/gitops/` |
+| `per-tenant/root/` | once per team | `<team>/` |
+| `per-tenant/infra/` | once per team | `<team>/infra/` |
+| `per-tenant/gitops/` | once per team | `<team>/gitops/` |
 | `per-service/apps/runtimes/<lang>/` | per service | `<team>/apps/<app>/` |
 | `per-service/apps/service-meta/` | per service | `<team>/apps/<app>/` |
 | `per-service/infra/capabilities/<cap>.tf.tmpl` | per capability, if `provisioner: terraform` | `<team>/infra/apps/<app>/<env>/` |
@@ -218,7 +218,7 @@ deliberate promotion PR.
 
 The CLI writes to the current directory and appends nothing to it, same contract as
 `terraform` or `npm`. See [`docs/gitops-delivery.md`](docs/gitops-delivery.md) for how the
-generated monorepo layout turns into real per-team repos with no extra tooling.
+generated monorepo layout turns into real per-tenant repos with no extra tooling.
 </details>
 
 ---
@@ -518,7 +518,7 @@ helm template app-a 1-platform-catalog/charts/service \
 
 # Templates and rendered output agree (expect only [[ .TeamName ]] -> team-a)
 diff <(sed 's/\[\[ \.TeamName \]\]/team-a/g' \
-        1-platform-catalog/per-team/gitops/platform/team/namespace.yaml.tmpl) \
+        1-platform-catalog/per-tenant/gitops/platform/team/namespace.yaml.tmpl) \
      3-tenant-workloads/team-a/gitops/platform/team/namespace.yaml
 
 # Burn-rate alert PromQL is syntactically valid

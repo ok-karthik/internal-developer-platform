@@ -5,7 +5,7 @@ the version-pinned capability → module mapping, and a `destinations:` table th
 output contract. Three directories sit alongside it, and their names carry the fact that
 matters — *how often each one renders*:
 
-- **`per-team/`** — rendered **once per team**, by `onboard-team`.
+- **`per-tenant/`** — rendered **once per team**, by `onboard-team`.
 - **`per-service/`** — rendered **once per service** (or once per requested capability), by
   `add-service`.
 - **`charts/`** — never scaffolded at all. CI renders it and only the output reaches a
@@ -23,9 +23,9 @@ relative to `3-tenant-workloads/`.
 
 | You edit this | It renders to | Rendered by | How often |
 |---|---|---|---|
-| `per-team/apps/` | `{team}/apps/` | `onboard-team` | once per team |
-| `per-team/infra/` | `{team}/infra/` | `onboard-team` | once per team |
-| `per-team/gitops/` | `{team}/gitops/` | `onboard-team` | once per team |
+| `per-tenant/apps/` | `{team}/apps/` | `onboard-team` | once per team |
+| `per-tenant/infra/` | `{team}/infra/` | `onboard-team` | once per team |
+| `per-tenant/gitops/` | `{team}/gitops/` | `onboard-team` | once per team |
 | `per-service/apps/runtimes/<lang>/` | `{team}/apps/{app}/` | `add-service` | once per service — **one** `<lang>` picked by `--runtime` / golden path |
 | `per-service/apps/service-meta/` | `{team}/apps/{app}/` | `add-service` | once per service, always |
 | `per-service/infra/capabilities/<cap>.tf.tmpl` | `{team}/infra/apps/{app}/{env}/` | `add-service` | one file per requested capability with `provisioner: terraform` |
@@ -33,7 +33,7 @@ relative to `3-tenant-workloads/`.
 | `per-service/gitops/release/` | `{team}/gitops/apps/{app}/{env}/` | `add-service` | once per service per env |
 | `charts/service/` | **nothing** — never scaffolded | CI, via `helm template` | output only, into `{team}/gitops/apps/{app}/{env}/manifests/` |
 
-**Why the directory names carry cardinality.** The prefix (`per-team` / `per-service`)
+**Why the directory names carry cardinality.** The prefix (`per-tenant` / `per-service`)
 tells you *how often* something renders; the path underneath tells you *where it lands*.
 That is a readable projection of the two rightmost columns above, available without
 opening this table at all — which is the whole point of the rename this directory used to

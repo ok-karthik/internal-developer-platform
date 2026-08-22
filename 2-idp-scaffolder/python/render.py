@@ -43,19 +43,48 @@ def create_jinja_env(catalog_root: Path) -> Environment:
         block_start_string="[%",
         block_end_string="%]",
         keep_trailing_newline=True,
-        trim_blocks=True,
-        lstrip_blocks=True,
         undefined=StrictUndefined,
     )
 
 def render_template_string(env: Environment, tmpl_content: str, data: dict) -> str:
     """Renders an in-memory template string with Go delimiters."""
-    # 1. Convert Go conditionals [[- if .SystemName ]] -> [% if SystemName %], [[- end ]] -> [% endif %]
-    cleaned_content = re.sub(r'\[\[-?\s*if\s*\.([a-zA-Z0-9_]+)\s*\]\]', r'[% if \1 %]', tmpl_content)
-    cleaned_content = re.sub(r'\[\[-?\s*end\s*\]\]', r'[% endif %]', cleaned_content)
+    import re
+    
+    # 1. Convert Go conditionals and loops
+    # [[- if .SystemName ]] -> [% if SystemName %]
+    # [[- range .Owners ]] -> [% for _dot_ in Owners %]
+    # [[- end ]] -> [% endif %] or [% endfor %]
+    
+    stack = []
+    
+    def block_replacer(match):
+        left_trim = match.group(1)
+        inner = match.group(2).strip()
+        right_trim = match.group(3)
+        
+        prefix = f'[%{left_trim}'
+        suffix = f'{right_trim}%]'
+        
+        if inner.startswith('if '):
+            stack.append('if')
+            var = inner[3:].strip().lstrip('.')
+            return f'{prefix} if {var} {suffix}'
+        elif inner.startswith('range '):
+            stack.append('for')
+            var = inner[6:].strip().lstrip('.')
+            return f'{prefix} for _dot_ in {var} {suffix}'
+        elif inner == 'end':
+            block_type = stack.pop() if stack else 'if'
+            return f'{prefix} end{block_type} {suffix}'
+        return match.group(0)
+
+    cleaned_content = re.sub(r'\[\[(-?)\s*(if\s+.*?|range\s+.*?|end)\s*(-?)\]\]', block_replacer, tmpl_content)
     
     # 2. Convert Go template dot variables [[ .Var ]] -> [[ Var ]] for Jinja2 compatibility
     cleaned_content = re.sub(r'\[\[\s*\.([a-zA-Z0-9_]+)\s*\]\]', r'[[ \1 ]]', cleaned_content)
+    
+    # 3. Convert [[ . ]] -> [[ _dot_ ]] (used inside range loops)
+    cleaned_content = re.sub(r'\[\[\s*\.\s*\]\]', r'[[ _dot_ ]]', cleaned_content)
     
     template = env.from_string(cleaned_content)
     return template.render(**data)

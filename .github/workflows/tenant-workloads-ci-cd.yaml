@@ -10,7 +10,7 @@ name: Tenant Workloads - CI/CD Pipeline
 #
 # The chart lives in charts/, not per-service/, because it is never scaffolded
 # into a tenant repo — it has no destinations key, and only its rendered OUTPUT
-# reaches 3-tenant-workloads/. Everything under per-team/ and per-service/ gets copied; this
+# reaches 3-tenant-workloads/. Everything under per-tenant/ and per-service/ gets copied; this
 # gets rendered. Different verbs, different directories.
 #
 # The discovery unit is a values.yaml, not a directory of charts: a file existing

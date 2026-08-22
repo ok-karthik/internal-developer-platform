@@ -1,0 +1,84 @@
+name: Scaffolder Tests
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    paths:
+      - '2-idp-scaffolder/**'
+      - '1-platform-catalog/**'
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  test-go-engine:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          
+      - name: Run Go tests
+        working-directory: 2-idp-scaffolder/golang
+        run: go test -v ./...
+
+  test-python-engine:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+          
+      - name: Run Python catalog validation
+        working-directory: 2-idp-scaffolder/python
+        run: uv run python catalog.py
+
+  verify-engine-parity:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
+      - name: Build Go CLI
+        working-directory: 2-idp-scaffolder/golang
+        run: go build -o idp-cli ./cmd/cli
+
+      - name: Generate Go Output
+        run: |
+          mkdir -p /tmp/go-output
+          # Run Go engine onboard-tenant
+          ./2-idp-scaffolder/golang/idp-cli onboard-tenant --tenant-name test-tenant --owner test-owner --catalog-root ./1-platform-catalog --output-root /tmp/go-output
+          # Run Go engine add-service
+          ./2-idp-scaffolder/golang/idp-cli add-service --tenant-name test-tenant --app-name test-app --golden-path go-service-postgres --catalog-root ./1-platform-catalog --output-root /tmp/go-output
+
+      - name: Generate Python Output
+        run: |
+          mkdir -p /tmp/python-output
+          cd 2-idp-scaffolder/python
+          # Run Python engine onboard-tenant
+          uv run python main.py onboard-tenant --tenant-name test-tenant --owner test-owner
+          # Run Python engine add-service
+          uv run python main.py add-service --tenant-name test-tenant --app-name test-app --golden-path go-service-postgres
+          
+          # Move the generated output to our test directory
+          mv ../../3-tenant-workloads/test-tenant /tmp/python-output/test-tenant
+
+      - name: Assert Byte-for-Byte Parity
+        run: |
+          diff -r /tmp/go-output/test-tenant /tmp/python-output/test-tenant
