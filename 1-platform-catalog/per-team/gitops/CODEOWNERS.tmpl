@@ -1,10 +1,11 @@
 # CODEOWNERS for <org>/[[ .TeamName ]]-gitops
 #
-# GitHub only honours CODEOWNERS at a repository's root, .github/, or docs/ — which
-# is why this file sits at the root of the gitops tree rather than inside platform/.
-# In this monorepo that root is 3-tenant-workloads/[[ .TeamName ]]/gitops/; when the
-# tree is split out (git subtree split --prefix=3-tenant-workloads/[[ .TeamName ]]/gitops)
-# it becomes the real repository root unchanged.
+# The second of two repositories (the machine repo). Kept separate from the
+# apps+infra source repo because ArgoCD reads this repo, and CI bots write
+# rendered manifests to it. It is the one repo where automation holds credentials.
+#
+# In this monorepo its root is 3-tenant-workloads/[[ .TeamName ]]/gitops/; when the
+# tree is split out (git filter-repo) it becomes the real repository root unchanged.
 #
 # Last matching pattern wins, so the general rule goes first.
 

@@ -96,7 +96,7 @@ destinations:
   # produces, so the nesting IS the path logic and no file needs its own rule. Each
   # target is a would-be repo root — and a `git subtree split` prefix — which is
   # what lets CODEOWNERS sit where GitHub actually honours it.
-  per-team/apps:   "{team}/apps/"
+  per-team/root:   "{team}/"
   per-team/infra:  "{team}/infra/"
   per-team/gitops: "{team}/gitops/"
 

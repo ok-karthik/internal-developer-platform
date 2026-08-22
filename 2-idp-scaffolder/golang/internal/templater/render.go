@@ -178,7 +178,7 @@ type blueprint struct {
 func (r *Renderer) RenderTenantFoundation(ctx context.Context, cfg Config) error {
 	teamBlueprints := []blueprint{
 		// Each destination key IS the source directory inside the catalog.yaml
-		{src: "per-team/apps", destKey: "per-team/apps"},     // CODEOWNERS for the app-source repo
+		{src: "per-team/root", destKey: "per-team/root"}, // CODEOWNERS for the merged apps+infra repo
 		{src: "per-team/infra", destKey: "per-team/infra"},   // CODEOWNERS + platform/ (providers, backend, team IAM)
 		{src: "per-team/gitops", destKey: "per-team/gitops"}, // CODEOWNERS + platform/ (tenancy boundary, ApplicationSet)
 	}

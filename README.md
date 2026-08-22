@@ -183,7 +183,7 @@ instead of being copy-pasted into N repos.
 
 | Catalog source | Rendered | Lands at |
 | :--- | :--- | :--- |
-| `per-team/apps/` | once per team | `<team>/apps/` |
+| `per-team/root/` | once per team | `<team>/` |
 | `per-team/infra/` | once per team | `<team>/infra/` |
 | `per-team/gitops/` | once per team | `<team>/gitops/` |
 | `per-service/apps/runtimes/<lang>/` | per service | `<team>/apps/<app>/` |
@@ -212,7 +212,7 @@ Adding infrastructure capability: postgres (provisioner: terraform)
 per-service/infra/capabilities/postgres.tf.tmpl    --> payments/infra/apps/checkout-api/dev/postgres.tf
 ```
 
-Five files, three would-be repos, one command. Note what is absent: no `Chart.yaml`, no
+Five files, two would-be repos, one command. Note what is absent: no `Chart.yaml`, no
 Helm packaging in `apps/`, and nothing written outside `dev/` — production requires a
 deliberate promotion PR.
 

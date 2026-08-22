@@ -109,10 +109,12 @@ def onboard_team_workload(team_name: str) -> bool:
     env = render.create_jinja_env(catalog_dir)
     data = {"TeamName": team_name}
 
+    cat_data = catalog.load_catalog(catalog_dir / "catalog.yaml")
+
     # Render the per-team tree (apps, infra, gitops) — rendered ONCE per team
-    for blueprint_kind in ["apps", "infra", "gitops"]:
-        src_dir = catalog_dir / "per-team" / blueprint_kind
-        dst_dir = render.TENANT_WORKLOADS_DIR / team_name / blueprint_kind
+    for dest_key in ["per-team/root", "per-team/infra", "per-team/gitops"]:
+        src_dir = catalog_dir / dest_key
+        dst_dir = render.TENANT_WORKLOADS_DIR / cat_data.destinations[dest_key].format(team=team_name)
         
         if not src_dir.exists():
             continue

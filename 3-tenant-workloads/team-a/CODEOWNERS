@@ -1,0 +1,15 @@
+# CODEOWNERS for <org>/team-a
+#
+# Root of the merged application + infrastructure repository. In this monorepo that
+# root is 3-tenant-workloads/team-a/; it becomes the real repository root
+# when the tree is extracted (AGENTS.md Decision 15 has the filter-repo command).
+#
+# apps/ and infra/ live together because a service and the infrastructure it claims
+# are one unit of change: "this service now needs a bucket" is one PR, one review,
+# one revert. Ownership is separated by path, not by repository.
+
+*                  @acme-corp/team-a
+
+# Provider config, backend state wiring and the team IAM role decide what the team's
+# Terraform is *able* to do, so they stay platform-owned.
+/infra/platform/   @acme-corp/platform-engineering

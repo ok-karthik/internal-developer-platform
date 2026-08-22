@@ -11,7 +11,7 @@ platform-engineering-idp-gitops-reference-architecture/
 ├── 1-platform-catalog/                 # The platform's offering (Go text/template syntax, [[ ]] delims)
 │   ├── catalog.yaml                    # Golden paths, capabilities, and the destinations output contract
 │   ├── per-team/<kind>/                # Rendered ONCE per team by `onboard-team`; MIRRORS its output tree
-│   │   ├── apps/CODEOWNERS.tmpl        # kind = apps | infra | gitops, one destination each
+│   │   ├── root/CODEOWNERS.tmpl        # kind = root | infra | gitops, one destination each
 │   │   ├── infra/{CODEOWNERS,platform/*.tf}.tmpl
 │   │   └── gitops/{CODEOWNERS.tmpl,platform/{team,applicationsets}/}
 │   ├── per-service/                    # Composed per service by `add-service` — ALL of it
@@ -90,7 +90,7 @@ Every path below is relative to `1-platform-catalog/` on the left and
 
 | You edit this | It renders to | Rendered by | How often |
 |---|---|---|---|
-| `per-team/apps/` | `{team}/apps/` | `onboard-team` | once per team |
+| `per-team/root/` | `{team}/` | `onboard-team` | once per team |
 | `per-team/infra/` | `{team}/infra/` | `onboard-team` | once per team |
 | `per-team/gitops/` | `{team}/gitops/` | `onboard-team` | once per team |
 | `per-service/apps/runtimes/<lang>/` | `{team}/apps/{app}/` | `add-service` | once per service — **one** `<lang>` picked by `--runtime` / golden path |
@@ -135,7 +135,7 @@ The scaffolder templates are organised around **platform lifecycle verbs**, not 
 
 | Verb | Catalog source | Idempotency | Produces |
 |---|---|---|---|
-| `onboard-team` | `per-team/{apps,infra,gitops}/` | once per team | tenancy boundary — AppProject, Namespace + ResourceQuota + LimitRange, default-deny NetworkPolicy, CODEOWNERS, Kyverno PolicyException, team Terraform providers + IAM — plus the team ApplicationSet |
+| `onboard-team` | `per-team/{root,infra,gitops}/` | once per team | tenancy boundary — AppProject, Namespace + ResourceQuota + LimitRange, default-deny NetworkPolicy, CODEOWNERS, Kyverno PolicyException, team Terraform providers + IAM — plus the team ApplicationSet |
 | `add-service` | `per-service/**` | repeatable | a golden path — runtime + service-meta + delivery values + capabilities |
 
 **Golden paths** (`catalog.yaml`) compose three pieces: a runtime (`per-service/apps/runtimes/<lang>/`), infra **capabilities** (`per-service/infra/capabilities/<cap>.tf.tmpl` or `per-service/gitops/capabilities/<cap>.yaml.tmpl`, by `provisioner:`), and delivery (`per-service/gitops/release/`). Capabilities are declarative claims mapped to blessed, version-pinned Terraform modules — e.g. `postgres → aws/postgres@v2.0.0`, `s3 → aws/s3`, `iam → aws/iam`. `per-service/apps/service-meta/` is runtime-agnostic and rendered for every service, which is why it is a sibling of `runtimes/` rather than living inside it.
@@ -299,7 +299,7 @@ diff -r /tmp/go-out/3-tenant-workloads/<team> 3-tenant-workloads/<team>
 
 4. **GitOps Environment Boundary (Dev/Prod):** The GitOps layer will strictly mirror the Terraform infrastructure layer by adopting an "Environment-as-Folders" promotion model. The CLI will scaffold GitOps manifests exclusively into a `dev/` directory (e.g., `gitops/apps/<app>/dev/`). Production manifests never appear automatically; they require a deliberate PR to promote from `dev/` to `prod/`. This physical separation prevents a single shared `Chart.yaml` from triggering premature deployments and perfectly aligns the deployment promotion gate with the infrastructure promotion gate.
 5. **System is Metadata, Not a Directory (reversed):** An earlier revision carried a `<system>/` directory level under `apps/`, justified as an ArgoCD anchor and a Terraform blast-radius boundary. Neither held up: Terraform blast radius is set by where `apply` runs (`<app>/<env>/`), and a team-level AppSet globbing `apps/*/*` discovers apps perfectly well. Backstage models System as a *relation*, so it now lives only in `catalog-info.yaml` (`spec.system`, via the optional `--system` flag) where it cannot drift from a second encoding in the path. Reintroduce a grouping level only when a single team outgrows a flat app list — and because `destinations:` is data, that is a YAML edit.
-6. **Tri-Repo Rendered Manifests & Golden Path Delivery:** ONE platform-owned chart at `1-platform-catalog/charts/service/` serves every service, so a chart fix ships fleet-wide instead of being copy-pasted into N repos. It sits in `charts/` rather than `per-service/` because it is the one catalog artefact that is never *copied* into a tenant repo — it has no `destinations` key, and only its rendered output reaches `3-tenant-workloads/`. That keeps one rule true: everything under `per-team/` and `per-service/` gets scaffolded, nothing else does. It is therefore a plain chart, not a `.tmpl` — per-app identity comes from the Helm release name plus `nameOverride` in the release values, and its `values.yaml` holds only genuinely universal defaults (non-root, read-only rootfs, dropped capabilities). The CLI scaffolds only per-env `values.yaml` into `<team>/gitops/apps/<app>/<env>/`; no Helm packaging leaks into `<team>/apps/`. CI (`.github/workflows/tenant-workloads-ci-cd.yaml`) discovers work by globbing `3-tenant-workloads/*/gitops/apps/*/*/values.yaml` — a values file existing at that path IS the declaration that the app deploys to that env — builds one image per app, then renders the chart into a sibling `manifests/`. **CI passes no `--set` overrides:** rendered output is a pure function of (chart, values.yaml), so the committed manifests are an honest record of what git says should be running. ArgoCD syncs ONLY `manifests/`.
+6. **Rendered Manifests & Golden Path Delivery** (formerly "Tri-Repo" — superseded on the repo count by decision 15, which reduces a team to two repos; everything else here stands)**:** ONE platform-owned chart at `1-platform-catalog/charts/service/` serves every service, so a chart fix ships fleet-wide instead of being copy-pasted into N repos. It sits in `charts/` rather than `per-service/` because it is the one catalog artefact that is never *copied* into a tenant repo — it has no `destinations` key, and only its rendered output reaches `3-tenant-workloads/`. That keeps one rule true: everything under `per-team/` and `per-service/` gets scaffolded, nothing else does. It is therefore a plain chart, not a `.tmpl` — per-app identity comes from the Helm release name plus `nameOverride` in the release values, and its `values.yaml` holds only genuinely universal defaults (non-root, read-only rootfs, dropped capabilities). The CLI scaffolds only per-env `values.yaml` into `<team>/gitops/apps/<app>/<env>/`; no Helm packaging leaks into `<team>/apps/`. CI (`.github/workflows/tenant-workloads-ci-cd.yaml`) discovers work by globbing `3-tenant-workloads/*/gitops/apps/*/*/values.yaml` — a values file existing at that path IS the declaration that the app deploys to that env — builds one image per app, then renders the chart into a sibling `manifests/`. **CI passes no `--set` overrides:** rendered output is a pure function of (chart, values.yaml), so the committed manifests are an honest record of what git says should be running. ArgoCD syncs ONLY `manifests/`.
 7. **Promotion Surface (Values vs Rendered):** Promotion is defined as a PR copying `<team>/gitops/apps/<app>/dev/values.yaml` to `prod/values.yaml`. CI reacts to this commit, re-renders the prod plain YAML into `manifests/`, and ArgoCD syncs it.
 8. **Platform as a Product Philosophy:** The platform is treated as a product where development teams are the customers. This is enacted through platform behavior, not just folder names: Golden Paths are the UX, the Scaffolder CLI is the self-service portal, and version-pinned Terraform modules are the stable API.
 9. **Taxonomy (Team vs. Tenant):** We explicitly use `<team>` as the ownership boundary (e.g., `3-tenant-workloads/<team>`) because teams are the customers of our product. We restrict the word "tenant" to the isolation control plane (`per-team/`, which renders the AppProject/Namespace/NetworkPolicy boundary) rather than using it as the owner name, demonstrating precise usage of infrastructure vs. business vocabulary.
@@ -310,6 +310,37 @@ diff -r /tmp/go-out/3-tenant-workloads/<team> 3-tenant-workloads/<team>
 14. **Generated output is not yet idempotent.** Both engines use truncating writes, so re-running `add-service` overwrites a team's edits to a scaffolded file. Skip-if-exists plus `--force` is planned alongside Plan-then-Write. Copier used to provide `_skip_if_exists` on the Python side; that guarantee was given up when Copier was dropped (Copier renders *to a directory* and cannot return rendered bytes, which is incompatible with Plan-then-Write).
 
 ---
+
+15. **Two tenant repos per team, not three — split on who *writes* a directory, not on what technology is in it.** `3-tenant-workloads/<team>/` holds `apps/`, `infra/` and `gitops/`. An earlier revision made each of the three a would-be repository root, costing three repos per team (sixty at twenty teams). The split is now **two**: `apps` + `infra` extract together as one repo, `gitops` stays separate.
+
+    The deciding axis is authorship, not content. `apps/` and `infra/` are the same row twice — humans authoring intent, at the same review bar, for the same service — so **a service and the infrastructure it claims are one unit of change**: "this service now needs a bucket" is one PR, one review, one revert. Split apart, it is two PRs with an ordering dependency and a rollback that is a distributed transaction with no coordinator, which is where most "infra and app drifted" incidents come from. `gitops/` is categorically different: `manifests/` is written by CI (`contents: write`) and the whole tree is *read by ArgoCD*.
+
+    **Why `gitops/` stays its own repo** — three reasons, in order of weight:
+    - **ArgoCD never gets read access to source.** One ArgoCD serves every team. If manifests sat beside source, it would hold read credentials to every team's source repo. Separate, it reads a repo containing only desired state.
+    - **No automation holds write access to the repo humans author.** The CI token that pushes rendered manifests is scoped to a repo with no source and no Terraform in it. A compromised bot token can alter deployments; it cannot inject code or touch IAM.
+    - **Bot commits stay out of the source history.** Roughly half the gitops tree's log is machine commits. Merged with source, `git log` on the app becomes unreadable and every `git pull` carries churn. This is the practical reason teams that try a single repo retreat from it.
+
+    **Permission separation does not need a repository — it needs a path.** One `CODEOWNERS` at the merged repo's root with `/infra/platform/ @platform-engineering` as a carve-out achieves exactly what a third repo would, and GitHub's "require review from Code Owners" branch rule turns it into an enforced approval. Note this only works at a repository root, `.github/`, or `docs/`; nested `CODEOWNERS` files elsewhere in a tree are ignored outright, which is why the merged repo's file lives at `<team>/` and not `<team>/apps/`.
+
+    **The honest cost of merging.** The repo running dependency downloads and test execution is now the same repo whose workflows can request the Terraform apply role. This is mitigable rather than eliminated: OIDC tokens are issued per job, so a job that does not request `id-token: write` cannot obtain the role; gate apply behind a GitHub Environment with required reviewers; and put `CODEOWNERS` on `.github/workflows/` so the workflow definitions themselves are protected. Accept the mitigation; do not pre-pay for the split.
+
+    **The one trigger for going back to three repos:** a security requirement that the cloud apply role be assumable *only* from a repository containing no third-party code. GitHub's OIDC `sub` claim can be scoped to repo, ref, environment or workflow — **never to a path** — so inside one repo this is defence in depth, whereas across repos the IAM trust policy names a different repository and the boundary becomes cryptographic. Regulated environments do mandate this. Until one does, two repos.
+
+    **Extraction command.** `git subtree split` accepts exactly one prefix, so it cannot produce a repo containing both `apps/` and `infra/` at its root. The merged repo needs `git filter-repo`, which accepts N paths:
+
+    ```bash
+    # repo 1 of 2 — application source + its infrastructure claims
+    git filter-repo \
+      --path 3-tenant-workloads/team-a/apps --path 3-tenant-workloads/team-a/infra \
+      --path-rename 3-tenant-workloads/team-a/:
+
+    # repo 2 of 2 — desired state; ArgoCD reads it, CI writes to it
+    git subtree split --prefix=3-tenant-workloads/team-a/gitops -b team-a-gitops
+    ```
+
+    Both preserve history. Neither is run today — `3-tenant-workloads/` remains an authoring simulation, and the directory tree is identical under either split, so this is a documented decision rather than a refactor.
+
+    **Note on hosting.** GitHub is flat (org → repo), so the hierarchy survives only as a naming convention: `<org>/team-a`, `<org>/team-a-gitops`. GitLab nests arbitrarily via subgroups, so `<org>/tenants/team-a/` maps this tree 1:1 and group membership *becomes* the ownership model with no `CODEOWNERS` convention required. GitLab reads `CODEOWNERS` from the same three locations, so nothing else changes. Worth knowing: self-hosted GitLab is common in the DACH market this repo targets.
 
 ## 🔭 Roadmap — Scaffolder identity (not planned work; direction only)
 
