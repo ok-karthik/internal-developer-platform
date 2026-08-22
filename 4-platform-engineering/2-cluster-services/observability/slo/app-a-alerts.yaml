@@ -1,0 +1,240 @@
+# Multi-window, multi-burn-rate alerts for app-a, derived from the error
+# budgets declared in app-a-slo.yaml. Google SRE workbook shape: a "page"
+# fires fast on a severe, ongoing burn; a "ticket" fires slow on a sustained
+# but survivable one. Deliberately NOT a static threshold
+# (`rate(5xx) > 0.01 for 5m`) — that shape either pages on transient blips or
+# misses slow burns, which is why on-call rotations that ship it burn out.
+#
+# Each severity/window pair requires BOTH the long window AND the short
+# window to be breached before firing. The short window is what stops an
+# alert firing for an incident that already recovered — without it, a 1h-long
+# window alert keeps firing for up to an hour after the underlying problem is
+# gone.
+#
+# release: prometheus matches kube-prometheus-stack's default ruleSelector,
+# which requires PrometheusRule objects to carry the Helm release name as a
+# label (ruleSelectorNilUsesHelmValues: true) — the release here is named
+# "prometheus" (4-platform-engineering/2-cluster-services/observability/prometheus.yaml).
+#
+# KNOWN GAP: see the comment in app-a-slo.yaml — these queries assume a
+# metrics scrape path (OTel Collector + ServiceMonitor/PodMonitor) that is
+# not yet built. `promtool check rules` validates PromQL syntax; it cannot
+# validate that these series exist.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: app-a-slo-burn-rate
+  namespace: monitoring
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+  labels:
+    app: app-a
+    team: team-a
+    release: prometheus
+spec:
+  groups:
+    # --- Availability: target 99.9% over 30d, so (1 - target) = 0.001 -------
+    - name: app-a.availability-burn-rate
+      rules:
+        - alert: AppAAvailabilityBurnRatePageFast
+          expr: |
+            (
+              sum(rate(http_server_request_duration_seconds_count{service_name="app-a", namespace="team-a", http_response_status_code=~"5.."}[1h]))
+              /
+              sum(rate(http_server_request_duration_seconds_count{service_name="app-a", namespace="team-a"}[1h]))
+              > (14.4 * 0.001)
+            )
+            and
+            (
+              sum(rate(http_server_request_duration_seconds_count{service_name="app-a", namespace="team-a", http_response_status_code=~"5.."}[5m]))
+              /
+              sum(rate(http_server_request_duration_seconds_count{service_name="app-a", namespace="team-a"}[5m]))
+              > (14.4 * 0.001)
+            )
+          for: 2m
+          labels:
+            severity: page
+            sloi: app-a-availability
+          annotations:
+            summary: "Checkout is failing for a large share of users (fast burn)"
+            description: "app-a's 5xx rate has burned 2% of its 30-day error budget in the last hour (14.4x burn rate). At this rate the full 30-day budget is exhausted in about 2 days."
+            runbook_url: "https://github.com/ok-karthik/internal-developer-platform/blob/main/docs/runbooks/app-a-availability-burn.md"
+
+        - alert: AppAAvailabilityBurnRatePageSlow
+          expr: |
+            (
+              sum(rate(http_server_request_duration_seconds_count{service_name="app-a", namespace="team-a", http_response_status_code=~"5.."}[6h]))
+              /
+              sum(rate(http_server_request_duration_seconds_count{service_name="app-a", namespace="team-a"}[6h]))
+              > (6 * 0.001)
+            )
+            and
+            (
+              sum(rate(http_server_request_duration_seconds_count{service_name="app-a", namespace="team-a", http_response_status_code=~"5.."}[30m]))
+              /
+              sum(rate(http_server_request_duration_seconds_count{service_name="app-a", namespace="team-a"}[30m]))
+              > (6 * 0.001)
+            )
+          for: 15m
+          labels:
+            severity: page
+            sloi: app-a-availability
+          annotations:
+            summary: "Checkout is failing for a growing share of users"
+            description: "app-a's 5xx rate has burned 5% of its 30-day error budget in the last 6 hours (6x burn rate)."
+            runbook_url: "https://github.com/ok-karthik/internal-developer-platform/blob/main/docs/runbooks/app-a-availability-burn.md"
+
+        - alert: AppAAvailabilityBurnRateTicketSlow
+          expr: |
+            (
+              sum(rate(http_server_request_duration_seconds_count{service_name="app-a", namespace="team-a", http_response_status_code=~"5.."}[1d]))
+              /
+              sum(rate(http_server_request_duration_seconds_count{service_name="app-a", namespace="team-a"}[1d]))
+              > (3 * 0.001)
+            )
+            and
+            (
+              sum(rate(http_server_request_duration_seconds_count{service_name="app-a", namespace="team-a", http_response_status_code=~"5.."}[2h]))
+              /
+              sum(rate(http_server_request_duration_seconds_count{service_name="app-a", namespace="team-a"}[2h]))
+              > (3 * 0.001)
+            )
+          for: 1h
+          labels:
+            severity: ticket
+            sloi: app-a-availability
+          annotations:
+            summary: "Checkout error rate is elevated (sustained, not yet urgent)"
+            description: "app-a's 5xx rate has burned 10% of its 30-day error budget in the last day (3x burn rate)."
+            runbook_url: "https://github.com/ok-karthik/internal-developer-platform/blob/main/docs/runbooks/app-a-availability-burn.md"
+
+        - alert: AppAAvailabilityBurnRateTicketVerySlow
+          expr: |
+            (
+              sum(rate(http_server_request_duration_seconds_count{service_name="app-a", namespace="team-a", http_response_status_code=~"5.."}[3d]))
+              /
+              sum(rate(http_server_request_duration_seconds_count{service_name="app-a", namespace="team-a"}[3d]))
+              > (1 * 0.001)
+            )
+            and
+            (
+              sum(rate(http_server_request_duration_seconds_count{service_name="app-a", namespace="team-a", http_response_status_code=~"5.."}[6h]))
+              /
+              sum(rate(http_server_request_duration_seconds_count{service_name="app-a", namespace="team-a"}[6h]))
+              > (1 * 0.001)
+            )
+          for: 3h
+          labels:
+            severity: ticket
+            sloi: app-a-availability
+          annotations:
+            summary: "Checkout error rate is trending toward the monthly budget"
+            description: "app-a's 5xx rate has burned 10% of its 30-day error budget over the last 3 days (1x burn rate — exactly the sustainable pace)."
+            runbook_url: "https://github.com/ok-karthik/internal-developer-platform/blob/main/docs/runbooks/app-a-availability-burn.md"
+
+    # --- Latency: target 99% under 500ms over 30d, so (1 - target) = 0.01 --
+    - name: app-a.latency-burn-rate
+      rules:
+        - alert: AppALatencyBurnRatePageFast
+          expr: |
+            (
+              1 - (
+                sum(rate(http_server_request_duration_seconds_bucket{service_name="app-a", namespace="team-a", le="0.5"}[1h]))
+                /
+                sum(rate(http_server_request_duration_seconds_count{service_name="app-a", namespace="team-a"}[1h]))
+              ) > (14.4 * 0.01)
+            )
+            and
+            (
+              1 - (
+                sum(rate(http_server_request_duration_seconds_bucket{service_name="app-a", namespace="team-a", le="0.5"}[5m]))
+                /
+                sum(rate(http_server_request_duration_seconds_count{service_name="app-a", namespace="team-a"}[5m]))
+              ) > (14.4 * 0.01)
+            )
+          for: 2m
+          labels:
+            severity: page
+            sloi: app-a-latency
+          annotations:
+            summary: "Checkout is slow for a large share of users (fast burn)"
+            description: "app-a's proportion of requests over 500ms has burned 2% of its 30-day latency budget in the last hour (14.4x burn rate)."
+            runbook_url: "https://github.com/ok-karthik/internal-developer-platform/blob/main/docs/runbooks/app-a-latency-burn.md"
+
+        - alert: AppALatencyBurnRatePageSlow
+          expr: |
+            (
+              1 - (
+                sum(rate(http_server_request_duration_seconds_bucket{service_name="app-a", namespace="team-a", le="0.5"}[6h]))
+                /
+                sum(rate(http_server_request_duration_seconds_count{service_name="app-a", namespace="team-a"}[6h]))
+              ) > (6 * 0.01)
+            )
+            and
+            (
+              1 - (
+                sum(rate(http_server_request_duration_seconds_bucket{service_name="app-a", namespace="team-a", le="0.5"}[30m]))
+                /
+                sum(rate(http_server_request_duration_seconds_count{service_name="app-a", namespace="team-a"}[30m]))
+              ) > (6 * 0.01)
+            )
+          for: 15m
+          labels:
+            severity: page
+            sloi: app-a-latency
+          annotations:
+            summary: "Checkout is slow for a growing share of users"
+            description: "app-a's proportion of requests over 500ms has burned 5% of its 30-day latency budget in the last 6 hours (6x burn rate)."
+            runbook_url: "https://github.com/ok-karthik/internal-developer-platform/blob/main/docs/runbooks/app-a-latency-burn.md"
+
+        - alert: AppALatencyBurnRateTicketSlow
+          expr: |
+            (
+              1 - (
+                sum(rate(http_server_request_duration_seconds_bucket{service_name="app-a", namespace="team-a", le="0.5"}[1d]))
+                /
+                sum(rate(http_server_request_duration_seconds_count{service_name="app-a", namespace="team-a"}[1d]))
+              ) > (3 * 0.01)
+            )
+            and
+            (
+              1 - (
+                sum(rate(http_server_request_duration_seconds_bucket{service_name="app-a", namespace="team-a", le="0.5"}[2h]))
+                /
+                sum(rate(http_server_request_duration_seconds_count{service_name="app-a", namespace="team-a"}[2h]))
+              ) > (3 * 0.01)
+            )
+          for: 1h
+          labels:
+            severity: ticket
+            sloi: app-a-latency
+          annotations:
+            summary: "Checkout latency is elevated (sustained, not yet urgent)"
+            description: "app-a's proportion of requests over 500ms has burned 10% of its 30-day latency budget over the last day (3x burn rate)."
+            runbook_url: "https://github.com/ok-karthik/internal-developer-platform/blob/main/docs/runbooks/app-a-latency-burn.md"
+
+        - alert: AppALatencyBurnRateTicketVerySlow
+          expr: |
+            (
+              1 - (
+                sum(rate(http_server_request_duration_seconds_bucket{service_name="app-a", namespace="team-a", le="0.5"}[3d]))
+                /
+                sum(rate(http_server_request_duration_seconds_count{service_name="app-a", namespace="team-a"}[3d]))
+              ) > (1 * 0.01)
+            )
+            and
+            (
+              1 - (
+                sum(rate(http_server_request_duration_seconds_bucket{service_name="app-a", namespace="team-a", le="0.5"}[6h]))
+                /
+                sum(rate(http_server_request_duration_seconds_count{service_name="app-a", namespace="team-a"}[6h]))
+              ) > (1 * 0.01)
+            )
+          for: 3h
+          labels:
+            severity: ticket
+            sloi: app-a-latency
+          annotations:
+            summary: "Checkout latency is trending toward the monthly budget"
+            description: "app-a's proportion of requests over 500ms has burned 10% of its 30-day latency budget over the last 3 days (1x burn rate — exactly the sustainable pace)."
+            runbook_url: "https://github.com/ok-karthik/internal-developer-platform/blob/main/docs/runbooks/app-a-latency-burn.md"

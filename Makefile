@@ -3,7 +3,7 @@ CLUSTER_PROVIDER ?= k3d
 CLUSTER_NAME ?= nexus-platform
 AWS_CREDS ?= ./aws-creds.ini
 
-.PHONY: help check-deps create-cluster delete-cluster install-argocd bootstrap configure-aws up setup clean destroy get-argocd-creds wait-for-apps install-scaffolder run-api demo-onboard-team demo-add-service
+.PHONY: help check-deps create-cluster delete-cluster install-argocd bootstrap configure-aws up setup clean destroy get-argocd-creds wait-for-apps install-scaffolder run-api demo-onboard-team demo-add-service fire-synthetic-alert
 
 # Default target: show help
 help:
@@ -28,6 +28,7 @@ help:
 	@echo "  destroy         - Full teardown of components and cluster"
 	@echo "  check-deps      - Validate required command-line utilities"
 	@echo "  get-argocd-creds - Display ArgoCD login URL, username, and password"
+	@echo "  fire-synthetic-alert - POST a synthetic alert through Alertmanager's routing tree"
 	@echo ""
 	@echo "Examples:"
 	@echo "  make setup CLUSTER_PROVIDER=orbstack"
@@ -189,6 +190,31 @@ else
 	$(MAKE) delete-cluster
 endif
 	@echo "Platform completely destroyed!"
+
+# --- Synthetic alert (Phase 4.3) ---------------------------------------------
+#
+# Proves the Alertmanager routing tree in
+# 4-platform-engineering/2-cluster-services/observability/prometheus.yaml (the
+# alertmanager.config route/receivers/inhibit_rules) actually delivers, without
+# waiting for a real burn-rate breach. Posts directly to Alertmanager's API —
+# `alertmanager-operated` is the headless Service the Prometheus Operator
+# always creates for an Alertmanager CR, named the same regardless of Helm
+# release name, so this does not depend on the chart's generated Service name.
+.PHONY: fire-synthetic-alert
+fire-synthetic-alert:
+	@echo "Port-forwarding Alertmanager (ctrl-c has no effect until curl returns)..."
+	@kubectl -n monitoring port-forward svc/alertmanager-operated 9093:9093 >/tmp/idp-am-portforward.log 2>&1 & \
+	PF_PID=$$!; \
+	sleep 3; \
+	echo "Firing a synthetic 'page' alert for app-a..."; \
+	curl -s -XPOST http://localhost:9093/api/v2/alerts -H 'Content-Type: application/json' -d '[{ \
+	  "labels": {"alertname":"SyntheticTestAlert","severity":"page","namespace":"team-a","sloi":"app-a-availability"}, \
+	  "annotations": {"summary":"Synthetic alert fired by make fire-synthetic-alert"}, \
+	  "startsAt": "'$$(date -u +%Y-%m-%dT%H:%M:%S.000Z)'" \
+	}]'; \
+	echo ""; \
+	kill $$PF_PID 2>/dev/null || true
+	@echo "Check the receiver: kubectl -n monitoring logs deploy/alert-webhook-receiver | tail -20"
 
 install-scaffolder:
 	cd 2-idp-scaffolder/python && uv pip install -e .
