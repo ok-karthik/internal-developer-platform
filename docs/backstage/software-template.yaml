@@ -1,0 +1,74 @@
+# Backstage Software Template — approach (b) from README.md in this
+# directory: Backstage shells out to the EXISTING Go CLI rather than
+# reimplementing scaffolding logic in TypeScript. This is a real,
+# schema-valid Backstage template (apiVersion scaffolder.backstage.io/v1beta3)
+# — but idp:run-cli is a PLACEHOLDER custom action, not a plugin that ships
+# with any Backstage instance out of the box. Wiring it needs a real backend
+# to register the action against, which is the "no running app in this repo"
+# scope call documented in README.md.
+apiVersion: scaffolder.backstage.io/v1beta3
+kind: Template
+metadata:
+  name: idp-add-service
+  title: Add a new service (golden path)
+  description: >
+    Runs the same 2-idp-scaffolder/golang add-service command the CLI
+    exposes, so the portal and the terminal produce byte-identical output —
+    Backstage is a presentation layer over the CLI's domain logic, never a
+    second implementation of it (see PLAN.md Phase 8.0).
+  tags:
+    - idp
+    - golden-path
+spec:
+  owner: platform-team
+  type: service
+
+  parameters:
+    - title: Service identity
+      required: [teamName, appName, goldenPath]
+      properties:
+        teamName:
+          title: Team
+          type: string
+          description: Must match an existing 3-tenant-workloads/<team>/ — onboard-team is a separate template, not this one.
+        appName:
+          title: App name
+          type: string
+        goldenPath:
+          title: Golden path
+          type: string
+          enum: [go-service-postgres, python-worker-s3]
+          description: "Mirrors 1-platform-catalog/catalog.yaml's golden_paths list — kept in sync by hand until Backstage reads the catalog directly (documented follow-up, not built)."
+
+  steps:
+    - id: run-cli
+      name: Run the IDP scaffolder CLI
+      # Placeholder custom action. What it would actually do once a real
+      # Backstage backend exists to register it against: run the CLI binary
+      # inside a short-lived container with the platform's own git write
+      # credentials mounted (never the developer's), invoking exactly:
+      #   add-service --team-name ${{ parameters.teamName }}
+      #               --app-name  ${{ parameters.appName }}
+      #               --golden-path ${{ parameters.goldenPath }}
+      # then committing and opening a PR against 3-tenant-workloads/. See
+      # PLAN.md Phase 8.0's "what (c) actually costs" section for the real
+      # concerns a production version of this action has to handle: git
+      # write credential scoping per team (tied to the caller's Phase 7
+      # group claim, or this is a confused-deputy), returning 202+job-id
+      # rather than blocking on the commit+push, and idempotency against a
+      # retried request.
+      action: idp:run-cli
+      input:
+        command: add-service
+        args:
+          - "--team-name"
+          - "${{ parameters.teamName }}"
+          - "--app-name"
+          - "${{ parameters.appName }}"
+          - "--golden-path"
+          - "${{ parameters.goldenPath }}"
+
+  output:
+    links:
+      - title: View the opened PR
+        url: "${{ steps['run-cli'].output.pullRequestUrl }}"
