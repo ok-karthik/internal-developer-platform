@@ -101,10 +101,19 @@ install-argocd:
 	helm repo add argo https://argoproj.github.io/argo-helm
 	helm repo update
 	@echo "Installing/Upgrading ArgoCD..."
+	# metrics.enabled + the two serviceMonitor flags expose argocd_app_sync_total
+	# and friends to the kube-prometheus-stack Prometheus (its default
+	# serviceMonitorSelector has no label restriction, so any ServiceMonitor in
+	# the cluster is picked up) — this is what makes the Phase 6 DORA dashboard's
+	# deployment-frequency and change-failure-rate panels queryable at all.
 	helm upgrade --install argocd argo/argo-cd \
 		--namespace argocd \
 		--reuse-values \
 		--set server.extraArgs="{--insecure}" \
+		--set metrics.enabled=true \
+		--set metrics.serviceMonitor.enabled=true \
+		--set controller.metrics.enabled=true \
+		--set controller.metrics.serviceMonitor.enabled=true \
 		--create-namespace
 
 bootstrap:

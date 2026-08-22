@@ -249,6 +249,16 @@ This blueprint integrates best-in-class cloud-native tooling to form a cohesive 
 | **Secrets Ops** | **Sealed Secrets** | Asymmetric encryption enabling safe storage of secrets in Git. |
 | **Observability** | **Grafana Stack**| Unified metrics (Prometheus), logs (Loki), and traces (Tempo) — plus SLO-based, multi-window multi-burn-rate alerting on `app-a` routed through Alertmanager, each alert linked to a runbook (`4-platform-engineering/2-cluster-services/observability/slo/`, `docs/runbooks/`). |
 | **Dep. Management**| **Renovate** | Automated dependency bumps. `go.mod` and `pyproject.toml` are covered by the built-in managers; one custom regex manager handles the version pins in `catalog.yaml`, which no package manager understands. |
+| **DORA Metrics** | **Grafana dashboard** | Deployment frequency and change failure rate as real PromQL against ArgoCD's own sync metrics (`4-platform-engineering/2-cluster-services/observability/dora-dashboard.json`); lead time and MTTR are documented gaps, not faked ones — see the dashboard's own panels. |
+
+**Why DORA is here at all despite zero postings naming it:** it is the framing that makes
+Phases 4-5 legible as a *product* rather than a pile of YAML — "how do you know your
+platform is working?" is a standard staff-level question most candidates answer with
+anecdote instead of a number. **Change failure rate and MTTR are only computable because
+Phase 4's SLO alerts exist** — without an alert that fires on a bad deploy, "did this
+change fail" has no signal to count. That dependency is the cleanest argument in this repo
+for why Phase 4 (operate observability) had to come before Phase 6 (measure the platform),
+not the other way around.
 
 ---
 
