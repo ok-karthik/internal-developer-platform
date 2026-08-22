@@ -5,6 +5,9 @@ on:
     paths:
       - '3-tenant-workloads/**'
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   validate-tenancy:
     runs-on: ubuntu-latest

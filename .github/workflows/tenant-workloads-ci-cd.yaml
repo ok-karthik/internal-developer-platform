@@ -34,6 +34,7 @@ permissions:
 
 env:
   CHART_DIR: 1-platform-catalog/charts/service
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   render:
