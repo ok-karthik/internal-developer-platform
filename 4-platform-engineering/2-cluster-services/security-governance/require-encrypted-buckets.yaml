@@ -1,0 +1,22 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: require-encrypted-buckets
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+spec:
+  validationFailureAction: Enforce
+  background: true
+  rules:
+    - name: require-isencrypted-true
+      match:
+        any:
+        - resources:
+            kinds:
+              - AWSBucket
+      validate:
+        message: "All AWSBuckets must be explicitly encrypted (spec.parameters.isEncrypted must be true)."
+        pattern:
+          spec:
+            parameters:
+              isEncrypted: true

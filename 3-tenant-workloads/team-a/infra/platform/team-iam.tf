@@ -1,19 +1,19 @@
 ## Tenant Idempotent Infrastructure Modules ## - Do not remove these - Danger zone start!
 module "aws-vpc" {
-  source    = "git::https://github.com/ok-karthik/internal-developer-platform.git//4-platform-engineering/cloud-services-terraform-modules/aws-networking?ref=v1.1.0"
-  team_name = "team-a"
-  app_name  = "shared"
-  vpc_cidr  = "10.0.0.0/16"
+    source    = "git::https://github.com/ok-karthik/internal-developer-platform.git//4-platform-engineering/3-capability-modules/aws/networking?ref=v1.2.0"
+    team_name = "team-a"
+    app_name  = "shared"
+    vpc_cidr  = "10.0.0.0/16"
 }
 
 # This is where per-namespace IRSA/Pod Identity trust-policy scoping attaches
-# once a real EKS cluster's OIDC issuer exists (4-platform-engineering/clusters/
-# is k3d-only today). See "IRSA / Pod Identity is the missing fourth wall of
+# once a real EKS cluster's OIDC issuer exists (4-platform-engineering/1-cloud-foundation/
+# is k3d-only today, under local/). See "IRSA / Pod Identity is the missing fourth wall of
 # the tenancy model" in .agents/AGENTS.md — it is the AWS-side counterpart to
 # the AppProject/NetworkPolicy/RBAC boundary this blueprint already creates.
 module "aws-iam" {
-  source    = "git::https://github.com/ok-karthik/internal-developer-platform.git//4-platform-engineering/cloud-services-terraform-modules/aws-iam?ref=v1.1.0"
-  team_name = "team-a"
-  app_name  = "shared"
+    source    = "git::https://github.com/ok-karthik/internal-developer-platform.git//4-platform-engineering/3-capability-modules/aws/iam?ref=v1.2.0"
+    team_name = "team-a"
+    app_name  = "shared"
 }
 ## Tenant Idempotent Infrastructure Modules ## - Do not remove these - Danger zone end!

@@ -6,12 +6,14 @@
   "customManagers": [
     {
       "customType": "regex",
-      "description": "Terraform module version pins in the platform catalog. capabilities_source_base points at 4-platform-engineering/cloud-services-terraform-modules in this same repo, so the pin resolves against this repo's own git tags. This is the ONLY hand-maintained version pin in the tree — everything else (go.mod, pyproject.toml) is covered by Renovate's built-in gomod and pep621 managers with no custom config.",
+      "description": "Terraform module version pins in the platform catalog. capabilities_source_base points at 4-platform-engineering/3-capability-modules in this same repo, so the pin resolves against this repo's own git tags. These are the ONLY hand-maintained version pins in the tree — everything else (go.mod, pyproject.toml) is covered by Renovate's built-in gomod and pep621 managers with no custom config. team-iam.tf.tmpl is included alongside catalog.yaml because it hardcodes its own ?ref= pins rather than going through the capabilities: block — see PLAN.md Phase 3.7(d).",
       "managerFilePatterns": [
-        "/^1-platform-catalog/catalog\\.yaml$/"
+        "/^1-platform-catalog/catalog\\.yaml$/",
+        "/^1-platform-catalog/blueprints/team/infra/platform/team-iam\\.tf\\.tmpl$/"
       ],
       "matchStrings": [
-        "version:\\s*[\"']?(?<currentValue>v\\d+\\.\\d+\\.\\d+)[\"']?"
+        "version:\\s*[\"']?(?<currentValue>v\\d+\\.\\d+\\.\\d+)[\"']?",
+        "\\?ref=(?<currentValue>v\\d+\\.\\d+\\.\\d+)[\"']"
       ],
       "depNameTemplate": "ok-karthik/internal-developer-platform",
       "datasourceTemplate": "github-tags"

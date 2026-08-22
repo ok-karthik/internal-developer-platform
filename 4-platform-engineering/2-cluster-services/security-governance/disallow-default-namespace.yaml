@@ -1,0 +1,22 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: disallow-default-namespace
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+spec:
+  validationFailureAction: Enforce
+  background: true
+  rules:
+    - name: validate-namespace
+      match:
+        any:
+        - resources:
+            kinds:
+              - Pod
+              - AWSBucket
+      validate:
+        message: "Deploying resources to the 'default' namespace is forbidden. Please create and use a project-specific namespace."
+        pattern:
+          metadata:
+            namespace: "!default"

@@ -58,7 +58,7 @@ autoscaling:
   targetCPUUtilizationPercentage: 80
 
 # Progressive delivery via Argo Rollouts (installed as a cluster addon —
-# see 4-platform-engineering/addons/gitops-orchestration/argo-rollouts.yaml).
+# see 4-platform-engineering/2-cluster-services/gitops-orchestration/argo-rollouts.yaml).
 # Off by default: a plain Deployment is the right choice until a team asks
 # for canary control. When enabled, rollout.yaml renders an
 # argoproj.io/v1alpha1 Rollout instead of deployment.yaml's Deployment —

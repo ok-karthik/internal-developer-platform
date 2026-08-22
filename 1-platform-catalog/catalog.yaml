@@ -28,7 +28,7 @@ runtimes:
 # Capabilities are declarative claims resolved to blessed, version-pinned modules.
 # The version pins below are the only hand-maintained ones in the repo; Renovate
 # bumps them via the custom regex manager in renovate.json.
-capabilities_source_base: "git::https://github.com/ok-karthik/internal-developer-platform.git//4-platform-engineering/cloud-services-terraform-modules"
+capabilities_source_base: "git::https://github.com/ok-karthik/internal-developer-platform.git//4-platform-engineering/3-capability-modules"
 
 #
 # `provisioner` is a platform decision expressed in data, not a fork in the road:
@@ -46,18 +46,18 @@ capabilities_source_base: "git::https://github.com/ok-karthik/internal-developer
 capabilities:
   postgres:
     provisioner: terraform   # stateful, expensive, wants a plan step
-    module: aws-postgres
-    version: v1.1.0
+    module: aws/postgres     # provider is a path segment, not a name prefix
+    version: v1.2.0
   s3:
     provisioner: ack         # cheap, recreatable, per-app
-    module: aws-s3
-    version: v1.1.0
+    module: aws/s3
+    version: v1.2.0
     kind: Bucket
     group: s3.services.k8s.aws
   iam:
     provisioner: ack
-    module: aws-iam
-    version: v1.1.0
+    module: aws/iam
+    version: v1.2.0
     kind: Role
     group: iam.services.k8s.aws
 

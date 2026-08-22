@@ -1,0 +1,40 @@
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: platform-headers
+  namespace: traefik
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  headers:
+    browserXssFilter: true
+    contentTypeNosniff: true
+    forceSTSHeader: true
+    stsSeconds: 31536000
+    stsIncludeSubdomains: true
+    stsPreload: true
+    frameDeny: true
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: platform-ratelimit
+  namespace: traefik
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  rateLimit:
+    average: 100
+    burst: 50
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: platform-retry
+  namespace: traefik
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  retry:
+    attempts: 3
+    initialInterval: 100ms
