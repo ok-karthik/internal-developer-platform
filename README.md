@@ -559,4 +559,5 @@ IAM, load balancers, storage, and cluster authentication are only genuinely test
 - [`docs/adr/001-tools-evaluated.md`](docs/adr/001-tools-evaluated.md) — tools considered and not adopted, with the reasoning
 - [`docs/backstage/`](docs/backstage/) — the Backstage integration design (not yet a running instance)
 - [`docs/runbooks/`](docs/runbooks/) — incident response runbooks, one per alert
+- [`docs/incidents/2026-08-20-traefik-networkpolicy-ingress-blocked.md`](docs/incidents/2026-08-20-traefik-networkpolicy-ingress-blocked.md) — postmortem on the Traefik/NetworkPolicy routing incident
 - [`.agents/AGENTS.md`](.agents/AGENTS.md) — the full technical reference: conventions, decisions, execution commands

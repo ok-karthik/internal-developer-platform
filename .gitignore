@@ -1,5 +1,6 @@
 argocd-repositories.yaml
 *.ini
+aws-creds.ini
 .venv/
 **/.venv/
 **/venv/
