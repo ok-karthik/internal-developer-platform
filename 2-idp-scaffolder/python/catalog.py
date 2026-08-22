@@ -31,28 +31,40 @@ from pydantic import BaseModel, Field, model_validator
 # ../golang/internal/catalog/catalog.go. If the two drift, one engine accepts a
 # catalog the other rejects, and the "one catalog, two engines" claim is dead.
 REQUIRED_DESTINATIONS: list[str] = [
-    "blueprints/team/apps",
-    "blueprints/team/infra",
-    "blueprints/team/gitops",
-    "building-blocks/runtimes",
-    "building-blocks/service-meta",
-    "building-blocks/capabilities",
-    "building-blocks/delivery/release",
+    "per-team/apps",
+    "per-team/infra",
+    "per-team/gitops",
+    "per-service/apps/runtimes",
+    "per-service/apps/service-meta",
+    "per-service/infra/capabilities",
+    "per-service/gitops/capabilities",
+    "per-service/gitops/release",
 ]
+
+VALID_PROVISIONERS = {"terraform", "ack"}
 
 
 class Capability(BaseModel):
-    """A friendly name bound to a version-pinned Terraform module.
+    """A friendly name bound to a version-pinned Terraform module (or an ACK CRD).
 
     Subclassing BaseModel (rather than using a plain class or @dataclass) means
     pydantic checks the types when the object is *constructed*. If catalog.yaml
     had `version: 1.0` (a float, no quotes) instead of `version: "v1.0.2"`,
     you find out here — with the field name in the error — rather than three
     files later when a Terraform `?ref=` comes out malformed.
+
+    provisioner decides which of the two per-service capability directories
+    cli.py looks in: "terraform" -> per-service/infra/capabilities/*.tf.tmpl,
+    "ack" -> per-service/gitops/capabilities/*.yaml.tmpl (Phase 3.9 — mirrors
+    Go's internal/catalog.Capability). kind/group are only meaningful for
+    provisioner: ack and are not injected into any template.
     """
 
     module: str
     version: str
+    provisioner: str
+    kind: str = ""
+    group: str = ""
 
 
 class GoldenPath(BaseModel):
@@ -107,6 +119,16 @@ class Catalog(BaseModel):
         for key in REQUIRED_DESTINATIONS:
             if key not in self.destinations:
                 return _fail(f"missing destination key: {key}")
+
+        # 1b. Every capability must declare a provisioner cli.py knows how to
+        # dispatch on — fail here, not as an unreadable "template not found"
+        # three layers into add-service.
+        for name, cap in self.capabilities.items():
+            if cap.provisioner not in VALID_PROVISIONERS:
+                return _fail(
+                    f"capability {name!r} has unknown provisioner {cap.provisioner!r} "
+                    f"(must be one of: {', '.join(sorted(VALID_PROVISIONERS))})"
+                )
 
         # 2. A golden path may only reference capabilities that actually exist,
         #    otherwise the failure surfaces at render time as a missing template.

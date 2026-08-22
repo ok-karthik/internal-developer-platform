@@ -1,85 +1,127 @@
 # 🏛️ Platform Engineering: IDP & GitOps Reference Architecture
 
-An enterprise-grade **Internal Developer Platform (IDP)** blueprint designed for zero-touch onboarding, strict policy governance, and seamless multi-tenant continuous delivery via GitOps.
+**A self-service platform where a developer types one command and gets a running
+microservice — with its own database, its own network policy, its own dashboards, and its
+own place in the org's tenancy model — without filing a ticket.**
 
-This repository serves as a reference architecture for platform teams looking to build "Local-to-Cloud" environments where developers are shielded from infrastructure complexity while retaining full deployment autonomy.
+Built on **Platform-as-a-Product**: the platform is the product, application teams are its
+customers. Four pillars deliver that:
+
+| Pillar | What it means here |
+|---|---|
+| **UX** — Golden Paths | Curated, secure-by-default runtime + delivery templates a developer picks by name |
+| **Self-service portal** | A CLI (Go, with a Python twin) that scaffolds a service in one command, no platform-team intervention |
+| **Stable API** | Infrastructure is version-pinned Terraform modules and ArgoCD-managed manifests — never hand-edited |
+| **Reconciliation engine** | GitOps: git is the source of truth, ArgoCD makes the cluster match it, always |
+
+> **📊 Want a picture instead?** Generate one with the prompt in [Diagram Prompts](#-diagram-prompts-generate-these-yourself) below — pipe it into Gemini/Nanobanana or any image model.
 
 ---
 
-## 🏗️ Platform as a Product (Architecture Summary)
+## 📂 Repo Layout
 
-As cloud-native architectures scale, cognitive load on product engineering teams becomes a critical bottleneck. This reference architecture is built on the philosophy of **Platform-as-a-Product**. The platform itself is the product, and the application teams are its customers.
+```
+internal-developer-platform/
+├── 1-platform-catalog/        # WHAT THE PLATFORM OFFERS — golden paths, runtimes,
+│                               #   capabilities, and catalog.yaml (the single source
+│                               #   of truth both scaffolder engines read)
+│
+├── 2-idp-scaffolder/          # THE SELF-SERVICE CLI — two engines, one contract
+│   ├── golang/                #   Go + Cobra — the definitive engine
+│   └── python/                #   Python + Typer/FastAPI — same two verbs, same output
+│
+├── 3-tenant-workloads/        # THE GENERATED OUTPUT — what the CLI writes. One
+│                               #   directory per team, simulating N teams' real repos
+│                               #   in one monorepo (see "Monorepo authoring" below)
+│
+└── 4-platform-engineering/    # THE PLATFORM ITSELF — cluster, cloud infra, addons
+    ├── 1-cloud-foundation/    #   Terraform applied BEFORE a cluster exists (VPC, EKS, IAM)
+    ├── 2-cluster-services/    #   ArgoCD-managed addons — ingress, observability, identity
+    ├── 3-capability-modules/  #   Terraform modules tenants consume (postgres, s3, iam)
+    └── 4-platform-apis/       #   Custom Kubernetes APIs (Crossplane compositions)
+```
 
-We deliver this product experience through four core pillars:
-* **The UX (Golden Paths):** Curated, paved-road templates that provide secure-by-default microservice runtimes and delivery pipelines.
-* **The Self-Service Portal (Go CLI):** A custom Golang CLI that allows developers to instantly scaffold applications, GitOps manifests, and infrastructure without platform team intervention.
-* **The Stable API (Versioned IaC):** Infrastructure-as-Code is abstracted into reusable, version-pinned AWS Terraform modules (`?ref=vX`), ensuring we never break our customers.
-* **The Reconciliation Engine (GitOps):** Strict unidirectional state flow. ArgoCD auto-discovers workloads via ApplicationSets, while Terraform state is strictly isolated per-service-per-environment to minimize blast radius.
+**One-sentence tour, in reading order:** a platform engineer edits `1-platform-catalog/`
+→ a developer runs the CLI in `2-idp-scaffolder/` → their service lands in
+`3-tenant-workloads/` → ArgoCD deploys it onto what `4-platform-engineering/` built.
+
+**Each of the four top-level directories, and most of their subdirectories, has its own
+`README.md`** with a one-line "what is this, who writes it, what consumes it" — read those
+before diving into any one part.
 
 ---
 
-## 📂 Project Structure & Reading Guide (Start Here)
+## 🖼️ Diagram Prompts (generate these yourself)
 
-To make it easier to understand how this platform operates from end-to-end, the repository is logically divided into chronological layers:
+Three prompts, each producing one diagram — paste into Gemini/Nanobanana or any image
+model. Written to be self-contained (no repo context needed by the model).
 
-1. **`1-platform-catalog/` (The Platform's Offering)**  
-   `catalog.yaml` declares the golden paths, the offered runtimes, the version-pinned capability → Terraform module mapping, and a `destinations:` table that is the platform's output contract. Alongside it sit three directories distinguished by *what happens to the files in them*: `blueprints/` is copied once per team, `building-blocks/` is copied per service, and `charts/` is never copied at all — CI renders it and only the output reaches a tenant repo. Templates use `[[ .Var ]]` syntax so Helm's `{{ }}` passes through untouched.
-2. **`2-idp-scaffolder/golang/` (Go Scaffolder Engine)**  
-   Go CLI implementation using **Cobra** and native `text/template` to render microservice workloads. This is the definitive engine.
-3. **`2-idp-scaffolder/python/` (Python Scaffolder Engine & REST API)**  
-   Python CLI and FastAPI REST service using **Typer**, **Jinja2** (configured with Go's `[[ ]]` delimiters) and **pydantic** validation, plus deterministic IP Address Management (IPAM) for tenant VPCs. It implements the *same two verbs against the same catalog* — see [One Catalog, Two Engines](#-one-catalog-two-engines) below for why.
-4. **`3-tenant-workloads/` (Simulated Monorepo)**  
-   The generated output, organised tenant-first as `<team>/{apps,infra,gitops}/` — each of those three maps to a standalone repo in production. `apps/` always means team-owned per-service content; the enclosing repo kind says whether that is source code, Terraform, or Helm values. There is no `<system>/` directory level — Backstage's System grouping lives in `catalog-info.yaml` instead. Inside `infra/` and `gitops/`, `platform/` is platform-owned, and a CODEOWNERS at each of the three roots makes that enforceable. ArgoCD monitors the CI-rendered `manifests/` directories for automatic deployment.
-5. **`4-platform-engineering/` (Platform Infrastructure & Control Plane)**  
-   Numbered in order of operations: `1-cloud-foundation/` is Terraform the platform team applies before a cluster exists (`aws/` nested by provider, `local/` for the k3d test harness); `2-cluster-services/` is portable ArgoCD `Application`/`ApplicationSet` declarations the platform team reconciles after a cluster exists — Traefik ingress, OpenTelemetry, observability, and security/governance, merged with the raw resources they deploy; `3-capability-modules/` holds the version-pinned AWS Terraform modules tenants consume via `catalog.yaml`; `4-platform-apis/` is empty until Phase 5. Each has its own `README.md`.
+**1. System overview** — the picture for the top of this README:
+
+> Create a clean technical architecture diagram, flat design, light background, blue/gray/green color palette, labeled boxes and arrows, no photorealism. Four large boxes left to right, connected by arrows in sequence: (1) "1-platform-catalog — golden paths & capabilities" (2) "2-idp-scaffolder — Go + Python CLI" (3) "3-tenant-workloads — generated team repos" (4) "4-platform-engineering — cluster, cloud infra, ArgoCD". Above box 2, a small person icon labeled "developer" with an arrow into box 2. Below box 4, icons for "AWS EKS" and "ArgoCD" inside it. An arrow loops from box 4 back to box 3 labeled "GitOps sync". Title at top: "Internal Developer Platform — Request to Running Service".
+
+**2. Golden-path request flow** — a sequence diagram for the "Deployment Guide" section:
+
+> Create a clean left-to-right sequence/flow diagram, flat design, white background, numbered steps 1-6 with arrows between them: (1) "Developer runs: add-service --golden-path go-service-postgres" (2) "CLI reads catalog.yaml — resolves runtime + capabilities" (3) "CLI writes files into 3-tenant-workloads/<team>/" — show three small file icons labeled apps/, infra/, gitops/ (4) "Developer opens a Pull Request" (5) "CI renders the Helm chart, commits manifests/" (6) "ArgoCD detects the change and syncs the cluster" — show a Kubernetes wheel icon. Title: "One Command to Running Service".
+
+**3. Multi-tenancy boundary** — for the Identity & Multi-Tenancy sections:
+
+> Create a clean layered-boxes diagram, flat design, showing two nested rounded rectangles labeled "AWS Account (hard boundary — SCPs, billing, blast radius)" as the outer box, and inside it three smaller rounded rectangles side by side labeled "Namespace: team-a", "Namespace: team-b", "Namespace: team-c" (soft boundary — RBAC, NetworkPolicy, ResourceQuota). Use a padlock icon on the outer box and a dashed-line icon style on the inner boxes to show "soft" vs "solid" for "hard". Small caption under the diagram: "Namespaces are cooperative, not adversarial. Accounts are the real wall." Color the outer box in a stronger color (e.g. navy) and inner boxes in a lighter shade (e.g. sky blue).
 
 ---
 
 ## 📜 The Output Contract
 
-The catalog has three top-level directories, and the thing that distinguishes them is **what happens to the files inside**:
+`1-platform-catalog/` has three parts, told apart by **what happens to the files inside**:
 
 | Catalog directory | Rendered by | When | What reaches a tenant repo |
 | :--- | :--- | :--- | :--- |
-| `blueprints/` | Scaffolder CLI / API — `onboard-team` | once per team | the files themselves, copied |
-| `building-blocks/` | Scaffolder CLI / API — `add-service` | once per service | the files themselves, copied |
+| `per-team/` | `onboard-team` | once per team | the files themselves, copied |
+| `per-service/` | `add-service` | once per service (or once per capability requested) | the files themselves, copied |
 | `charts/` | **GitHub Actions**, never the CLI | every push touching a `values.yaml` or the chart | **only its rendered output**, into `manifests/` |
 
-That third row is the one people trip over. The chart is *not* a template the scaffolder copies — nothing under `charts/` ever appears in `3-tenant-workloads/`. One platform-owned chart serves every service, CI runs `helm template` against each app's `values.yaml`, and only the resulting plain YAML is committed. A chart fix therefore ships fleet-wide instead of being copy-pasted into N repos, and ArgoCD syncs `manifests/` only.
+The directory name tells you *how often* a thing renders — `per-team` vs `per-service` — and
+the path underneath tells you *where it lands*. `per-service/` has a second split baked in:
+`per-service/infra/capabilities/` is Terraform (applied by a `terraform` run), while
+`per-service/gitops/capabilities/` is a Kubernetes-native alternative (applied by ArgoCD) —
+which one a capability uses is a data field (`provisioner:` in `catalog.yaml`), not a coin
+flip; see [Component Matrix](#-component-matrix) for why that distinction exists.
 
-The first two directories are also laid out differently from each other, on purpose. `blueprints/` is walked and copied wholesale, so it mirrors the tree it produces. `building-blocks/` is *selected from* by name — `runtime: go`, `capabilities: [postgres]` — so it is organised by the keys `catalog.yaml` uses to address it. Two different access patterns, two different layouts.
+**The chart is the one exception, and it's worth calling out on its own:** nothing under
+`charts/` is ever copied into a tenant repo. One platform-owned Helm chart serves every
+service; CI runs `helm template` against each app's `values.yaml` and commits only the
+plain-YAML result into `manifests/`. A chart fix therefore ships to every service at once
+instead of being copy-pasted into N repos.
 
-What ties the catalog to its output is therefore not the directory names but this table:
+Every mapping below is the literal `destinations:` block in `catalog.yaml` — the CLI reads
+that same data to decide where to write, so this table cannot drift from the code:
 
 | Catalog source | Rendered | Lands at |
 | :--- | :--- | :--- |
-| `blueprints/team/apps/` | once per team | `<team>/apps/` |
-| `blueprints/team/infra/` | once per team | `<team>/infra/` |
-| `blueprints/team/gitops/` | once per team | `<team>/gitops/` |
-| `building-blocks/runtimes/<lang>/` | per service | `<team>/apps/<app>/` |
-| `building-blocks/service-meta/` | per service | `<team>/apps/<app>/` |
-| `building-blocks/capabilities/<cap>.tf.tmpl` | per service, per capability | `<team>/infra/apps/<app>/<env>/` |
-| `building-blocks/delivery/release/` | per service | `<team>/gitops/apps/<app>/<env>/` |
+| `per-team/apps/` | once per team | `<team>/apps/` |
+| `per-team/infra/` | once per team | `<team>/infra/` |
+| `per-team/gitops/` | once per team | `<team>/gitops/` |
+| `per-service/apps/runtimes/<lang>/` | per service | `<team>/apps/<app>/` |
+| `per-service/apps/service-meta/` | per service | `<team>/apps/<app>/` |
+| `per-service/infra/capabilities/<cap>.tf.tmpl` | per capability, if `provisioner: terraform` | `<team>/infra/apps/<app>/<env>/` |
+| `per-service/gitops/capabilities/<cap>.yaml.tmpl` | per capability, if `provisioner: ack` | `<team>/gitops/apps/<app>/<env>/` |
+| `per-service/gitops/release/` | per service | `<team>/gitops/apps/<app>/<env>/` |
 | `charts/service/` | **never scaffolded** | CI renders it into `<team>/gitops/apps/<app>/<env>/manifests/` |
-
-Every row except the last is the `destinations:` block in `catalog.yaml`, verbatim — the CLI reads that same data to decide where to write, so this table cannot drift from the code. Restructuring `3-tenant-workloads/` is a YAML edit, not a Go change.
-
-The last row is the exception worth understanding: **the chart is never copied into a tenant repo.** One platform-owned chart serves every service, so a chart fix ships fleet-wide instead of being copy-pasted into N repos. Teams own `values.yaml`; the platform owns the chart; CI renders one against the other and commits only the result. That is why it lives in `charts/` rather than `building-blocks/` — everything under `building-blocks/` gets copied, and this gets rendered.
 
 ### Seeing it
 
-One command shows the entire mapping better than any diagram:
+One real command shows the whole mapping better than any diagram:
 
 ```console
 $ make demo-add-service DEMO_TEAM=payments DEMO_APP=checkout-api
 
 Generating app 'checkout-api' [Runtime: go, Capabilities: [postgres]]
-building-blocks/runtimes/go/go.mod.tmpl              --> payments/apps/checkout-api/go.mod
-building-blocks/runtimes/go/main.go.tmpl             --> payments/apps/checkout-api/main.go
-building-blocks/service-meta/catalog-info.yaml.tmpl  --> payments/apps/checkout-api/catalog-info.yaml
-building-blocks/delivery/release/values.yaml.tmpl    --> payments/gitops/apps/checkout-api/dev/values.yaml
-Adding infrastructure capability: postgres
-building-blocks/capabilities/postgres.tf.tmpl        --> payments/infra/apps/checkout-api/dev/postgres.tf
+per-service/apps/runtimes/go/go.mod.tmpl           --> payments/apps/checkout-api/go.mod
+per-service/apps/runtimes/go/main.go.tmpl          --> payments/apps/checkout-api/main.go
+per-service/apps/service-meta/catalog-info.yaml.tmpl --> payments/apps/checkout-api/catalog-info.yaml
+per-service/gitops/release/values.yaml.tmpl        --> payments/gitops/apps/checkout-api/dev/values.yaml
+Adding infrastructure capability: postgres (provisioner: terraform)
+per-service/infra/capabilities/postgres.tf.tmpl    --> payments/infra/apps/checkout-api/dev/postgres.tf
 ```
 
 Five files, three would-be repos, one command. Note what is absent: no `Chart.yaml`, no Helm packaging in `apps/`, and nothing written outside `dev/` — production requires a deliberate promotion PR.
@@ -509,7 +551,7 @@ helm template app-a 1-platform-catalog/charts/service \
 
 # Templates and rendered output agree (expect only [[ .TeamName ]] -> team-a)
 diff <(sed 's/\[\[ \.TeamName \]\]/team-a/g' \
-        1-platform-catalog/blueprints/team/gitops/platform/team/namespace.yaml.tmpl) \
+        1-platform-catalog/per-team/gitops/platform/team/namespace.yaml.tmpl) \
      3-tenant-workloads/team-a/gitops/platform/team/namespace.yaml
 
 # Burn-rate alert PromQL is syntactically valid

@@ -34,8 +34,8 @@ def add_service_workload(
     app_dst = render.TENANT_WORKLOADS_DIR / team_name / "apps" / app_name
     svc_data = {"TeamName": team_name, "AppName": app_name, "SystemName": system}
 
-    for block_dir in [render.CATALOG_DIR / "building-blocks" / "runtimes" / runtime,
-                      render.CATALOG_DIR / "building-blocks" / "service-meta"]:
+    for block_dir in [render.CATALOG_DIR / "per-service" / "apps" / "runtimes" / runtime,
+                      render.CATALOG_DIR / "per-service" / "apps" / "service-meta"]:
         if block_dir.exists():
             for path in block_dir.rglob("*"):
                 if path.is_file():
@@ -49,7 +49,7 @@ def add_service_workload(
                     typer.echo(f"  [WROTE] {out_path.relative_to(render.REPO_ROOT)}")
 
     # 3. Render Delivery Release values into gitops/apps/<app>/<env>/
-    gitops_src = render.CATALOG_DIR / "building-blocks" / "delivery" / "release"
+    gitops_src = render.CATALOG_DIR / "per-service" / "gitops" / "release"
     gitops_dst = render.TENANT_WORKLOADS_DIR / team_name / "gitops" / "apps" / app_name / env_name
     if gitops_src.exists():
         for path in gitops_src.rglob("*"):
@@ -63,30 +63,45 @@ def add_service_workload(
                 out_path.write_text(content, encoding="utf-8")
                 typer.echo(f"  [WROTE] {out_path.relative_to(render.REPO_ROOT)}")
 
-    # 4. Render Capability Terraform claims into infra/apps/<app>/<env>/
+    # 4. Render capability claims. Phase 3.9: provisioner decides which ONE of
+    # the two capability directories a capability's template lives in and
+    # which destination it lands in — mirrors Go's internal/templater
+    # RenderService dispatch exactly, so the two engines cannot silently
+    # diverge on which capabilities land where.
     infra_dst = render.TENANT_WORKLOADS_DIR / team_name / "infra" / "apps" / app_name / env_name
+    gitops_caps_dst = render.TENANT_WORKLOADS_DIR / team_name / "gitops" / "apps" / app_name / env_name
     for cap_name in capabilities:
-        cap_template = render.CATALOG_DIR / "building-blocks" / "capabilities" / f"{cap_name}.tf.tmpl"
-        if cap_template.exists() and cap_name in cat_data.capabilities:
-            cap_info = cat_data.capabilities[cap_name]
-            cap_data = {
-                "TeamName": team_name,
-                "AppName": app_name,
-                # Env must be present: the capability templates tag resources with
-                # it, and StrictUndefined turns a missing key into an error rather
-                # than a silently empty value. Go supplies it via CapabilityView
-                # embedding Config, so both engines render the same fields.
-                "Env": env_name,
-                "CapabilitiesSourceBase": cat_data.capabilities_source_base,
-                "Module": cap_info.module,
-                "Version": cap_info.version,
-            }
+        if cap_name not in cat_data.capabilities:
+            continue
+        cap_info = cat_data.capabilities[cap_name]
+        cap_data = {
+            "TeamName": team_name,
+            "AppName": app_name,
+            # Env must be present: the capability templates tag resources with
+            # it, and StrictUndefined turns a missing key into an error rather
+            # than a silently empty value. Go supplies it via CapabilityView
+            # embedding Config, so both engines render the same fields.
+            "Env": env_name,
+            "CapabilitiesSourceBase": cat_data.capabilities_source_base,
+            "Module": cap_info.module,
+            "Version": cap_info.version,
+        }
+
+        if cap_info.provisioner == "terraform":
+            cap_template = render.CATALOG_DIR / "per-service" / "infra" / "capabilities" / f"{cap_name}.tf.tmpl"
             out_path = infra_dst / f"{cap_name}.tf"
-            out_path.parent.mkdir(parents=True, exist_ok=True)
-            content = cap_template.read_text(encoding="utf-8")
-            content = render.render_template_string(env, content, cap_data)
-            out_path.write_text(content, encoding="utf-8")
-            typer.echo(f"  [WROTE] {out_path.relative_to(render.REPO_ROOT)}")
+        else:  # "ack" — catalog.py's validator already rejected anything else
+            cap_template = render.CATALOG_DIR / "per-service" / "gitops" / "capabilities" / f"{cap_name}.yaml.tmpl"
+            out_path = gitops_caps_dst / f"{cap_name}.yaml"
+
+        if not cap_template.exists():
+            continue
+
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        content = cap_template.read_text(encoding="utf-8")
+        content = render.render_template_string(env, content, cap_data)
+        out_path.write_text(content, encoding="utf-8")
+        typer.echo(f"  [WROTE] {out_path.relative_to(render.REPO_ROOT)}")
 
 
 def onboard_team_workload(team_name: str) -> bool:
@@ -95,9 +110,9 @@ def onboard_team_workload(team_name: str) -> bool:
     env = render.create_jinja_env(catalog_dir)
     data = {"TeamName": team_name, "VpcCidr": vpc_cidr}
 
-    # Render team blueprints (apps, infra, gitops)
+    # Render the per-team tree (apps, infra, gitops) — rendered ONCE per team
     for blueprint_kind in ["apps", "infra", "gitops"]:
-        src_dir = catalog_dir / "blueprints" / "team" / blueprint_kind
+        src_dir = catalog_dir / "per-team" / blueprint_kind
         dst_dir = render.TENANT_WORKLOADS_DIR / team_name / blueprint_kind
         
         if not src_dir.exists():

@@ -10,9 +10,19 @@ import (
 )
 
 // Capability binds a friendly name to a version-pinned Terraform module.
+//
+// Provisioner decides which of the two per-service capability directories the
+// renderer looks in: "terraform" -> per-service/infra/capabilities/*.tf.tmpl,
+// "ack" -> per-service/gitops/capabilities/*.yaml.tmpl. Kind/Group are only
+// meaningful for provisioner: ack (the ACK CRD identity) and are not injected
+// into any template today — they document the CRD a reader would apply
+// `kubectl get` against, nothing more.
 type Capability struct {
-	Module  string `yaml:"module"`
-	Version string `yaml:"version"`
+	Module      string `yaml:"module"`
+	Version     string `yaml:"version"`
+	Provisioner string `yaml:"provisioner"`
+	Kind        string `yaml:"kind"`
+	Group       string `yaml:"group"`
 }
 
 type Runtime struct {
@@ -40,13 +50,22 @@ type Catalog struct {
 // requiredDestinations are the keys the renderer will look up. Missing any of them
 // is a catalog authoring error, so we fail at load rather than mid-render.
 var requiredDestinations = []string{
-	"blueprints/team/apps",
-	"blueprints/team/infra",
-	"blueprints/team/gitops",
-	"building-blocks/runtimes",
-	"building-blocks/service-meta",
-	"building-blocks/capabilities",
-	"building-blocks/delivery/release",
+	"per-team/apps",
+	"per-team/infra",
+	"per-team/gitops",
+	"per-service/apps/runtimes",
+	"per-service/apps/service-meta",
+	"per-service/infra/capabilities",
+	"per-service/gitops/capabilities",
+	"per-service/gitops/release",
+}
+
+// validProvisioners are the only values renderService's dispatch understands.
+// Anything else is a catalog authoring error, caught here rather than as a
+// silent "no template found" mid-render.
+var validProvisioners = map[string]bool{
+	"terraform": true,
+	"ack":       true,
 }
 
 // LoadCatalog parses catalog.yaml out of the catalog filesystem.
@@ -101,6 +120,15 @@ func (c *Catalog) validate(catalogFS fs.FS) error {
 		}
 	}
 
+	// Every capability must declare a provisioner the renderer knows how to
+	// dispatch on — fail here, not as an unreadable "template not found"
+	// three layers into add-service.
+	for name, cap := range c.Capabilities {
+		if !validProvisioners[cap.Provisioner] {
+			return fmt.Errorf("capability %q has unknown provisioner %q (must be one of: terraform, ack)", name, cap.Provisioner)
+		}
+	}
+
 	for _, gp := range c.GoldenPaths {
 		if gp.Name == "" {
 			return fmt.Errorf("found a golden-path with empty name")
@@ -124,8 +152,8 @@ func (c *Catalog) validate(catalogFS fs.FS) error {
 
 	// Ensure every declared runtime has a directory in the template set.
 	for name := range c.Runtimes {
-		if _, err := fs.Stat(catalogFS, path.Join("building-blocks/runtimes", name)); err != nil {
-			return fmt.Errorf("runtime %q is declared in the catalog but building-blocks/runtimes/%s/ does not exist", name, name)
+		if _, err := fs.Stat(catalogFS, path.Join("per-service/apps/runtimes", name)); err != nil {
+			return fmt.Errorf("runtime %q is declared in the catalog but per-service/apps/runtimes/%s/ does not exist", name, name)
 		}
 	}
 

@@ -1,12 +1,15 @@
 # 1. Platform Catalog
 
 The platform's offering. `catalog.yaml` declares the golden paths, the offered runtimes,
-the version-pinned capability → Terraform module mapping, and a `destinations:` table
-that is the output contract. Three directories sit alongside it, distinguished by *what
-happens to the files in them*: `blueprints/` is rendered **once per team** by
-`onboard-team`, `building-blocks/` is rendered **once per service** by `add-service`, and
-`charts/` is never scaffolded at all — CI renders it and only the output reaches a tenant
-repo.
+the version-pinned capability → module mapping, and a `destinations:` table that is the
+output contract. Three directories sit alongside it, and their names carry the fact that
+matters — *how often each one renders*:
+
+- **`per-team/`** — rendered **once per team**, by `onboard-team`.
+- **`per-service/`** — rendered **once per service** (or once per requested capability), by
+  `add-service`.
+- **`charts/`** — never scaffolded at all. CI renders it and only the output reaches a
+  tenant repo.
 
 ## Render Map — what each directory produces
 
@@ -20,31 +23,30 @@ relative to `3-tenant-workloads/`.
 
 | You edit this | It renders to | Rendered by | How often |
 |---|---|---|---|
-| `blueprints/team/apps/` | `{team}/apps/` | `onboard-team` | once per team |
-| `blueprints/team/infra/` | `{team}/infra/` | `onboard-team` | once per team |
-| `blueprints/team/gitops/` | `{team}/gitops/` | `onboard-team` | once per team |
-| `building-blocks/runtimes/<lang>/` | `{team}/apps/{app}/` | `add-service` | once per service — **one** `<lang>` picked by `--runtime` / golden path |
-| `building-blocks/service-meta/` | `{team}/apps/{app}/` | `add-service` | once per service, always |
-| `building-blocks/capabilities/<cap>.tf.tmpl` | `{team}/infra/apps/{app}/{env}/` | `add-service` | one file per requested capability with `provisioner: terraform` |
-| `building-blocks/delivery/release/` | `{team}/gitops/apps/{app}/{env}/` | `add-service` | once per service per env |
+| `per-team/apps/` | `{team}/apps/` | `onboard-team` | once per team |
+| `per-team/infra/` | `{team}/infra/` | `onboard-team` | once per team |
+| `per-team/gitops/` | `{team}/gitops/` | `onboard-team` | once per team |
+| `per-service/apps/runtimes/<lang>/` | `{team}/apps/{app}/` | `add-service` | once per service — **one** `<lang>` picked by `--runtime` / golden path |
+| `per-service/apps/service-meta/` | `{team}/apps/{app}/` | `add-service` | once per service, always |
+| `per-service/infra/capabilities/<cap>.tf.tmpl` | `{team}/infra/apps/{app}/{env}/` | `add-service` | one file per requested capability with `provisioner: terraform` |
+| `per-service/gitops/capabilities/<cap>.yaml.tmpl` | `{team}/gitops/apps/{app}/{env}/` | `add-service` | one file per requested capability with `provisioner: ack` |
+| `per-service/gitops/release/` | `{team}/gitops/apps/{app}/{env}/` | `add-service` | once per service per env |
 | `charts/service/` | **nothing** — never scaffolded | CI, via `helm template` | output only, into `{team}/gitops/apps/{app}/{env}/manifests/` |
 
-Two gaps this table makes visible, both real and both tracked in `PLAN.md`:
+**Why the directory names carry cardinality.** The prefix (`per-team` / `per-service`)
+tells you *how often* something renders; the path underneath tells you *where it lands*.
+That is a readable projection of the two rightmost columns above, available without
+opening this table at all — which is the whole point of the rename this directory used to
+lack.
 
-- **`building-blocks/capabilities-ack` is a destinations key with no directory.** ACK
-  `.yaml.tmpl` templates share `building-blocks/capabilities/` with the Terraform
-  `.tf.tmpl` ones, so routing them to `gitops/` instead of `infra/` would require the
-  renderer to dispatch on file extension. That dispatch is unbuilt in both engines.
-- **`blueprints/` vs `building-blocks/` encode nothing.** The distinction that matters is
-  *once per team* vs *once per service*, which is exactly what the two rightmost columns
-  above supply. `PLAN.md` §3.9 proposes `per-team/` and `per-service/` with the output
-  tree mirrored beneath each — which also removes the phantom key above by making the
-  directory the router. **It is blocked**: these names are hardcoded in
-  `2-idp-scaffolder/golang/internal/catalog/catalog.go:43-49,127`,
-  `2-idp-scaffolder/golang/internal/templater/render.go:181-243`,
-  `2-idp-scaffolder/python/cli.py:37-100` and `2-idp-scaffolder/python/api.py:75`, so it
-  cannot ship while `2-idp-scaffolder/golang/` is out of scope on the branch this table
-  was written from.
+**Why `per-service/` splits into `infra/` and `gitops/` subtrees.** A capability's
+`provisioner:` in `catalog.yaml` decides which one its template lives in:
+`provisioner: terraform` → `per-service/infra/capabilities/<cap>.tf.tmpl`, applied by a
+Terraform run; `provisioner: ack` → `per-service/gitops/capabilities/<cap>.yaml.tmpl`,
+applied by ArgoCD reconciling a Kubernetes-native CRD. The directory a template lives in
+**is** the routing decision — both scaffolder engines look in the directory that matches
+a capability's declared provisioner, so there is no file-extension sniffing and no
+destinations key pointing at a directory that doesn't exist.
 
 See `.agents/AGENTS.md` for the full platform model, code conventions, and execution
 commands — this file exists so the render map is visible from inside the directory it
