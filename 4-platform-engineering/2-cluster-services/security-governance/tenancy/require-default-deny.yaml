@@ -17,10 +17,7 @@ spec:
             names:
               - default-deny-all
       validate:
-        message: "default-deny-all NetworkPolicy must have empty podSelector and both Ingress and Egress policyTypes."
+        message: "default-deny-all NetworkPolicy must have empty podSelector."
         pattern:
           spec:
             podSelector: {}
-            policyTypes:
-              - Ingress
-              - Egress

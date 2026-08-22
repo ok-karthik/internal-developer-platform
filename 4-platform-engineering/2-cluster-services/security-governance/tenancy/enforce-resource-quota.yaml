@@ -19,4 +19,4 @@ spec:
         pattern:
           spec:
             hard:
-              "?*": "?*"
+              requests.cpu: "?*"
