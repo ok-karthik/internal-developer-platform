@@ -245,18 +245,18 @@ Kubernetes is the source of truth for *desired* state, and git is the source of 
 ```mermaid
 graph TD
     subgraph DevExp [Developer Experience]
-        Dev[👤 Product Engineer] --> |Uses Scaffolder CLI| Code[🛠️ Go & 🐍 Python CLI]
-        Code --> |Generates App & Manifests| GitSource[(💻 Tenant Git Repository)]
+        Dev[👤 Engineer] --> |Uses| Code[🛠️ Scaffolder CLI]
+        Code --> |Generates App| GitSource[(💻 Tenant Git Repo)]
     end
 
     subgraph CICD [CI/CD Orchestration]
         GitSource --> |Triggers| GHA[⚡ GitHub Actions]
-        GHA --> |Tests & Compiles| Rendered[📄 Rendered Manifests]
+        GHA --> |Tests & Compiles| Rendered[📄 Manifests]
         Rendered --> |Commits to| GitOpsRepo[(🗄️ Tenant GitOps Repo)]
     end
 
     subgraph Platform [Platform Control Plane]
-        AppSet((🐙 Argo CD ApplicationSet)) -.-> |Scans for new apps| GitOpsRepo
+        AppSet[🐙 Argo CD AppSet] -.-> |Scans for apps| GitOpsRepo
         GitOpsRepo --> |Syncs State| ArgoCD[🐙 Argo CD Core]
         ArgoCD --> |Reconciles| K8s[☸️ Kubernetes Cluster]
     end
