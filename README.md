@@ -1,6 +1,6 @@
 # 🏛️ Platform Engineering: IDP & GitOps Reference Architecture
 
-[![Version](https://img.shields.io/badge/version-v2.0.0-blue)](https://github.com/ok-karthik/internal-developer-platform/releases/tag/v2.0.0)
+[![Version](https://img.shields.io/badge/version-v2.2.0-blue)](https://github.com/ok-karthik/internal-developer-platform/releases/tag/v2.2.0)
 
 **A self-service platform where a developer types one command and gets a running
 microservice — with its own database, its own network policy, its own dashboards, and its
@@ -244,26 +244,26 @@ Kubernetes is the source of truth for *desired* state, and git is the source of 
 
 ```mermaid
 graph TD
-    subgraph Developer Experience
-        Dev[Product Engineer] --> |Uses Scaffolder CLI| Code[Generates App & Manifests]
-        Code --> |Pushes to| GitSource[(Tenant Git Repository)]
+    subgraph DevExp [Developer Experience]
+        Dev[👤 Product Engineer] --> |Uses Scaffolder CLI| Code[🛠️ Go & 🐍 Python CLI]
+        Code --> |Generates App & Manifests| GitSource[(💻 Tenant Git Repository)]
     end
 
-    subgraph CI/CD Orchestration
-        GitSource --> |Triggers| GHA[GitHub Actions]
-        GHA --> |Tests & Compiles| Rendered[Rendered Manifests]
-        Rendered --> |Commits to| GitOpsRepo[(Tenant GitOps Repo)]
+    subgraph CICD [CI/CD Orchestration]
+        GitSource --> |Triggers| GHA[⚡ GitHub Actions]
+        GHA --> |Tests & Compiles| Rendered[📄 Rendered Manifests]
+        Rendered --> |Commits to| GitOpsRepo[(🗄️ Tenant GitOps Repo)]
     end
 
-    subgraph Platform Control Plane
-        AppSet((Argo CD ApplicationSet)) -.-> |Scans for new apps| GitOpsRepo
-        GitOpsRepo --> |Syncs State| ArgoCD[Argo CD Core]
-        ArgoCD --> |Reconciles| K8s[Kubernetes Cluster]
+    subgraph Platform [Platform Control Plane]
+        AppSet((🐙 Argo CD ApplicationSet)) -.-> |Scans for new apps| GitOpsRepo
+        GitOpsRepo --> |Syncs State| ArgoCD[🐙 Argo CD Core]
+        ArgoCD --> |Reconciles| K8s[☸️ Kubernetes Cluster]
     end
 
-    style Developer Experience fill:#1f2937,stroke:#4b5563,stroke-width:2px,color:#fff
-    style CI/CD Orchestration fill:#1e3a8a,stroke:#3b82f6,stroke-width:2px,color:#fff
-    style Platform Control Plane fill:#064e3b,stroke:#10b981,stroke-width:2px,color:#fff
+    style DevExp fill:#1f2937,stroke:#4b5563,stroke-width:2px,color:#fff
+    style CICD fill:#1e3a8a,stroke:#3b82f6,stroke-width:2px,color:#fff
+    style Platform fill:#064e3b,stroke:#10b981,stroke-width:2px,color:#fff
 ```
 
 Nobody hand-maps new services to ArgoCD `Application` objects. Discovery is automatic and
