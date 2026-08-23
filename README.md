@@ -279,9 +279,9 @@ registered by hand.
 flowchart TB
     subgraph AWS ["🔒 AWS Account (hard boundary — SCPs, billing, blast radius)"]
         direction LR
-        A["Namespace: tenant-a<br/><br/>(soft boundary)<br/>RBAC, NetworkPolicy<br/>ResourceQuota"]
-        B["Namespace: team-b<br/><br/>(soft boundary)<br/>RBAC, NetworkPolicy<br/>ResourceQuota"]
-        C["Namespace: team-c<br/><br/>(soft boundary)<br/>RBAC, NetworkPolicy<br/>ResourceQuota"]
+        A["Namespace: tenant-a<br/><br/>(soft boundary)<br/>🛡️ Kyverno Policies<br/>🛂 OIDC RBAC<br/>🚦 NetworkPolicy<br/>⚖️ ResourceQuota"]
+        B["Namespace: tenant-b<br/><br/>(soft boundary)<br/>🛡️ Kyverno Policies<br/>🛂 OIDC RBAC<br/>🚦 NetworkPolicy<br/>⚖️ ResourceQuota"]
+        C["Namespace: tenant-c<br/><br/>(soft boundary)<br/>🛡️ Kyverno Policies<br/>🛂 OIDC RBAC<br/>🚦 NetworkPolicy<br/>⚖️ ResourceQuota"]
     end
 
     classDef outer fill:#1e3a8a,stroke:#0f172a,stroke-width:2px,color:#ffffff;
