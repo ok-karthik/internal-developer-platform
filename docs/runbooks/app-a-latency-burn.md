@@ -14,7 +14,7 @@ One runbook, not four — see `app-a-availability-burn.md` for why.
 
 ## Symptom
 
-Checkout (`app-a`, `team-a` namespace) is serving a share of requests slower
+Checkout (`app-a`, `tenant-a` namespace) is serving a share of requests slower
 than the 500ms threshold large enough to burn through the 99%/30-day latency
 error budget (1% of requests per 30 days — see `app-a-slo.yaml`) faster than
 sustainable. Unlike the availability runbook, this is about *slow* responses,
@@ -22,7 +22,7 @@ not failed ones — pods may show 2xx and Healthy the whole time.
 
 ## Impact
 
-Users attempting checkout in `team-a`'s namespace are experiencing degraded
+Users attempting checkout in the `tenant-a` namespace are experiencing degraded
 response times. A `page` means the budget burns out in under a week if this
 continues; a `ticket` means it is sustained but not yet urgent.
 
@@ -34,10 +34,10 @@ All commands below are runnable under the Phase 1.1 developer `Role` — no
 ```bash
 # Resource pressure is the most common cause of a latency-only regression
 # (no errors, just slow) — check for CPU/memory throttling first.
-kubectl -n team-a get pods -l app.kubernetes.io/instance=app-a -o wide
-kubectl -n team-a top pods -l app.kubernetes.io/instance=app-a 2>/dev/null || \
+kubectl -n tenant-a get pods -l app.kubernetes.io/instance=app-a -o wide
+kubectl -n tenant-a top pods -l app.kubernetes.io/instance=app-a 2>/dev/null || \
   echo "metrics-server not available locally — check the LimitRange ceiling instead:"
-kubectl -n team-a describe limitrange
+kubectl -n tenant-a describe limitrange
 
 # Trace latency by span in Tempo — find the slow spans, not just the slow
 # request. This is the actual diagnostic value of tracing over logs here.
@@ -49,7 +49,7 @@ curl -sG http://localhost:3100/api/search \
 # Correlate with logs for the same window (Loki)
 kubectl -n monitoring port-forward svc/loki-gateway 3100:80 &
 curl -sG http://localhost:3100/loki/api/v1/query_range \
-  --data-urlencode 'query={namespace="team-a", app="app-a"}' \
+  --data-urlencode 'query={namespace="tenant-a", app="app-a"}' \
   --data-urlencode 'start='"$(date -u -v-1H +%s)"'000000000' \
   --data-urlencode 'end='"$(date -u +%s)"'000000000'
 
@@ -69,10 +69,10 @@ Same constraint as the availability runbook: **no `pods/exec`**, so
 mitigation is a git revert plus an ArgoCD sync, not live tuning on the pod.
 
 ```bash
-git -C 3-tenant-workloads log --oneline -- team-a/gitops/apps/app-a/dev
-git -C 3-tenant-workloads revert <bad-commit-sha>
-git -C 3-tenant-workloads push
-argocd app sync team-a-appsets
+git -C 3-tenant-repos log --oneline -- tenant-a/gitops-repo/services/app-a/dev
+git -C 3-tenant-repos revert <bad-commit-sha>
+git -C 3-tenant-repos push
+argocd app sync tenant-a-appsets
 ```
 
 If the regression traces back to a downstream dependency rather than app-a's

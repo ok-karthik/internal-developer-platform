@@ -8,7 +8,7 @@ Deploying services requires Kubernetes manifests. We needed to decide whether to
 
 ## Decision
 **Rendered Manifests & Golden Path Delivery:** ONE platform-owned chart at `1-platform-catalog/charts/service/` serves every service.
-- The chart sits in `charts/` rather than `per-service/` because it is never *copied* into a tenant repo — it has no `destinations` key, and only its rendered output reaches `3-tenant-workloads/`.
+- The chart sits in `charts/` rather than `per-service/` because it is never *copied* into a tenant repo — it has no `destinations` key, and only its rendered output reaches `3-tenant-repos/`.
 - Per-app identity comes from the Helm release name plus `nameOverride` in the release values.
 - Its `values.yaml` holds only genuinely universal defaults (non-root, read-only rootfs, dropped capabilities).
 - The CLI scaffolds only per-env `values.yaml` into `<tenant>/gitops/apps/<app>/<env>/`; no Helm packaging leaks into `<tenant>/apps/`.

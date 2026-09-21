@@ -61,12 +61,12 @@ they just log in against Keycloak directly, like any other web app would.
 These commands prove the rule, not just describe it:
 
 ```bash
-kubectl auth can-i get pods          -n team-a --as=dev --as-group=oidc:platform:team-a:developer  # yes
-kubectl auth can-i create pods       -n team-a --as=dev --as-group=oidc:platform:team-a:developer  # no
-kubectl auth can-i get pods          -n team-b --as=dev --as-group=oidc:platform:team-a:developer  # no — wrong team
-kubectl auth can-i create pods/exec  -n team-a --as=dev --as-group=oidc:platform:team-a:developer  # no — see Break-glass below
-kubectl auth can-i create pods/exec  -n team-a --as=sre --as-group=oidc:platform:team-a:oncall      # yes
-argocd account can-i sync applications 'team-b/*'   # no
+kubectl auth can-i get pods          -n tenant-a --as=dev --as-group=oidc:platform:team-a:developer  # yes
+kubectl auth can-i create pods       -n tenant-a --as=dev --as-group=oidc:platform:team-a:developer  # no
+kubectl auth can-i get pods          -n tenant-b --as=dev --as-group=oidc:platform:team-a:developer  # no — wrong team
+kubectl auth can-i create pods/exec  -n tenant-a --as=dev --as-group=oidc:platform:team-a:developer  # no — see Break-glass below
+kubectl auth can-i create pods/exec  -n tenant-a --as=sre --as-group=oidc:platform:team-a:oncall      # yes
+argocd account can-i sync applications 'tenant-b/*'   # no
 ```
 
 ## One group, five tools

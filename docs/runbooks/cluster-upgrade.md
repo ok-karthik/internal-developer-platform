@@ -16,7 +16,7 @@ Upgrade these Helm charts via GitOps to compatible versions *before* upgrading t
 
 ## 2. Control Plane Upgrade
 The control plane is upgraded via Terraform:
-1. Update the `cluster_version` in `1-cloud-foundation/aws/cluster/main.tf`.
+1. Update the `cluster_version` in the EKS stack of `enterprise-aws-infrastructure` (`iac-modules-repo/compute/eks`, per-environment values in `workloads-live-repo/`). This repo owns no cloud Terraform (ADR 0012).
 2. Plan and apply.
 3. This process takes ~20-40 minutes. The Kubernetes API may experience brief latency spikes, but workloads will continue to run unaffected.
 

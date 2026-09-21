@@ -10,10 +10,10 @@ This repository is an enterprise-grade **Internal Developer Platform (IDP)** blu
 platform-engineering-idp-gitops-reference-architecture/
 ├── 1-platform-catalog/                 # The platform's offering (Go text/template syntax, [[ ]] delims)
 │   ├── catalog.yaml                    # Golden paths, capabilities, and the destinations output contract
-│   ├── per-tenant/<kind>/                # Rendered ONCE per team by `onboard-tenant`; MIRRORS its output tree
-│   │   ├── root/CODEOWNERS.tmpl        # kind = root | infra | gitops, one destination each
-│   │   ├── infra/{CODEOWNERS,platform/*.tf}.tmpl
-│   │   └── gitops/{CODEOWNERS.tmpl,platform/{team,applicationsets}/}
+│   ├── per-tenant/<kind>/              # Rendered ONCE per tenant by `onboard-tenant`; MIRRORS its output tree
+│   │   ├── root/{CODEOWNERS,tenant.yaml}.tmpl  # kind = root | infra | gitops, one destination each
+│   │   ├── infra/platform/*.tf.tmpl    # providers, backend, tenant IAM — platform-owned
+│   │   └── gitops/{CODEOWNERS.tmpl,platform/{tenancy,applicationsets}/}
 │   ├── per-service/                    # Composed per service by `add-service` — ALL of it
 │   │   │                               # has a destinations key and lands in a tenant repo
 │   │   ├── apps/runtimes/<lang>/       # Language scaffolds; only those declared in runtimes: are offered
@@ -23,57 +23,46 @@ platform-engineering-idp-gitops-reference-architecture/
 │   │   └── gitops/release/             # Per-env values.yaml scaffolded by the CLI
 │   └── charts/service/                 # Platform-owned Helm chart. NEVER scaffolded — no
 │                                       # destinations key; CI renders it and only the output
-│                                       # reaches 3-tenant-workloads/
+│                                       # reaches 3-tenant-repos/
 ├── 2-idp-scaffolder/                   # IDP Scaffolder Implementations
 │   ├── golang/                         # Go implementation of the IDP Scaffolder CLI (Cobra)
-│   │   ├── cmd/cli/                    # Cobra commands (`root.go`, `onboard_team.go`, etc)
+│   │   ├── cmd/cli/                    # Cobra commands (`root.go`, `onboard_tenant.go`, etc)
 │   │   └── internal/templater/         # Template rendering engine (`render.go`)
 │   └── python/                         # Python implementation of the IDP Scaffolder CLI & REST API
 │       ├── cli.py / api.py             # Typer CLI and FastAPI REST endpoints
 │       ├── catalog.py                  # pydantic twin of internal/catalog — loads + validates catalog.yaml
 │       ├── render.py                   # Jinja2 engine, path roots (was utils.py)
 │       └── TODO.md                     # Remaining Python work, phased, with an answer key
-├── 3-tenant-workloads/                 # Simulated tenant monorepo target directory (Monitored by ArgoCD)
-│   └── <team>/                         # Tenant-first: one directory per team
-│       ├── apps/<app>/                 # Application source + catalog-info.yaml
-│       │   └── (CODEOWNERS at apps/ root)
-│       ├── infra/
-│       │   ├── platform/               # Team-wide Terraform (providers, team IAM) — platform-owned
-│       │   └── apps/<app>/<env>/       # Per-service capability modules — team-owned
-│       └── gitops/
+├── 3-tenant-repos/                     # Container for simulated tenant REPOSITORIES (ADR 0010)
+│   └── <tenant>/                       # One directory per tenant (the isolation boundary)
+│       ├── workloads-repo/             # → <org>/<tenant>-workloads. Humans write it.
+│       │   ├── CODEOWNERS, tenant.yaml
+│       │   ├── services/<app>/         # Application source + catalog-info.yaml
+│       │   └── infra/
+│       │       ├── platform/           # Providers, tenant IAM — platform-owned
+│       │       └── services/<app>/<env>/  # Terraform capability claims — team-owned
+│       └── gitops-repo/                # → <org>/<tenant>-gitops. CI writes it, ArgoCD reads it.
+│           ├── CODEOWNERS
 │           ├── platform/               # Platform-owned, CODEOWNERS-protected
-│           │   ├── team/               # AppProject, Namespace, NetworkPolicy, PolicyException
-│           │   └── applicationsets/    # One <team>.yaml ApplicationSet per team
-│           └── apps/<app>/<env>/       # Team-owned values.yaml + CI-rendered manifests/
-└── 4-platform-engineering/             # Platform Control Plane Infrastructure — numbered
-    │                                     # in order of operations (Phase 3.8). Each of the
-    │                                     # four gets its own README.md.
+│           │   ├── tenancy/            # AppProject, Namespace, NetworkPolicy, RBAC, PolicyException
+│           │   └── applicationsets/    # One <tenant>.yaml ApplicationSet per tenant
+│           └── services/<app>/<env>/   # Team-owned values.yaml + CI-rendered manifests/
+└── 4-platform-engineering/             # Platform Control Plane — numbered in order of operations.
+    │                                     # Each directory gets its own README.md.
     ├── bootstrap.yaml                   # Root of the App-of-Apps pattern — stays put
-    ├── 1-cloud-foundation/              # Terraform the PLATFORM TEAM applies, BEFORE a
-    │   │                                 # cluster exists.
-    │   ├── aws/                          #   Provider-specific → nested by provider. Only
-    │   │   │                             #   the subdirs below are real; the rest are the
-    │   │   │                             #   Phase 5/7 target layout, documented not built.
-    │   │   ├── organization/             #   Organizations, OUs, SCPs      (Phase 5.4)
-    │   │   ├── network/                  #   VPC, subnets, NAT            (Phase 5.1)
-    │   │   ├── cluster/                  #   EKS. Held to `plan`-clean.   (Phase 5.1)
-    │   │   ├── cluster-access/           #   Access Entries + Identity Ctr(Phase 7.2b)
-    │   │   └── workload-identity/        #   Pod Identity / IRSA seam     (Phase 7.2c)
-    │   └── local/                        #   k3d. A TEST HARNESS — never the reference.
+    ├── 1-cloud-foundation/              # The CONTRACT with the cloud foundation, which lives in
+    │   │                                 # enterprise-aws-infrastructure (ADR 0012). This repo
+    │   │                                 # owns no cloud Terraform.
+    │   ├── README.md                     #   What the platform needs and the SSM params it reads
+    │   └── local/                        #   k3d. A TEST HARNESS — the only foundation this
+    │                                     #   repo can stand up alone.
     ├── 2-cluster-services/               # ArgoCD App-of-Apps declarations (App manifests
     │                                     # per addon) merged with the raw resources some
     │                                     # of them deploy, e.g. ingress-routing/middlewares.yaml,
     │                                     # observability/otel-instrumentation.yaml — one
     │                                     # concept, one directory. Portable Kubernetes →
     │                                     # NOT nested by provider.
-    ├── 3-capability-modules/             # Terraform modules TENANTS consume, resolved
-    │   └── aws/                          # from catalog.yaml `capabilities:`. Nobody here
-    │       ├── postgres/                 # applies these — they are rendered into tenant
-    │       ├── s3/                       # repos and applied there.
-    │       ├── iam/
-    │       └── networking/
-    └── 4-platform-apis/                 # Platform API definitions (KRO RGDs / Crossplane
-                                          # XRDs). Empty with a README until Phase 5.
+    └── 3-platform-apis/                 # Platform API definitions (Crossplane XRDs).
 ```
 
 ---
@@ -86,19 +75,19 @@ readable projection of it. If they disagree, `catalog.yaml` is right and this ta
 stale — fix the table.
 
 Every path below is relative to `1-platform-catalog/` on the left and
-`3-tenant-workloads/` on the right.
+`3-tenant-repos/` on the right.
 
 | You edit this | It renders to | Rendered by | How often |
 |---|---|---|---|
-| `per-tenant/root/` | `{tenant}/` | `onboard-tenant` | once per team |
-| `per-tenant/infra/` | `{tenant}/infra/` | `onboard-tenant` | once per team |
-| `per-tenant/gitops/` | `{tenant}/gitops/` | `onboard-tenant` | once per team |
-| `per-service/apps/runtimes/<lang>/` | `{team}/apps/{app}/` | `add-service` | once per service — **one** `<lang>` picked by `--runtime` / golden path |
-| `per-service/apps/service-meta/` | `{team}/apps/{app}/` | `add-service` | once per service, always |
-| `per-service/infra/capabilities/<cap>.tf.tmpl` | `{team}/infra/apps/{app}/{env}/` | `add-service` | one file per requested capability with `provisioner: terraform` |
-| `per-service/gitops/capabilities/<cap>.yaml.tmpl` | `{team}/gitops/apps/{app}/{env}/` | `add-service` | one file per requested capability with `provisioner: ack` |
-| `per-service/gitops/release/` | `{team}/gitops/apps/{app}/{env}/` | `add-service` | once per service per env |
-| `charts/service/` | **nothing** — never scaffolded | CI, via `helm template` | output only, into `{team}/gitops/apps/{app}/{env}/manifests/` |
+| `per-tenant/root/` | `{tenant}/workloads-repo/` | `onboard-tenant` | once per tenant |
+| `per-tenant/infra/` | `{tenant}/workloads-repo/infra/` | `onboard-tenant` | once per tenant |
+| `per-tenant/gitops/` | `{tenant}/gitops-repo/` | `onboard-tenant` | once per tenant |
+| `per-service/apps/runtimes/<lang>/` | `{tenant}/workloads-repo/services/{app}/` | `add-service` | once per service — **one** `<lang>` picked by `--runtime` / golden path |
+| `per-service/apps/service-meta/` | `{tenant}/workloads-repo/services/{app}/` | `add-service` | once per service, always |
+| `per-service/infra/capabilities/<cap>.tf.tmpl` | `{tenant}/workloads-repo/infra/services/{app}/{env}/` | `add-service` | one file per requested capability with `provisioner: terraform` |
+| `per-service/gitops/capabilities/<cap>.yaml.tmpl` | `{tenant}/gitops-repo/services/{app}/{env}/` | `add-service` | one file per requested capability with `provisioner: ack` |
+| `per-service/gitops/release/` | `{tenant}/gitops-repo/services/{app}/{env}/` | `add-service` | once per service per env |
+| `charts/service/` | **nothing** — never scaffolded | CI, via `helm template` | output only, into `{tenant}/gitops-repo/services/{app}/{env}/manifests/` |
 
 **Addon namespace rule.** `4-platform-engineering/2-cluster-services/` (bootstrap.yaml's App-of-Apps
 root) is applied with `directory.recurse: true` and `destination.namespace: argocd`. Every
@@ -138,27 +127,27 @@ The scaffolder templates are organised around **platform lifecycle verbs**, not 
 | `onboard-tenant` | `per-tenant/{root,infra,gitops}/` | once per tenant | tenancy boundary — AppProject, Namespace + ResourceQuota + LimitRange, default-deny NetworkPolicy, CODEOWNERS, Kyverno PolicyException, team Terraform providers + IAM — plus the team ApplicationSet |
 | `add-service` | `per-service/**` | repeatable | a golden path — runtime + service-meta + delivery values + capabilities |
 
-**Golden paths** (`catalog.yaml`) compose three pieces: a runtime (`per-service/apps/runtimes/<lang>/`), infra **capabilities** (`per-service/infra/capabilities/<cap>.tf.tmpl` or `per-service/gitops/capabilities/<cap>.yaml.tmpl`, by `provisioner:`), and delivery (`per-service/gitops/release/`). Capabilities are declarative claims mapped to blessed, version-pinned Terraform modules — e.g. `postgres → aws/postgres@v2.0.0`, `s3 → aws/s3`, `iam → aws/iam`. `per-service/apps/service-meta/` is runtime-agnostic and rendered for every service, which is why it is a sibling of `runtimes/` rather than living inside it.
+**Golden paths** (`catalog.yaml`) compose three pieces: a runtime (`per-service/apps/runtimes/<lang>/`), infra **capabilities** (`per-service/infra/capabilities/<cap>.tf.tmpl` or `per-service/gitops/capabilities/<cap>.yaml.tmpl`, by `provisioner:`), and delivery (`per-service/gitops/release/`). Capabilities are declarative claims mapped to blessed, version-pinned modules (ADR 0011) — e.g. `postgres → data/postgres@postgres-v2.0.0`, `s3 → storage/s3`, `iam → identity/workload-iam`, all in `enterprise-aws-infrastructure` (ADR 0011). `per-service/apps/service-meta/` is runtime-agnostic and rendered for every service, which is why it is a sibling of `runtimes/` rather than living inside it.
 
 Key decisions:
 - **Go is the definitive scaffolder; Python is a second engine, not a legacy one.** Both implement `onboard-tenant` and `add-service` against the same `catalog.yaml`. The point of keeping two is that it makes the catalog a *falsifiable* contract: run both with the same inputs and `diff -r` the trees. **The two trees are currently byte-identical**, both verbs, every file. If a change makes them disagree, either the engines drifted or the catalog is under-specified — both are findings, and neither should be papered over. Matching Go's whitespace depends on `trim_blocks`/`lstrip_blocks` in the Python Jinja environment, because the regex that converts `[[- if ]]` to `[% if %]` cannot carry Go's `-` trim markers across.
-- **git-as-PR.** `add-service` writes into the git-tracked `3-tenant-workloads/` tree; the resulting `git diff` simulates the PR that would be opened against a real tenant repo.
-- **Monorepo output, polyrepo mapping.** Everything lands under `3-tenant-workloads/<team>/{apps,infra,gitops}/`; in production each of those three maps to a standalone repo (`<org>/<team>-apps`, `-infra`, `-gitops`) under a department subgroup. The mapping is documented here rather than encoded in the directory name, so the monorepo stays tenant-first and `git subtree split --prefix=3-tenant-workloads/<team>/apps` remains the split path.
-- **Two naming axes, kept deliberately distinct.** `apps` / `infra` / `gitops` is the **repo kind** (what sort of artifact; each becomes a real repo). `platform` / `apps` inside `infra/` and `gitops/` is **ownership** (`platform/` is platform-owned and CODEOWNERS-protected; `apps/` belongs to the team). `apps` is reused on purpose — it always means team-owned per-service content, and the enclosing repo kind says whether that is source code, Terraform, or Helm values. Ownership therefore reduces to two glob lines.
-- **IRSA / Pod Identity is the missing fourth wall of the tenancy model.** `onboard-tenant` builds three walls per namespace: what ArgoCD may deploy (`AppProject`), what pods may talk to (`NetworkPolicy`), and what a human may do with `kubectl` (RBAC `Role`/`RoleBinding`). None of that constrains what AWS a pod's *own* credentials can reach. ACK controllers (`4-platform-engineering/2-cluster-services/aws-controllers/`) grant AWS permissions **per namespace** via IRSA (EKS) or Pod Identity — a `Bucket`/`Role` CR reconciled in `team-a`'s namespace only ever gets `team-a`'s AWS permissions, because the trust policy is scoped to the namespace/service-account pair, not to the controller process as a whole. That is the mechanism that makes ACK safe to run multi-tenant, and it is the reason `AppProject` + `Namespace` + `NetworkPolicy` + RBAC is not yet the complete tenancy boundary — this is the fourth control, expressed in AWS IAM rather than Kubernetes RBAC. It is not yet real in this repo: `per-tenant/infra/platform/team-iam.tf.tmpl` calls the `aws-iam` module, which is a documented stub (`4-platform-engineering/3-capability-modules/aws/iam/main.tf`) that provisions no identity. Phase 5.1 added real, `terraform validate`-clean EKS Terraform (`1-cloud-foundation/aws/cluster/`) that outputs the OIDC issuer URL IRSA needs — but that Terraform has not been applied to a real account, so the issuer URL does not exist yet either. Wiring real IRSA is therefore gated on an actual `terraform apply`, not on missing code.
+- **git-as-PR.** `add-service` writes into the git-tracked `3-tenant-repos/` tree; the resulting `git diff` simulates the PR that would be opened against a real tenant repo.
+- **Monorepo output, polyrepo mapping.** Everything lands under `3-tenant-repos/<tenant>/{workloads-repo,gitops-repo}/`; in production each of those two directories is a standalone repo (`<org>/<tenant>-workloads`, `<org>/<tenant>-gitops`). The `-repo` suffix means exactly that and nothing else. See [ADR 0010](../docs/adr/0010-tenant-repository-topology.md) for the reasoning and the extraction commands.
+- **`platform/` vs `services/` means the same thing in every tree.** `platform/` is platform-owned and CODEOWNERS-protected; `services/` belongs to the tenant's team. The repo directory (`workloads-repo` / `gitops-repo`) says what kind of artifact it is; the split is on who *writes* a file, not on the technology in it. Ownership reduces to two glob lines per repo.
+- **IRSA / Pod Identity is the missing fourth wall of the tenancy model.** `onboard-tenant` builds three walls per namespace: what ArgoCD may deploy (`AppProject`), what pods may talk to (`NetworkPolicy`), and what a human may do with `kubectl` (RBAC `Role`/`RoleBinding`). None of that constrains what AWS a pod's *own* credentials can reach. ACK controllers (`4-platform-engineering/2-cluster-services/aws-controllers/`) grant AWS permissions **per namespace** via IRSA (EKS) or Pod Identity — a `Bucket`/`Role` CR reconciled in the `tenant-a` namespace only ever gets `tenant-a`'s AWS permissions, because the trust policy is scoped to the namespace/service-account pair, not to the controller process as a whole. That is the mechanism that makes ACK safe to run multi-tenant, and it is the reason `AppProject` + `Namespace` + `NetworkPolicy` + RBAC is not yet the complete tenancy boundary — this is the fourth control, expressed in AWS IAM rather than Kubernetes RBAC. It is not yet real in this repo: `per-tenant/infra/platform/team-iam.tf.tmpl` calls the `aws-iam` module, which is a documented stub (`identity/workload-iam` in `enterprise-aws-infrastructure`) that provisions no identity. That repo has real, `terraform validate`-clean EKS Terraform that publishes the OIDC provider ARN IRSA needs (`/platform/<env>/<region>/eks/oidc_provider_arn`) — but it has not been applied to a real account, so the ARN does not exist yet either. Wiring real IRSA is therefore gated on an actual `terraform apply`, not on missing code.
 
-- **The full chain, once a real hub cluster exists (Phase 5.1-5.3).** `namespace` (Phase 1) → `IRSA/Pod Identity role` (Phase 7.2c, `1-cloud-foundation/aws/workload-identity/`) → `assumed spoke-account role` (Phase 5.2, `1-cloud-foundation/aws/organization/ack-cross-account.tf`) → blast radius is **one tenant's AWS account**, not just one tenant's IAM policy. This is the fourth wall with a real account boundary behind it: a compromised ACK controller reconciling a `team-a` `Bucket` CR can only ever assume `team-a`'s spoke role, in `team-a`'s spoke account — it has no path to `team-b`'s resources even if `team-b`'s Bucket CR sits in the same hub cluster, because the trust chain (namespace → IRSA role → spoke role) never crosses. The direction matters: **the spoke trusts the hub, never the reverse** — see the comment in `ack-cross-account.tf` for why getting this backwards reopens the confused-deputy problem the `ExternalId` condition exists to close.
-- **Ownership is enforceable, not just documented.** `onboard-tenant` writes a CODEOWNERS at each of the three would-be repo roots (`<team>/{apps,infra,gitops}/`), because GitHub honours CODEOWNERS only at a repo root, `.github/`, or `docs/` — nesting it under `platform/` would make it decorative. Each file is two rules: the team owns `*`, then `/platform/` reverts to the platform team (last match wins); the gitops one adds security review on `policy-exceptions.yaml`.
-- **`per-tenant/` mirrors its output.** `per-tenant/<kind>/` is laid out exactly like the tree it produces, so the nesting *is* the path logic and no file needs its own destination rule. Three keys — one per repo kind — replace what would otherwise be one key per output directory.
+- **The full chain, once a real hub cluster exists (Phase 5.1-5.3).** `namespace` (Phase 1) → `IRSA/Pod Identity role` (Phase 7.2c, `identity/workload-identity` in `enterprise-aws-infrastructure`) → `assumed spoke-account role` (Phase 5.2, `governance/organization` there, published as `/platform/<env>/<region>/ack/cross_account_role_arn`) → blast radius is **one tenant's AWS account**, not just one tenant's IAM policy. This is the fourth wall with a real account boundary behind it: a compromised ACK controller reconciling a `tenant-a` `Bucket` CR can only ever assume `tenant-a`'s spoke role, in `tenant-a`'s spoke account — it has no path to another tenant's resources even if that tenant's Bucket CR sits in the same hub cluster, because the trust chain (namespace → IRSA role → spoke role) never crosses. The direction matters: **the spoke trusts the hub, never the reverse** — see the comment in the organization module's ACK trust for why getting this backwards reopens the confused-deputy problem the `ExternalId` condition exists to close.
+- **Ownership is enforceable, not just documented.** `onboard-tenant` writes a CODEOWNERS at each repo root (`<tenant>/workloads-repo/`, `<tenant>/gitops-repo/`), because GitHub honours CODEOWNERS only at a repo root, `.github/`, or `docs/` — nesting it under `platform/` would make it decorative. Each file is two rules: the team owns `*`, then `platform/` reverts to the platform team (last match wins); the workloads one also protects `.github/workflows/`, and the gitops one adds security review on `policy-exceptions.yaml`.
+- **`per-tenant/` mirrors its output.** `per-tenant/<kind>/` is laid out exactly like the tree it produces, so the nesting *is* the path logic and no file needs its own destination rule. Three keys replace what would otherwise be one key per output directory.
 - **Helm only** for delivery (no Kustomize); **`1-platform-catalog/catalog.yaml`** is the source of truth for golden paths and the capability → module mapping.
-- **Output paths live in data, not code.** The `destinations:` table in `catalog.yaml` maps each catalog source directory to its output path template (`{team}`, `{app}`, `{env}`). No Go file contains a hardcoded output path; restructuring `3-tenant-workloads/` is a YAML edit. `LoadCatalog` validates that every required key is present and fails before writing anything.
-- **ArgoCD discovery is convention-based, two levels:** a cluster-wide bootstrap ApplicationSet globs `3-tenant-workloads/*/gitops/platform/applicationsets` (one Application per team, applying that team's AppSet); each team AppSet then globs `3-tenant-workloads/<team>/gitops/apps/*/*` (app × env). `add-service` never edits a root app-of-apps file.
+- **Output paths live in data, not code.** The `destinations:` table in `catalog.yaml` maps each catalog source directory to its output path template (`{tenant}`, `{app}`, `{env}`). No Go file contains a hardcoded output path; restructuring `3-tenant-repos/` is a YAML edit. `LoadCatalog` validates that every required key is present and fails before writing anything.
+- **ArgoCD discovery is convention-based, two levels:** a cluster-wide bootstrap ApplicationSet globs `3-tenant-repos/*/gitops-repo/platform/applicationsets` (one Application per tenant, applying that tenant's AppSet); each tenant AppSet then globs `3-tenant-repos/<tenant>/gitops-repo/services/*/*` (app × env). The Kyverno `restrict-applicationset` policy pins each tenant's AppSet to its own `gitops-repo`. `add-service` never edits a root app-of-apps file.
 
 > **CLI status:** both verbs are implemented in **both** engines and produce matching output.
 >
 > The Go CLI defaults to fetching the catalog from GitHub via `go-getter`, so local edits to `1-platform-catalog/` do not take effect until pushed — **pass `--catalog-root ../../1-platform-catalog` when working locally.** `--output-root` likewise redirects the generated tree, which is what makes the two-engine `diff` possible without writing into the repo. The fetched ref is still hardcoded to a branch (`root.go`); pinning it is Phase 4 of the Go TODO.
 >
-> The Python CLI has no root flags yet, so it always writes into the real `3-tenant-workloads/` — Phase 3 of the Python TODO.
+> The Python CLI has no root flags yet, so it always writes into the real `3-tenant-repos/` — Phase 3 of the Python TODO. It reads its output paths from `destinations:` in `catalog.yaml`, exactly as Go does.
 
 ---
 
@@ -224,9 +213,11 @@ permission sets) can only match on the group string it receives — see Phase 7.
 - **Validation at the load boundary**: `catalog.py` mirrors `internal/catalog/catalog.go`, including a `REQUIRED_DESTINATIONS` list that **must stay textually identical to Go's `requiredDestinations`** — if they drift, one engine accepts a catalog the other rejects.
 - **Declare your dependencies.** `copier` was imported while absent from `pyproject.toml` and `uv.lock`, working only from a stale local `.venv` — every fresh checkout had a CLI that could not start. Verify with `rm -rf .venv && uv sync && uv run python -c "import cli, api"`.
 
-### 4. Terraform Cloud Modules (`4-platform-engineering/3-capability-modules/aws/`)
-- Module git source URLs:
-  `git::https://github.com/ok-karthik/internal-developer-platform.git//4-platform-engineering/3-capability-modules/aws/<module_name>?ref=v2.0.0`
+### 4. Terraform Capability Modules (`enterprise-aws-infrastructure`, `iac-modules-repo/`)
+- The modules live in their own repository (ADR 0011), not here. Each is released with its own annotated tag (`<module>-vX.Y.Z`, e.g. `postgres-v2.0.0`). Module git source URLs:
+  `git::https://github.com/ok-karthik/enterprise-aws-infrastructure.git//iac-modules-repo/<category>/<module>?ref=<module>-vX.Y.Z`
+- Renovate has one manager entry per module, each with a regex versioning that only accepts its own tag prefix, so a `postgres` pin can never be offered an `eks-v1.2.0` upgrade.
+- A capability template reads network placement from the SSM discovery contract (`data "aws_ssm_parameter"`), never a hardcoded ID. It declares **no `locals`** and names every `data` block after the capability, because all capability files render into the same root module.
 - **`random_string` flags mean "include this class", not "restrict to it".** `upper` defaults to `true`, so setting only `lower = true` does nothing. S3 bucket names and RDS identifiers are lowercase-only — always set `upper = false` for a name suffix. This shipped broken and would have failed at `apply` roughly half the time.
 - **Never declare `provider "..." {}` inside a module.** It blocks `count`/`for_each` on the module and prevents clean removal, because Terraform requires the provider config to outlive the resources. Use `required_providers` in the `terraform {}` block; providers are configured once in the root module.
 - **Guardrails are not knobs.** Encryption, public-access blocks, versioning, and backup retention are set by the module and not exposed to tenants — that is the argument for a platform module over raw resources. Note `aws_db_instance.backup_retention_period` defaults to `0` in Terraform, i.e. backups off, so it must be set explicitly.
@@ -281,10 +272,10 @@ git worktree remove --force /tmp/wt
 
 The catalog is only a contract if both engines agree. Python has no `--output-root` yet
 (Python TODO Phase 3), so today this needs removing the scratch team from
-`3-tenant-workloads/` afterwards.
+`3-tenant-repos/` afterwards.
 
 ```bash
-diff -r /tmp/go-out/3-tenant-workloads/<team> 3-tenant-workloads/<team>
+diff -r /tmp/go-out/<tenant> 3-tenant-repos/<tenant>
 ```
 
 
@@ -298,45 +289,18 @@ diff -r /tmp/go-out/3-tenant-workloads/<team> 3-tenant-workloads/<team>
 6. **Rendered Manifests & Golden Path Delivery:** (See [ADR 0006](docs/adr/0006-single-platform-chart.md))
 7. **Promotion Surface (Values vs Rendered):** (See [ADR 0007](docs/adr/0007-values-vs-rendered-promotion.md))
 8. **Platform as a Product Philosophy:** (See [ADR 0008](docs/adr/0008-platform-as-a-product.md))
-9. **Taxonomy (Team vs. Tenant):** We explicitly use `<team>` as the ownership boundary (e.g., `3-tenant-workloads/<team>`) because teams are the customers of our product. We restrict the word "tenant" to the isolation control plane (`per-tenant/`, which renders the AppProject/Namespace/NetworkPolicy boundary) rather than using it as the owner name, demonstrating precise usage of infrastructure vs. business vocabulary.
+9. **Taxonomy (Team vs. Tenant):** `{tenant}` is the isolation boundary and the directory name (`3-tenant-repos/<tenant>`): namespace, AppProject, quota, and both repos are named after it. A *team* is the human group that owns a tenant (`--owner`), and appears only in CODEOWNERS and the `platform:<team>:<tier>` identity groups. Phase 13 reversed the earlier rule that used `<team>` as the directory. The fixture makes the difference visible: tenant `tenant-a`, owned by `team-a`.
 
-10. **Data-Driven Scaffolder (Catalog Destinations):** The CLI avoids hardcoded output paths. Instead, a `destinations:` ABI mapping block in `1-platform-catalog/catalog.yaml` defines the precise target directories for team blueprints, ApplicationSets, runtimes, service metadata, delivery values, and capabilities. Every key is the literal source directory inside the catalog, so the renderer derives the source path from the key rather than hardcoding both sides. The Go scaffolder substitutes `{team}`, `{app}`, `{env}` before writing (`{system}` was removed along with the system directory level — see decision 5), and `LoadCatalog` validates that every required key exists so a mismatch fails at load rather than mid-render.
+10. **Data-Driven Scaffolder (Catalog Destinations):** The CLI avoids hardcoded output paths. Instead, a `destinations:` ABI mapping block in `1-platform-catalog/catalog.yaml` defines the precise target directories for team blueprints, ApplicationSets, runtimes, service metadata, delivery values, and capabilities. Every key is the literal source directory inside the catalog, so the renderer derives the source path from the key rather than hardcoding both sides. Both scaffolders substitute `{tenant}`, `{app}`, `{env}` before writing (`{system}` was removed along with the system directory level — see decision 5), and `LoadCatalog` validates that every required key exists so a mismatch fails at load rather than mid-render.
 11. **Plan-then-Write is the intended architecture, NOT the current one.** Today both engines render and write file-by-file. Go buffers each template in memory before writing it, so a *single* template failure leaves no truncated file — but a failure on file 5 of 10 still leaves four on disk. `--dry-run` is declared in `root.go` and **never read**, so passing it performs a full silent write. Neither engine has an in-memory `Plan` map yet. Getting there (`plan_service(cfg) -> dict[str, bytes]`, then `write_plan`) is Phase 3 in the Go TODO and Phase 2 in the Python TODO, and it is the prerequisite for an honest `--dry-run`, the API's plan endpoint, and in-memory golden tests. Do not describe this as done.
 12. **Runtimes are declared, and an undeclared directory is deliberately invisible.** `catalog.yaml` carries a `runtimes:` map alongside `capabilities:`, and `validate()` checks it in both useful directions: a golden path may not name a runtime that is not declared, and a declared runtime must have a directory under `per-service/apps/runtimes/`. `Resolve` applies the same check to an explicit `--runtime`, which never passes through golden-path validation. What is **not** checked — on purpose — is the reverse: a directory that exists but is not listed in `runtimes:` is simply not offered, which is what lets a half-built runtime sit in the tree without being scaffoldable. "Supported" is a platform decision, not a consequence of what happens to be on disk. `TestLoadCatalog_UndeclaredRuntimeDirectoryIsIgnored` guards this; do not "fix" it by adding a reverse check or by auto-discovering directories into `c.Runtimes`. Note the asymmetry with capabilities is principled rather than accidental: a capability entry carries `module` + `version` that the template cannot get from a directory name (the module is remote and independently versioned), whereas a runtime directory is local and self-contained. When runtimes acquire real metadata — base image, default port, deprecation status — the natural next step is a co-located `runtime.yaml` per directory (the Backstage model), not more central YAML.
 13. **Generated output is not yet idempotent.** Both engines use truncating writes, so re-running `add-service` overwrites a team's edits to a scaffolded file. Skip-if-exists plus `--force` is planned alongside Plan-then-Write. Copier used to provide `_skip_if_exists` on the Python side; that guarantee was given up when Copier was dropped (Copier renders *to a directory* and cannot return rendered bytes, which is incompatible with Plan-then-Write).
 
 ---
 
-14. **Two tenant repos per team, not three — split on who *writes* a directory, not on what technology is in it.** `3-tenant-workloads/<team>/` holds `apps/`, `infra/` and `gitops/`. An earlier revision made each of the three a would-be repository root, costing three repos per team (sixty at twenty teams). The split is now **two**: `apps` + `infra` extract together as one repo, `gitops` stays separate.
-
-    The deciding axis is authorship, not content. `apps/` and `infra/` are the same row twice — humans authoring intent, at the same review bar, for the same service — so **a service and the infrastructure it claims are one unit of change**: "this service now needs a bucket" is one PR, one review, one revert. Split apart, it is two PRs with an ordering dependency and a rollback that is a distributed transaction with no coordinator, which is where most "infra and app drifted" incidents come from. `gitops/` is categorically different: `manifests/` is written by CI (`contents: write`) and the whole tree is *read by ArgoCD*.
-
-    **Why `gitops/` stays its own repo** — three reasons, in order of weight:
-    - **ArgoCD never gets read access to source.** One ArgoCD serves every team. If manifests sat beside source, it would hold read credentials to every team's source repo. Separate, it reads a repo containing only desired state.
-    - **No automation holds write access to the repo humans author.** The CI token that pushes rendered manifests is scoped to a repo with no source and no Terraform in it. A compromised bot token can alter deployments; it cannot inject code or touch IAM.
-    - **Bot commits stay out of the source history.** Roughly half the gitops tree's log is machine commits. Merged with source, `git log` on the app becomes unreadable and every `git pull` carries churn. This is the practical reason teams that try a single repo retreat from it.
-
-    **Permission separation does not need a repository — it needs a path.** One `CODEOWNERS` at the merged repo's root with `/infra/platform/ @platform-engineering` as a carve-out achieves exactly what a third repo would, and GitHub's "require review from Code Owners" branch rule turns it into an enforced approval. Note this only works at a repository root, `.github/`, or `docs/`; nested `CODEOWNERS` files elsewhere in a tree are ignored outright, which is why the merged repo's file lives at `<team>/` and not `<team>/apps/`.
-
-    **The honest cost of merging.** The repo running dependency downloads and test execution is now the same repo whose workflows can request the Terraform apply role. This is mitigable rather than eliminated: OIDC tokens are issued per job, so a job that does not request `id-token: write` cannot obtain the role; gate apply behind a GitHub Environment with required reviewers; and put `CODEOWNERS` on `.github/workflows/` so the workflow definitions themselves are protected. Accept the mitigation; do not pre-pay for the split.
-
-    **The one trigger for going back to three repos:** a security requirement that the cloud apply role be assumable *only* from a repository containing no third-party code. GitHub's OIDC `sub` claim can be scoped to repo, ref, environment or workflow — **never to a path** — so inside one repo this is defence in depth, whereas across repos the IAM trust policy names a different repository and the boundary becomes cryptographic. Regulated environments do mandate this. Until one does, two repos.
-
-    **Extraction command.** `git subtree split` accepts exactly one prefix, so it cannot produce a repo containing both `apps/` and `infra/` at its root. The merged repo needs `git filter-repo`, which accepts N paths:
-
-    ```bash
-    # repo 1 of 2 — application source + its infrastructure claims
-    git filter-repo \
-      --path 3-tenant-workloads/team-a/apps --path 3-tenant-workloads/team-a/infra \
-      --path-rename 3-tenant-workloads/team-a/:
-
-    # repo 2 of 2 — desired state; ArgoCD reads it, CI writes to it
-    git subtree split --prefix=3-tenant-workloads/team-a/gitops -b team-a-gitops
-    ```
-
-    Both preserve history. Neither is run today — `3-tenant-workloads/` remains an authoring simulation, and the directory tree is identical under either split, so this is a documented decision rather than a refactor.
-
-    **Note on hosting.** GitHub is flat (org → repo), so the hierarchy survives only as a naming convention: `<org>/team-a`, `<org>/team-a-gitops`. GitLab nests arbitrarily via subgroups, so `<org>/tenants/team-a/` maps this tree 1:1 and group membership *becomes* the ownership model with no `CODEOWNERS` convention required. GitLab reads `CODEOWNERS` from the same three locations, so nothing else changes. Worth knowing: self-hosted GitLab is common in the DACH market this repo targets.
+14. **Two tenant repos, split on who *writes* a file, not on the technology in it.** `3-tenant-repos/<tenant>/` holds `workloads-repo/` (humans write it: service source plus the Terraform for the infrastructure those services claim) and `gitops-repo/` (CI writes it, ArgoCD reads it). A service and the infrastructure it claims are one unit of change; the gitops repo is separate so ArgoCD never reads source, no bot can write to the repo humans author, and machine commits stay out of source history. Permission separation inside a repo is a `CODEOWNERS` path rule, not another repository. Full reasoning, alternatives, the honest cost, the revisit trigger, and the extraction commands (`git filter-repo` for the workloads repo, `git subtree split` for gitops) are in [ADR 0010](../docs/adr/0010-tenant-repository-topology.md).
+15. **Capability modules live in their own repository, pinned by module-scoped tags.** (See [ADR 0011](../docs/adr/0011-capability-modules-external-repo.md))
+16. **This repository owns no cloud Terraform.** The cloud foundation is consumed through the SSM parameter contract, not built here. (See [ADR 0012](../docs/adr/0012-platform-repo-owns-no-cloud-terraform.md))
 
 ## 🔭 Roadmap — Scaffolder identity (not planned work; direction only)
 
@@ -355,7 +319,7 @@ Today that is defensible: the scaffolder writes to a local working tree, and the
 gate is the pull request plus `CODEOWNERS`. **Git review is the authorisation plane.**
 That stops being true the moment the API is hosted for more than one person, or a portal
 (Backstage) calls it on a user's behalf — at that point the caller's identity is the only
-thing standing between team-a and team-b's directory.
+thing standing between one tenant's directory and another's.
 
 ### The shape of the fix
 
@@ -395,6 +359,6 @@ half-written tenant directory is reproducible right now.
 ### Non-goals
 
 Do not build a user database, a permissions UI, or per-capability entitlements
-("team-a may request postgres but not s3"). Entitlement belongs in `catalog.yaml` as
+("tenant-a may request postgres but not s3"). Entitlement belongs in `catalog.yaml` as
 data if it is ever wanted, in the same spirit as `destinations:` and `provisioner:` — not
 in code, and not in a second policy engine.

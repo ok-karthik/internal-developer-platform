@@ -16,14 +16,14 @@ is called out per-alert below.
 
 ## Symptom
 
-Checkout (`app-a`, `team-a` namespace) is returning 5xx to a share of users
+Checkout (`app-a`, `tenant-a` namespace) is returning 5xx to a share of users
 large enough to burn through the 99.9%/30-day availability error budget
 (43m12s of allowed downtime-equivalent per 30 days — see `app-a-slo.yaml`)
 faster than sustainable.
 
 ## Impact
 
-Users attempting checkout in `team-a`'s namespace are seeing failed requests.
+Users attempting checkout in the `tenant-a` namespace are seeing failed requests.
 A `page` alert means this is severe enough to exhaust the entire monthly
 budget in under a week if it continues; a `ticket` means it is sustained but
 not yet urgent.
@@ -31,22 +31,22 @@ not yet urgent.
 ## Diagnose
 
 All commands below are runnable under the Phase 1.1 developer `Role`
-(`3-tenant-workloads/team-a/gitops/platform/team/rbac.yaml`) — read/list/watch
+(`3-tenant-repos/tenant-a/gitops-repo/platform/tenancy/rbac.yaml`) — read/list/watch
 plus `pods/log`. **There is no `pods/exec`** — see Mitigate.
 
 ```bash
 # Pod-level health — is it crashing, or serving errors while healthy?
-kubectl -n team-a get pods -l app.kubernetes.io/instance=app-a -o wide
-kubectl -n team-a get events --sort-by=.lastTimestamp | tail -20
+kubectl -n tenant-a get pods -l app.kubernetes.io/instance=app-a -o wide
+kubectl -n tenant-a get events --sort-by=.lastTimestamp | tail -20
 
 # Application logs for the failing pods (pods/log is explicitly granted)
-kubectl -n team-a logs -l app.kubernetes.io/instance=app-a --tail=200 --since=1h
+kubectl -n tenant-a logs -l app.kubernetes.io/instance=app-a --tail=200 --since=1h
 
 # Recent 5xx-tagged log lines via Loki (Grafana Explore, or the HTTP API directly
 # — port-forward is the local-cluster equivalent of the Grafana Explore URL):
 kubectl -n monitoring port-forward svc/loki-gateway 3100:80 &
 curl -sG http://localhost:3100/loki/api/v1/query_range \
-  --data-urlencode 'query={namespace="team-a", app="app-a"} |= "status=5"' \
+  --data-urlencode 'query={namespace="tenant-a", app="app-a"} |= "status=5"' \
   --data-urlencode 'start='"$(date -u -v-1H +%s)"'000000000' \
   --data-urlencode 'end='"$(date -u +%s)"'000000000'
 
@@ -69,14 +69,14 @@ GitOps loop being load-bearing under pressure:
 
 ```bash
 # Identify the last-known-good commit for app-a's manifests/values
-git -C 3-tenant-workloads log --oneline -- team-a/gitops/apps/app-a/dev
+git -C 3-tenant-repos log --oneline -- tenant-a/gitops-repo/services/app-a/dev
 
 # Revert the suspect commit (image bump, config change, etc.)
-git -C 3-tenant-workloads revert <bad-commit-sha>
-git -C 3-tenant-workloads push
+git -C 3-tenant-repos revert <bad-commit-sha>
+git -C 3-tenant-repos push
 
 # Force an immediate sync instead of waiting for ArgoCD's poll interval
-argocd app sync team-a-appsets
+argocd app sync tenant-a-appsets
 ```
 
 If the cause is external (a downstream dependency, the database), git revert

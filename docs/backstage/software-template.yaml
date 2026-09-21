@@ -30,7 +30,7 @@ spec:
         teamName:
           title: Team
           type: string
-          description: Must match an existing 3-tenant-workloads/<team>/ — onboard-team is a separate template, not this one.
+          description: Must match an existing 3-tenant-repos/<team>/ — onboard-team is a separate template, not this one.
         appName:
           title: App name
           type: string
@@ -50,7 +50,7 @@ spec:
       #   add-service --team-name ${{ parameters.teamName }}
       #               --app-name  ${{ parameters.appName }}
       #               --golden-path ${{ parameters.goldenPath }}
-      # then committing and opening a PR against 3-tenant-workloads/. See
+      # then committing and opening a PR against 3-tenant-repos/. See
       # PLAN.md Phase 8.0's "what (c) actually costs" section for the real
       # concerns a production version of this action has to handle: git
       # write credential scoping per team (tied to the caller's Phase 7

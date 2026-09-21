@@ -26,7 +26,7 @@ flowchart LR
         direction LR
         B1["1-platform-catalog<br/>(golden paths & capabilities)"]
         B2["2-idp-scaffolder<br/>(Go + Python CLI)"]
-        B3["3-tenant-workloads<br/>(generated team repos)"]
+        B3["3-tenant-repos<br/>(generated team repos)"]
         B4["4-platform-engineering<br/>(cluster, cloud infra, ArgoCD)<br/>☁️ AWS EKS | 🐙 ArgoCD"]
 
         B1 --> B2
@@ -78,20 +78,21 @@ internal-developer-platform/
 │   ├── golang/                #   Go + Cobra — the definitive engine
 │   └── python/                #   Python + Typer/FastAPI — same two verbs, same output
 │
-├── 3-tenant-workloads/        # THE GENERATED OUTPUT — what the CLI writes. One
-│                               #   directory per team, simulating N teams' real repos
-│                               #   in one monorepo (see docs/gitops-delivery.md)
+├── 3-tenant-repos/            # THE GENERATED OUTPUT — what the CLI writes. Each tenant is
+│                               #   two directories (workloads-repo/, gitops-repo/), one per
+│                               #   real repo, simulated in one checkout (see ADR 0010)
 │
 └── 4-platform-engineering/    # THE PLATFORM ITSELF — cluster, cloud infra, addons
-    ├── 1-cloud-foundation/    #   Terraform applied BEFORE a cluster exists (VPC, EKS, IAM)
+    ├── 1-cloud-foundation/    #   The CONTRACT with the cloud foundation (SSM parameters it
+    │                          #   reads) + the k3d harness. The Terraform lives in
+    │                          #   enterprise-aws-infrastructure (ADR 0012)
     ├── 2-cluster-services/    #   ArgoCD-managed addons — ingress, observability, identity
-    ├── 3-capability-modules/  #   Terraform modules tenants consume (postgres, s3, iam)
-    └── 4-platform-apis/       #   Custom Kubernetes APIs (Crossplane compositions)
+    └── 3-platform-apis/       #   Custom Kubernetes APIs (Crossplane compositions)
 ```
 
 **One-sentence tour, in reading order:** a platform engineer edits `1-platform-catalog/`
 → a developer runs the CLI in `2-idp-scaffolder/` → their service lands in
-`3-tenant-workloads/` → ArgoCD deploys it onto what `4-platform-engineering/` built.
+`3-tenant-repos/` → ArgoCD deploys it onto what `4-platform-engineering/` built.
 
 **Each of the four top-level directories, and most of their subdirectories, has its own
 `README.md`** with a one-line "what is this, who writes it, what consumes it" — read those
@@ -161,7 +162,7 @@ make destroy
 
 | Catalog directory | Rendered by | When | What reaches a tenant repo |
 | :--- | :--- | :--- | :--- |
-| `per-tenant/` | `onboard-team` | once per team | the files themselves, copied |
+| `per-tenant/` | `onboard-tenant` | once per tenant | the files themselves, copied |
 | `per-service/` | `add-service` | once per service (or once per capability requested) | the files themselves, copied |
 | `charts/` | **GitHub Actions**, never the CLI | every push touching a `values.yaml` or the chart | **only its rendered output**, into `manifests/` |
 
@@ -183,15 +184,15 @@ instead of being copy-pasted into N repos.
 
 | Catalog source | Rendered | Lands at |
 | :--- | :--- | :--- |
-| `per-tenant/root/` | once per team | `<team>/` |
-| `per-tenant/infra/` | once per team | `<team>/infra/` |
-| `per-tenant/gitops/` | once per team | `<team>/gitops/` |
-| `per-service/apps/runtimes/<lang>/` | per service | `<team>/apps/<app>/` |
-| `per-service/apps/service-meta/` | per service | `<team>/apps/<app>/` |
-| `per-service/infra/capabilities/<cap>.tf.tmpl` | per capability, if `provisioner: terraform` | `<team>/infra/apps/<app>/<env>/` |
-| `per-service/gitops/capabilities/<cap>.yaml.tmpl` | per capability, if `provisioner: ack` | `<team>/gitops/apps/<app>/<env>/` |
-| `per-service/gitops/release/` | per service | `<team>/gitops/apps/<app>/<env>/` |
-| `charts/service/` | **never scaffolded** | CI renders it into `<team>/gitops/apps/<app>/<env>/manifests/` |
+| `per-tenant/root/` | once per tenant | `<tenant>/workloads-repo/` |
+| `per-tenant/infra/` | once per tenant | `<tenant>/workloads-repo/infra/` |
+| `per-tenant/gitops/` | once per tenant | `<tenant>/gitops-repo/` |
+| `per-service/apps/runtimes/<lang>/` | per service | `<tenant>/workloads-repo/services/<app>/` |
+| `per-service/apps/service-meta/` | per service | `<tenant>/workloads-repo/services/<app>/` |
+| `per-service/infra/capabilities/<cap>.tf.tmpl` | per capability, if `provisioner: terraform` | `<tenant>/workloads-repo/infra/services/<app>/<env>/` |
+| `per-service/gitops/capabilities/<cap>.yaml.tmpl` | per capability, if `provisioner: ack` | `<tenant>/gitops-repo/services/<app>/<env>/` |
+| `per-service/gitops/release/` | per service | `<tenant>/gitops-repo/services/<app>/<env>/` |
+| `charts/service/` | **never scaffolded** | CI renders it into `<tenant>/gitops-repo/services/<app>/<env>/manifests/` |
 
 Every row is the literal `destinations:` block in `catalog.yaml` — the CLI reads that same
 data to decide where to write, so this table cannot drift from the code.
@@ -201,24 +202,28 @@ data to decide where to write, so this table cannot drift from the code.
 <summary><strong>See it run</strong> (click to expand) — one real command, full output</summary>
 
 ```console
-$ make demo-add-service DEMO_TEAM=payments DEMO_APP=checkout-api
+$ make demo-add-service DEMO_TENANT=tenant-a DEMO_APP=app-a
 
-Generating app 'checkout-api' [Runtime: go, Capabilities: [postgres]]
-per-service/apps/runtimes/go/go.mod.tmpl           --> payments/apps/checkout-api/go.mod
-per-service/apps/runtimes/go/main.go.tmpl          --> payments/apps/checkout-api/main.go
-per-service/apps/service-meta/catalog-info.yaml.tmpl --> payments/apps/checkout-api/catalog-info.yaml
-per-service/gitops/release/values.yaml.tmpl        --> payments/gitops/apps/checkout-api/dev/values.yaml
+Generating app 'app-a' [Runtime: go, Capabilities: [postgres s3]]
+per-service/apps/runtimes/go/go.mod.tmpl              --> tenant-a/workloads-repo/services/app-a/go.mod
+per-service/apps/runtimes/go/main.go.tmpl             --> tenant-a/workloads-repo/services/app-a/main.go
+per-service/apps/service-meta/catalog-info.yaml.tmpl  --> tenant-a/workloads-repo/services/app-a/catalog-info.yaml
+per-service/gitops/release/values.yaml.tmpl           --> tenant-a/gitops-repo/services/app-a/dev/values.yaml
 Adding infrastructure capability: postgres (provisioner: terraform)
-per-service/infra/capabilities/postgres.tf.tmpl    --> payments/infra/apps/checkout-api/dev/postgres.tf
+per-service/infra/capabilities/postgres.tf.tmpl       --> tenant-a/workloads-repo/infra/services/app-a/dev/postgres.tf
+Adding infrastructure capability: s3 (provisioner: ack)
+per-service/gitops/capabilities/s3.yaml.tmpl          --> tenant-a/gitops-repo/services/app-a/dev/s3.yaml
 ```
 
-Five files, two would-be repos, one command. Note what is absent: no `Chart.yaml`, no
-Helm packaging in `apps/`, and nothing written outside `dev/` — production requires a
+Seven files, two repos, one command. The Terraform claim lands in `workloads-repo/` and the
+Kubernetes-native (ACK) claim lands in `gitops-repo/`, because that is where ArgoCD can
+apply it. Note what is absent: no `Chart.yaml`, no Helm packaging in `services/`, and
+nothing written outside `dev/` — production requires a
 deliberate promotion PR.
 
 The CLI writes to the current directory and appends nothing to it, same contract as
 `terraform` or `npm`. See [`docs/gitops-delivery.md`](docs/gitops-delivery.md) for how the
-generated monorepo layout turns into real per-tenant repos with no extra tooling.
+generated layout turns into real per-tenant repos with no extra tooling.
 </details>
 
 ---
@@ -229,7 +234,7 @@ generated monorepo layout turns into real per-tenant repos with no extra tooling
 flowchart LR
     S1["1. Developer runs:<br/>add-service --golden-path<br/>go-service-postgres"]
     S2["2. CLI reads catalog.yaml<br/>resolves runtime + capabilities"]
-    S3["3. CLI writes files into<br/>3-tenant-workloads/<br/>📁 apps/ | 📁 infra/ | 📁 gitops/"]
+    S3["3. CLI writes files into<br/>3-tenant-repos/<br/>📁 workloads-repo/ | 📁 gitops-repo/"]
     S4["4. Developer opens a<br/>Pull Request"]
     S5["5. CI renders Helm chart,<br/>commits manifests/"]
     S6["6. ArgoCD detects change<br/>and syncs cluster ☸️"]
@@ -324,7 +329,7 @@ own root user. That's what makes an account boundary "hard" where a namespace's
 `NetworkPolicy` is "soft": nothing running inside the account, however privileged, can
 switch an SCP off. Real Terraform for this — two environment OUs and three SCPs (deny
 leaving the org, deny disabling the audit trail, deny regions outside the EU) — lives in
-[`4-platform-engineering/1-cloud-foundation/aws/organization/`](4-platform-engineering/1-cloud-foundation/aws/organization/).
+the `governance/organization` module of [`enterprise-aws-infrastructure`](https://github.com/ok-karthik/enterprise-aws-infrastructure).
 
 **Requesting a new team and requesting a new AWS account use the same pattern, one level
 apart:** both are a git-reviewed request that produces a fully governed unit — policies
@@ -332,7 +337,7 @@ already attached, nothing clicked by hand.
 
 | Step | New team (namespace) | New AWS account |
 |---|---|---|
-| Request | `--team payments` | a pull request |
+| Request | `--tenant-name tenant-a` | a pull request |
 | Baseline applied | network policy, quota, pod security | audit logging, SCPs |
 | Registration | ArgoCD picks it up automatically | joins the AWS Organization |
 
@@ -341,7 +346,7 @@ needs to create real AWS resources (a database, a bucket) for one specific team,
 is `namespace → that pod's own AWS credentials → a role in the team's own AWS account`. The
 team's account only ever trusts a narrow, revocable request from the cluster — never the
 other way around. Details:
-[`ack-cross-account.tf`](4-platform-engineering/1-cloud-foundation/aws/organization/ack-cross-account.tf).
+the same module (published to this platform as `/platform/<env>/<region>/ack/cross_account_role_arn`, see [`1-cloud-foundation/README.md`](4-platform-engineering/1-cloud-foundation/README.md)).
 
 ---
 
@@ -366,7 +371,7 @@ Most reference architectures claim their catalog is "the contract" and leave it 
 `1-platform-catalog/catalog.yaml` is consumed by two independent implementations — Go (`text/template`, Cobra) and Python (Jinja2, Typer, pydantic). Run both with the same inputs and diff the trees:
 
 ```bash
-diff -r /tmp/go-out/3-tenant-workloads/payments 3-tenant-workloads/payments
+diff -r /tmp/go-out/3-tenant-repos/tenant-a 3-tenant-repos/tenant-a
 ```
 
 If the output differs, one of two things is true: the engines have drifted, or the catalog is under-specified about something both had to guess. Both are findings worth having. **Today the two trees are byte-identical** — every file, both verbs.
@@ -385,7 +390,7 @@ This blueprint integrates best-in-class cloud-native tooling to form a cohesive 
 | :--- | :--- | :--- |
 | **Local Cluster** | **K3d (K3s)** | Lightweight, ephemeral Kubernetes environment optimized for ARM64/Silicon. |
 | **GitOps Engine** | **Argo CD** | Declarative CD, state reconciliation, and multi-tenant auto-discovery. |
-| **Infra as Code** | **Terraform** | Version-pinned modules (`4-platform-engineering/3-capability-modules/aws/`), claimed per-capability via `catalog.yaml` and scaffolded into each service's `infra/apps/<app>/<env>/`. |
+| **Infra as Code** | **Terraform** | Version-pinned modules (in [`enterprise-aws-infrastructure`](https://github.com/ok-karthik/enterprise-aws-infrastructure), ADR 0011), claimed per-capability via `catalog.yaml` and scaffolded into each service's `infra/apps/<app>/<env>/`. |
 | **Policy as Code** | **Kyverno** | Admission control. Enforces cluster security boundaries and standards. |
 | **Prog. Delivery** | **Argo Rollouts** | Automated Canary & Blue-Green deployments integrated with edge routing. |
 | **Edge Gateway** | **Traefik** | L7 ingress, API gateway, rate-limiting, and middleware injection. |
@@ -413,18 +418,19 @@ would have to change if the rest ever needed to.
 |---|---|---|
 | Helm chart, ArgoCD, Kyverno, observability stack, Argo Rollouts, ESO | ✅ Yes | Plain Kubernetes — runs on any conformant cluster |
 | Capability *names* in `catalog.yaml` (`postgres`, `s3`) | ✅ Yes | Already provider-neutral |
-| Terraform modules under `3-capability-modules/<provider>/` | ❌ No | Provider-specific by definition |
+| Terraform capability modules (`enterprise-aws-infrastructure`) | ❌ No | Provider-specific by definition |
 | The cluster itself (EKS/AKS/GKE) | ❌ No | Different node groups, networking, identity per cloud |
 | **ACK** (the AWS controller that provisions S3 buckets, IAM roles, etc.) | ❌ **No — hard blocker** | AWS-only; no equivalent exists for Azure. Crossplane would have to replace it entirely if this ever mattered |
 | Pod Identity / IRSA (workload → cloud credentials) | ❌ No | Azure and GCP have their own equivalents, but the configuration doesn't carry over — only the concept does |
 
-**The proof:** [`4-platform-engineering/3-capability-modules/azure/postgres/`](4-platform-engineering/3-capability-modules/azure/postgres/)
-is a second implementation of the `postgres` capability, on Azure, with the *exact same*
-inputs and outputs as the AWS version — you can diff the two files to check this claim
-rather than take it on faith. Because the cloud provider is just a piece of a file path in
-`catalog.yaml` (not hardcoded anywhere), switching the whole platform's database capability
-to Azure would be a one-line change. **`catalog.yaml` still points at AWS** — this module
-exists to prove the swap is *possible*, not to actually make it.
+**The seam is the repository.** Capability modules live in their own repo, and `catalog.yaml`
+reaches them through one `capabilities_source_base` URL plus a module path and a version tag
+([ADR 0011](docs/adr/0011-capability-modules-external-repo.md)). A second cloud is therefore
+a second infrastructure repository with the same module names and the same input/output
+contract, and switching the platform's database capability would be a change to that one
+base URL and the version pins — no template or engine change. **`catalog.yaml` still points at
+AWS**, and there is no second-cloud module today: an earlier Azure `postgres` module was
+removed rather than left as an unused half-finished seam in an AWS-named repo.
 
 ---
 
@@ -476,8 +482,8 @@ they'd be easy to miss.
   gate today. See [Roadmap](#-roadmap) for the planned fix (reusing the same Keycloak
   groups the rest of the platform already uses).
 - **This has not been run against a real AWS account.** Every piece of Terraform under
-  `4-platform-engineering/1-cloud-foundation/` and `3-capability-modules/` is held to a
-  clean `terraform plan`, not an actual `apply`. A green local (`k3d`) run also does not
+  the cloud foundation and capability modules (both in `enterprise-aws-infrastructure`) is
+  held to a clean `terraform validate`/`plan`, not an actual `apply`. A green local (`k3d`) run also does not
   exercise real IAM, load balancers, storage, or cluster authentication — those only get
   tested against a real cluster.
 
@@ -508,30 +514,28 @@ Not yet built, in rough priority order. Full history of what *is* built: [`PLAN.
 
 ```bash
 # Every manifest still parses
-find 3-tenant-workloads 4-platform-engineering -name '*.yaml' \
+find 3-tenant-repos 4-platform-engineering -name '*.yaml' \
   -exec kubectl apply --dry-run=client -f {} \; 2>&1 | grep -i error
 
 # The chart still renders and lints
 helm lint 1-platform-catalog/charts/service
 helm template app-a 1-platform-catalog/charts/service \
-  -f 3-tenant-workloads/tenant-a/gitops/apps/app-a/dev/values.yaml
+  -f 3-tenant-repos/tenant-a/gitops-repo/services/app-a/dev/values.yaml
 
 # Templates and rendered output agree (expect only [[ .TenantName ]] -> tenant-a)
 diff <(sed 's/\[\[ \.TenantName \]\]/tenant-a/g' \
-        1-platform-catalog/per-tenant/gitops/platform/team/namespace.yaml.tmpl) \
-     3-tenant-workloads/tenant-a/gitops/platform/team/namespace.yaml
+        1-platform-catalog/per-tenant/gitops/platform/tenancy/namespace.yaml.tmpl) \
+     3-tenant-repos/tenant-a/gitops-repo/platform/tenancy/namespace.yaml
 
 # Burn-rate alert PromQL is syntactically valid
 promtool check rules 4-platform-engineering/2-cluster-services/observability/slo/app-a-alerts.yaml
 
-# Terraform: every module validates independently
-for d in 4-platform-engineering/1-cloud-foundation/aws/* 4-platform-engineering/3-capability-modules/*/*; do
-  terraform -chdir="$d" init -backend=false >/dev/null && terraform -chdir="$d" validate
-done
-tflint --recursive 4-platform-engineering/
+# Generated Terraform resolves against the pinned remote modules and parses
+terraform -chdir=3-tenant-repos/tenant-a/workloads-repo/infra/services/app-a/dev init -backend=false
+terraform -chdir=3-tenant-repos/tenant-a/workloads-repo/infra/services/app-a/dev validate
 
-# Tier 2 — the check that actually proves something against real AWS APIs. Creates nothing.
-terraform -chdir=4-platform-engineering/1-cloud-foundation/aws/cluster plan
+# The cloud foundation is validated in enterprise-aws-infrastructure (`make validate`),
+# not here — this repo owns no cloud Terraform (ADR 0012).
 ```
 </details>
 

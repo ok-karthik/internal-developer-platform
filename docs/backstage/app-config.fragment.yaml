@@ -14,7 +14,7 @@
 catalog:
   locations:
     - type: file
-      target: ../../../3-tenant-workloads/*/apps/*/catalog-info.yaml
+      target: ../../../3-tenant-repos/*/apps/*/catalog-info.yaml
       rules:
         - allow: [Component, System, API]
 

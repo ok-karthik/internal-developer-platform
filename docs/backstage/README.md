@@ -45,7 +45,7 @@ Three ways to connect them, and the one actually used here:
   once a real Backstage backend exists to host it; it is not written here because there is
   no backend to host it in, and an action file with no plugin around it would be inert.
 - **`app-config.fragment.yaml`** — the catalog `locations` entry that would make
-  `add-service`'s already-emitted `catalog-info.yaml` (`3-tenant-workloads/*/apps/*/catalog-info.yaml`)
+  `add-service`'s already-emitted `catalog-info.yaml` (`3-tenant-repos/*/apps/*/catalog-info.yaml`)
   visible to Backstage with zero new code, plus the OIDC `auth` block pointing at
   Keycloak's `backstage` client (Phase 7.1) — merge this into a real `app-config.yaml` once
   one exists.
