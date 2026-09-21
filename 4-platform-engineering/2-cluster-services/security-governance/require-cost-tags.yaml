@@ -1,0 +1,43 @@
+# Cost attribution gate (PLAN.md Phase 18.3, "Direct AWS resources" tier).
+#
+# An ACK claim that reaches AWS without Tenant / Service / CostCenter tags is spend nobody
+# can be billed for. Cost Explorer can only group by a tag that is on the resource, so the
+# check has to happen before the claim is applied, not in a report afterwards.
+#
+# `Tenant` must also equal the namespace the claim lives in: without that, a tenant could
+# tag its spend as someone else's. Terraform claims are gated by the OPA policies in
+# enterprise-aws-infrastructure (policy-library-repo), not here.
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: require-cost-tags
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+spec:
+  validationFailureAction: Enforce
+  background: true
+  rules:
+    - name: require-cost-tags
+      match:
+        any:
+        - resources:
+            kinds:
+              - s3.services.k8s.aws/v1alpha1/Bucket
+              - iam.services.k8s.aws/v1alpha1/Role
+      validate:
+        message: "ACK claims must carry the tags Tenant, Service and CostCenter, and Tenant must equal the claim's namespace."
+        deny:
+          conditions:
+            any:
+              - key: "{{ length(request.object.spec.tags[?key=='Tenant'] || `[]`) }}"
+                operator: Equals
+                value: 0
+              - key: "{{ length(request.object.spec.tags[?key=='Service'] || `[]`) }}"
+                operator: Equals
+                value: 0
+              - key: "{{ length(request.object.spec.tags[?key=='CostCenter'] || `[]`) }}"
+                operator: Equals
+                value: 0
+              - key: "{{ request.object.spec.tags[?key=='Tenant'].value | [0] }}"
+                operator: NotEquals
+                value: "{{ request.object.metadata.namespace }}"

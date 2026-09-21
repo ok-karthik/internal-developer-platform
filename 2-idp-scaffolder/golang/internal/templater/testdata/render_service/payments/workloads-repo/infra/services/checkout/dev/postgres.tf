@@ -37,7 +37,8 @@ module "postgres" {
   subnet_ids = split(",", data.aws_ssm_parameter.postgres_database_subnets.value)
 
   tags = {
-    Team        = "payments"
+    Tenant      = "payments"
+    CostCenter  = "payments"
     Service     = "checkout"
     Environment = "dev"
     Capability  = "postgres"

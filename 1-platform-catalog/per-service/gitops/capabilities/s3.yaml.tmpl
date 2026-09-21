@@ -41,8 +41,13 @@ spec:
           sseAlgorithm: AES256
   versioning:
     status: Enabled
+  # Tenant / Service / CostCenter are the cost-attribution contract (PLAN.md Phase 18.3),
+  # enforced by the require-cost-tags Kyverno policy. CostCenter defaults to the tenant:
+  # the tenant is the unit that gets billed until a real cost-centre mapping exists.
   tags:
-    - key: Team
+    - key: Tenant
+      value: [[ .TenantName ]]
+    - key: CostCenter
       value: [[ .TenantName ]]
     - key: Service
       value: [[ .AppName ]]

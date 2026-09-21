@@ -1,0 +1,47 @@
+# OpenCost — in-cluster cost attribution (PLAN.md Phase 18.3, "In-Cluster Compute" tier).
+# Splits shared node cost, CPU/memory and egress by namespace, and a tenant IS a namespace
+# (AGENTS.md decision 9), so namespace attribution is tenant attribution with no extra
+# labelling. It reads the Prometheus that observability/prometheus.yaml installs.
+#
+# Prices come from the OpenCost default price sheet. Real AWS prices need
+# `opencost.cloudCost` pointed at a CUR / Athena setup, which is a foundation-repo
+# concern and is not wired here.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: opencost
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  project: default
+  source:
+    repoURL: 'https://opencost.github.io/opencost-helm-chart'
+    targetRevision: '2.5.32'
+    chart: opencost
+    helm:
+      values: |
+        opencost:
+          prometheus:
+            internal:
+              enabled: true
+              serviceName: prometheus-kube-prometheus-prometheus
+              namespaceName: monitoring
+              port: 9090
+          exporter:
+            defaultClusterId: platform
+          metrics:
+            serviceMonitor:
+              enabled: true
+              # kube-prometheus-stack only scrapes ServiceMonitors labelled with its release.
+              additionalLabels:
+                release: prometheus
+  destination:
+    server: 'https://kubernetes.default.svc'
+    namespace: opencost
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
