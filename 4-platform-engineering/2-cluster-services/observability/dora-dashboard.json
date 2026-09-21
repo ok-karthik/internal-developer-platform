@@ -1,12 +1,12 @@
 {
   "_comment": "Phase 6 DORA dashboard. Deployment Frequency and (half of) Change Failure Rate are real PromQL against ArgoCD's own metrics (argocd_app_sync_total) — see Makefile's install-argocd target for the metrics.serviceMonitor flags this depends on. Lead Time and MTTR are documented as gaps, not faked: Lead Time (commit timestamp -> ArgoCD syncedAt) has no native Prometheus metric and needs a small exporter joining git log against the ArgoCD API; MTTR (alert firing -> resolved duration) needs the firing/resolved timestamps Alertmanager already sends to alert-webhook-receiver (Phase 4.3) aggregated somewhere queryable, which is a follow-up, not a single PromQL query. Change failure rate and MTTR are only meaningful because Phase 4's alerts exist at all -- that is the concrete justification for why Phase 4 came before this one.",
-  "title": "DORA Metrics — app-a / team-a",
+  "title": "DORA Metrics — app-a / tenant-a",
   "uid": "dora-app-a",
   "editable": true,
   "timezone": "utc",
   "time": { "from": "now-30d", "to": "now" },
   "refresh": "5m",
-  "tags": ["dora", "app-a", "team-a"],
+  "tags": ["dora", "app-a", "tenant-a"],
   "panels": [
     {
       "id": 1,
@@ -21,7 +21,7 @@
           "refId": "A"
         }
       ],
-      "description": "Source: PLAN.md Phase 6 table — 'ArgoCD sync history / git commits to gitops/apps/**'. Requires argocd metrics.serviceMonitor.enabled (Makefile install-argocd)."
+      "description": "Source: PLAN.md Phase 6 table — 'ArgoCD sync history / git commits to gitops-repo/services/**'. Requires argocd metrics.serviceMonitor.enabled (Makefile install-argocd)."
     },
     {
       "id": 2,
@@ -60,7 +60,7 @@
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
       "options": {
         "mode": "markdown",
-        "content": "**Gap, named rather than faked.** PLAN.md defines this as `commit timestamp -> ArgoCD syncedAt`. Neither Prometheus nor ArgoCD's own metrics expose a per-commit lead-time series -- `argocd_app_sync_total` counts syncs, it does not carry the originating commit's author-timestamp as a label. Closing this needs a small exporter: read `git log --format=%aI` for `3-tenant-workloads/team-a/gitops/apps/app-a/**`, pair each commit with the ArgoCD Application's `.status.sync.revision` / `.status.reconciledAt` via the ArgoCD API, and expose the delta as a histogram. Not built in this phase -- named here so the dashboard does not silently imply it works."
+        "content": "**Gap, named rather than faked.** PLAN.md defines this as `commit timestamp -> ArgoCD syncedAt`. Neither Prometheus nor ArgoCD's own metrics expose a per-commit lead-time series -- `argocd_app_sync_total` counts syncs, it does not carry the originating commit's author-timestamp as a label. Closing this needs a small exporter: read `git log --format=%aI` for `3-tenant-repos/team-a/gitops-repo/services/app-a/**`, pair each commit with the ArgoCD Application's `.status.sync.revision` / `.status.reconciledAt` via the ArgoCD API, and expose the delta as a histogram. Not built in this phase -- named here so the dashboard does not silently imply it works."
       }
     },
     {

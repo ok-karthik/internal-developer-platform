@@ -39,16 +39,16 @@ spec:
         - alert: AppAAvailabilityBurnRatePageFast
           expr: |
             (
-              sum(rate(http_server_request_duration_seconds_count{service_name="app-a", namespace="team-a", http_response_status_code=~"5.."}[1h]))
+              sum(rate(http_server_request_duration_seconds_count{service_name="app-a", namespace="tenant-a", http_response_status_code=~"5.."}[1h]))
               /
-              sum(rate(http_server_request_duration_seconds_count{service_name="app-a", namespace="team-a"}[1h]))
+              sum(rate(http_server_request_duration_seconds_count{service_name="app-a", namespace="tenant-a"}[1h]))
               > (14.4 * 0.001)
             )
             and
             (
-              sum(rate(http_server_request_duration_seconds_count{service_name="app-a", namespace="team-a", http_response_status_code=~"5.."}[5m]))
+              sum(rate(http_server_request_duration_seconds_count{service_name="app-a", namespace="tenant-a", http_response_status_code=~"5.."}[5m]))
               /
-              sum(rate(http_server_request_duration_seconds_count{service_name="app-a", namespace="team-a"}[5m]))
+              sum(rate(http_server_request_duration_seconds_count{service_name="app-a", namespace="tenant-a"}[5m]))
               > (14.4 * 0.001)
             )
           for: 2m
@@ -63,16 +63,16 @@ spec:
         - alert: AppAAvailabilityBurnRatePageSlow
           expr: |
             (
-              sum(rate(http_server_request_duration_seconds_count{service_name="app-a", namespace="team-a", http_response_status_code=~"5.."}[6h]))
+              sum(rate(http_server_request_duration_seconds_count{service_name="app-a", namespace="tenant-a", http_response_status_code=~"5.."}[6h]))
               /
-              sum(rate(http_server_request_duration_seconds_count{service_name="app-a", namespace="team-a"}[6h]))
+              sum(rate(http_server_request_duration_seconds_count{service_name="app-a", namespace="tenant-a"}[6h]))
               > (6 * 0.001)
             )
             and
             (
-              sum(rate(http_server_request_duration_seconds_count{service_name="app-a", namespace="team-a", http_response_status_code=~"5.."}[30m]))
+              sum(rate(http_server_request_duration_seconds_count{service_name="app-a", namespace="tenant-a", http_response_status_code=~"5.."}[30m]))
               /
-              sum(rate(http_server_request_duration_seconds_count{service_name="app-a", namespace="team-a"}[30m]))
+              sum(rate(http_server_request_duration_seconds_count{service_name="app-a", namespace="tenant-a"}[30m]))
               > (6 * 0.001)
             )
           for: 15m
@@ -87,16 +87,16 @@ spec:
         - alert: AppAAvailabilityBurnRateTicketSlow
           expr: |
             (
-              sum(rate(http_server_request_duration_seconds_count{service_name="app-a", namespace="team-a", http_response_status_code=~"5.."}[1d]))
+              sum(rate(http_server_request_duration_seconds_count{service_name="app-a", namespace="tenant-a", http_response_status_code=~"5.."}[1d]))
               /
-              sum(rate(http_server_request_duration_seconds_count{service_name="app-a", namespace="team-a"}[1d]))
+              sum(rate(http_server_request_duration_seconds_count{service_name="app-a", namespace="tenant-a"}[1d]))
               > (3 * 0.001)
             )
             and
             (
-              sum(rate(http_server_request_duration_seconds_count{service_name="app-a", namespace="team-a", http_response_status_code=~"5.."}[2h]))
+              sum(rate(http_server_request_duration_seconds_count{service_name="app-a", namespace="tenant-a", http_response_status_code=~"5.."}[2h]))
               /
-              sum(rate(http_server_request_duration_seconds_count{service_name="app-a", namespace="team-a"}[2h]))
+              sum(rate(http_server_request_duration_seconds_count{service_name="app-a", namespace="tenant-a"}[2h]))
               > (3 * 0.001)
             )
           for: 1h
@@ -111,16 +111,16 @@ spec:
         - alert: AppAAvailabilityBurnRateTicketVerySlow
           expr: |
             (
-              sum(rate(http_server_request_duration_seconds_count{service_name="app-a", namespace="team-a", http_response_status_code=~"5.."}[3d]))
+              sum(rate(http_server_request_duration_seconds_count{service_name="app-a", namespace="tenant-a", http_response_status_code=~"5.."}[3d]))
               /
-              sum(rate(http_server_request_duration_seconds_count{service_name="app-a", namespace="team-a"}[3d]))
+              sum(rate(http_server_request_duration_seconds_count{service_name="app-a", namespace="tenant-a"}[3d]))
               > (1 * 0.001)
             )
             and
             (
-              sum(rate(http_server_request_duration_seconds_count{service_name="app-a", namespace="team-a", http_response_status_code=~"5.."}[6h]))
+              sum(rate(http_server_request_duration_seconds_count{service_name="app-a", namespace="tenant-a", http_response_status_code=~"5.."}[6h]))
               /
-              sum(rate(http_server_request_duration_seconds_count{service_name="app-a", namespace="team-a"}[6h]))
+              sum(rate(http_server_request_duration_seconds_count{service_name="app-a", namespace="tenant-a"}[6h]))
               > (1 * 0.001)
             )
           for: 3h
@@ -139,17 +139,17 @@ spec:
           expr: |
             (
               1 - (
-                sum(rate(http_server_request_duration_seconds_bucket{service_name="app-a", namespace="team-a", le="0.5"}[1h]))
+                sum(rate(http_server_request_duration_seconds_bucket{service_name="app-a", namespace="tenant-a", le="0.5"}[1h]))
                 /
-                sum(rate(http_server_request_duration_seconds_count{service_name="app-a", namespace="team-a"}[1h]))
+                sum(rate(http_server_request_duration_seconds_count{service_name="app-a", namespace="tenant-a"}[1h]))
               ) > (14.4 * 0.01)
             )
             and
             (
               1 - (
-                sum(rate(http_server_request_duration_seconds_bucket{service_name="app-a", namespace="team-a", le="0.5"}[5m]))
+                sum(rate(http_server_request_duration_seconds_bucket{service_name="app-a", namespace="tenant-a", le="0.5"}[5m]))
                 /
-                sum(rate(http_server_request_duration_seconds_count{service_name="app-a", namespace="team-a"}[5m]))
+                sum(rate(http_server_request_duration_seconds_count{service_name="app-a", namespace="tenant-a"}[5m]))
               ) > (14.4 * 0.01)
             )
           for: 2m
@@ -165,17 +165,17 @@ spec:
           expr: |
             (
               1 - (
-                sum(rate(http_server_request_duration_seconds_bucket{service_name="app-a", namespace="team-a", le="0.5"}[6h]))
+                sum(rate(http_server_request_duration_seconds_bucket{service_name="app-a", namespace="tenant-a", le="0.5"}[6h]))
                 /
-                sum(rate(http_server_request_duration_seconds_count{service_name="app-a", namespace="team-a"}[6h]))
+                sum(rate(http_server_request_duration_seconds_count{service_name="app-a", namespace="tenant-a"}[6h]))
               ) > (6 * 0.01)
             )
             and
             (
               1 - (
-                sum(rate(http_server_request_duration_seconds_bucket{service_name="app-a", namespace="team-a", le="0.5"}[30m]))
+                sum(rate(http_server_request_duration_seconds_bucket{service_name="app-a", namespace="tenant-a", le="0.5"}[30m]))
                 /
-                sum(rate(http_server_request_duration_seconds_count{service_name="app-a", namespace="team-a"}[30m]))
+                sum(rate(http_server_request_duration_seconds_count{service_name="app-a", namespace="tenant-a"}[30m]))
               ) > (6 * 0.01)
             )
           for: 15m
@@ -191,17 +191,17 @@ spec:
           expr: |
             (
               1 - (
-                sum(rate(http_server_request_duration_seconds_bucket{service_name="app-a", namespace="team-a", le="0.5"}[1d]))
+                sum(rate(http_server_request_duration_seconds_bucket{service_name="app-a", namespace="tenant-a", le="0.5"}[1d]))
                 /
-                sum(rate(http_server_request_duration_seconds_count{service_name="app-a", namespace="team-a"}[1d]))
+                sum(rate(http_server_request_duration_seconds_count{service_name="app-a", namespace="tenant-a"}[1d]))
               ) > (3 * 0.01)
             )
             and
             (
               1 - (
-                sum(rate(http_server_request_duration_seconds_bucket{service_name="app-a", namespace="team-a", le="0.5"}[2h]))
+                sum(rate(http_server_request_duration_seconds_bucket{service_name="app-a", namespace="tenant-a", le="0.5"}[2h]))
                 /
-                sum(rate(http_server_request_duration_seconds_count{service_name="app-a", namespace="team-a"}[2h]))
+                sum(rate(http_server_request_duration_seconds_count{service_name="app-a", namespace="tenant-a"}[2h]))
               ) > (3 * 0.01)
             )
           for: 1h
@@ -217,17 +217,17 @@ spec:
           expr: |
             (
               1 - (
-                sum(rate(http_server_request_duration_seconds_bucket{service_name="app-a", namespace="team-a", le="0.5"}[3d]))
+                sum(rate(http_server_request_duration_seconds_bucket{service_name="app-a", namespace="tenant-a", le="0.5"}[3d]))
                 /
-                sum(rate(http_server_request_duration_seconds_count{service_name="app-a", namespace="team-a"}[3d]))
+                sum(rate(http_server_request_duration_seconds_count{service_name="app-a", namespace="tenant-a"}[3d]))
               ) > (1 * 0.01)
             )
             and
             (
               1 - (
-                sum(rate(http_server_request_duration_seconds_bucket{service_name="app-a", namespace="team-a", le="0.5"}[6h]))
+                sum(rate(http_server_request_duration_seconds_bucket{service_name="app-a", namespace="tenant-a", le="0.5"}[6h]))
                 /
-                sum(rate(http_server_request_duration_seconds_count{service_name="app-a", namespace="team-a"}[6h]))
+                sum(rate(http_server_request_duration_seconds_count{service_name="app-a", namespace="tenant-a"}[6h]))
               ) > (1 * 0.01)
             )
           for: 3h

@@ -1,4 +1,4 @@
-# SLO declaration for app-a (team-a). A plain ConfigMap, not a CRD: no SLO
+# SLO declaration for app-a (tenant-a). A plain ConfigMap, not a CRD: no SLO
 # operator (Sloth, Keptn, etc.) is installed in this cluster, and inventing a
 # CRD with no controller behind it would be a claim with no implementation —
 # exactly the anti-pattern PLAN.md Phase 2.2 calls out for Argo Rollouts. The
@@ -29,7 +29,7 @@ metadata:
 data:
   slo.yaml: |
     service: app-a
-    namespace: team-a
+    namespace: tenant-a
     slis:
       # Availability — proportion of non-5xx responses.
       - name: availability
@@ -42,12 +42,12 @@ data:
         error_budget: "43m12s per 30d"
         good_query: |
           sum(rate(http_server_request_duration_seconds_count{
-            service_name="app-a", namespace="team-a",
+            service_name="app-a", namespace="tenant-a",
             http_response_status_code!~"5.."
           }[{{window}}]))
         total_query: |
           sum(rate(http_server_request_duration_seconds_count{
-            service_name="app-a", namespace="team-a"
+            service_name="app-a", namespace="tenant-a"
           }[{{window}}]))
 
       # Latency — proportion of requests served under 500ms.
@@ -60,9 +60,9 @@ data:
         error_budget: "1% of requests per 30d"
         good_query: |
           sum(rate(http_server_request_duration_seconds_bucket{
-            service_name="app-a", namespace="team-a", le="0.5"
+            service_name="app-a", namespace="tenant-a", le="0.5"
           }[{{window}}]))
         total_query: |
           sum(rate(http_server_request_duration_seconds_count{
-            service_name="app-a", namespace="team-a"
+            service_name="app-a", namespace="tenant-a"
           }[{{window}}]))

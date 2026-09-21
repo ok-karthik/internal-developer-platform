@@ -15,10 +15,27 @@ spec:
             kinds:
               - ApplicationSet
       validate:
-        message: "ApplicationSet git generator directories must stay under the team's own path."
+        message: "ApplicationSet git generator directories must stay under the tenant's own gitops-repo."
         pattern:
           spec:
             generators:
               - git:
                   directories:
-                    - path: "3-tenant-workloads/{{request.object.metadata.name}}/*"
+                    - path: "3-tenant-repos/{{request.object.metadata.name}}/gitops-repo/*"
+    # Kyverno's `*` matches across `/`, so the pattern above alone would accept
+    # "3-tenant-repos/<tenant>/gitops-repo/../../<other-tenant>/gitops-repo/*".
+    # Reject any path segment that climbs out of the tenant's own repo.
+    - name: deny-path-traversal
+      match:
+        any:
+        - resources:
+            kinds:
+              - ApplicationSet
+      validate:
+        message: "ApplicationSet git generator directories must not contain '..'."
+        pattern:
+          spec:
+            generators:
+              - git:
+                  directories:
+                    - path: "!*..*"

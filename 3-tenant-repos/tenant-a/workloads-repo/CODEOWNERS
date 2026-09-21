@@ -1,0 +1,21 @@
+# CODEOWNERS for <org>/tenant-a-workloads
+#
+# Root of the workloads repository (humans write it). In this monorepo that root is
+# 3-tenant-repos/tenant-a/workloads-repo/; it becomes the real repository root
+# when the tree is extracted (docs/adr/0010-tenant-repository-topology.md):
+#
+#   git filter-repo \
+#     --path 3-tenant-repos/tenant-a/workloads-repo \
+#     --path-rename 3-tenant-repos/tenant-a/workloads-repo/:
+#
+# services/ and infra/ live together because a service and the infrastructure it claims
+# are one unit of change: "this service now needs a bucket" is one PR, one review,
+# one revert. Ownership is separated by path, not by repository.
+*                  @acme-corp/team-a
+
+# Provider config, backend state wiring and the team IAM role decide what the team's
+# Terraform is *able* to do, so they stay platform-owned.
+/infra/platform/   @acme-corp/platform-engineering
+
+# Workflow definitions can request the cloud apply role, so they are platform-owned too.
+/.github/workflows/   @acme-corp/platform-engineering

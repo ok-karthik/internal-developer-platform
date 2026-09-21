@@ -90,7 +90,7 @@ spec:
       name: aws-creds
       key: creds
 ---
-# The XRD and Composition live in 4-platform-apis/ (per PLAN.md Phase 3.8's
+# The XRD and Composition live in 3-platform-apis/ (per PLAN.md Phase 3.8's
 # tree — "the custom APIs tenants call"), NOT under 2-cluster-services/
 # itself, so this Application's source.path points there instead of using
 # bootstrap.yaml's recurse. Wave 2: needs the Crossplane core CRDs (wave 0)
@@ -108,7 +108,7 @@ spec:
   source:
     repoURL: 'https://github.com/ok-karthik/internal-developer-platform.git'
     targetRevision: HEAD
-    path: 4-platform-engineering/4-platform-apis
+    path: 4-platform-engineering/3-platform-apis
     directory:
       include: "*.yaml"
   destination:

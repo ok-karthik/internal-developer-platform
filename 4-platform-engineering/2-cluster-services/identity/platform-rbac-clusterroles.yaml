@@ -1,5 +1,5 @@
 # Phase 7.4/7.5: the two ClusterRoles every team's RoleBinding (rendered by
-# onboard-team into gitops/platform/team/rbac.yaml) references by name.
+# onboard-team into gitops-repo/platform/tenancy/rbac.yaml) references by name.
 #
 # WHY THESE LIVE HERE, PLATFORM-OWNED, RATHER THAN INSIDE THE BLUEPRINT:
 # PLAN.md's Phase 7.4 preferred option is "one ClusterRole, defined once,

@@ -27,11 +27,11 @@ configs:
     policy.csv: |
       # Regenerated per team by onboard-team once the scaffolder consumes
       # this (documented follow-up, Phase 7.3 -- 2-idp-scaffolder is out of
-      # scope on this branch). team-a rows below are the seed pattern: copy-
+      # scope on this branch). tenant-a rows below are the seed pattern: copy-
       # paste per team until that automation exists.
-      p, role:team-a-developer, applications, get,      team-a/*, allow
-      p, role:team-a-developer, applications, sync,     team-a/*, allow
-      p, role:team-a-developer, logs,         get,      team-a/*, allow
-      p, role:team-a-developer, applications, delete,   team-a/*, deny
-      p, role:team-a-developer, applications, override, team-a/*, deny
-      g, platform:team-a:developer, role:team-a-developer
+      p, role:tenant-a-developer, applications, get,      tenant-a/*, allow
+      p, role:tenant-a-developer, applications, sync,     tenant-a/*, allow
+      p, role:tenant-a-developer, logs,         get,      tenant-a/*, allow
+      p, role:tenant-a-developer, applications, delete,   tenant-a/*, deny
+      p, role:tenant-a-developer, applications, override, tenant-a/*, deny
+      g, platform:team-a:developer, role:tenant-a-developer
