@@ -8,6 +8,14 @@ spec:
   validationFailureAction: Enforce
   background: true
   rules:
+    # A tenant's git generator may be top-level or inside a matrix (the scaffolded
+    # ApplicationSet pairs it with a cluster generator, PLAN.md Phase 18.2). Both shapes
+    # are checked, path by path. The `foreach` lists are empty when a shape is absent,
+    # so a tenant cannot dodge the rule by picking the other one.
+    #
+    # Kyverno's `*` matches across `/`, so the prefix below alone would accept
+    # "3-tenant-repos/<tenant>/gitops-repo/../../<other-tenant>/gitops-repo/*" — hence the
+    # separate deny-path-traversal rule.
     - name: restrict-applicationset
       match:
         any:
@@ -16,15 +24,21 @@ spec:
               - ApplicationSet
       validate:
         message: "ApplicationSet git generator directories must stay under the tenant's own gitops-repo."
-        pattern:
-          spec:
-            generators:
-              - git:
-                  directories:
-                    - path: "3-tenant-repos/{{request.object.metadata.name}}/gitops-repo/*"
-    # Kyverno's `*` matches across `/`, so the pattern above alone would accept
-    # "3-tenant-repos/<tenant>/gitops-repo/../../<other-tenant>/gitops-repo/*".
-    # Reject any path segment that climbs out of the tenant's own repo.
+        foreach:
+          - list: "request.object.spec.generators[].git.directories[]"
+            deny:
+              conditions:
+                all:
+                  - key: "{{ element.path }}"
+                    operator: NotEquals
+                    value: "3-tenant-repos/{{ request.object.metadata.name }}/gitops-repo/*"
+          - list: "request.object.spec.generators[].matrix.generators[].git.directories[]"
+            deny:
+              conditions:
+                all:
+                  - key: "{{ element.path }}"
+                    operator: NotEquals
+                    value: "3-tenant-repos/{{ request.object.metadata.name }}/gitops-repo/*"
     - name: deny-path-traversal
       match:
         any:
@@ -33,9 +47,18 @@ spec:
               - ApplicationSet
       validate:
         message: "ApplicationSet git generator directories must not contain '..'."
-        pattern:
-          spec:
-            generators:
-              - git:
-                  directories:
-                    - path: "!*..*"
+        foreach:
+          - list: "request.object.spec.generators[].git.directories[]"
+            deny:
+              conditions:
+                all:
+                  - key: "{{ element.path }}"
+                    operator: Equals
+                    value: "*..*"
+          - list: "request.object.spec.generators[].matrix.generators[].git.directories[]"
+            deny:
+              conditions:
+                all:
+                  - key: "{{ element.path }}"
+                    operator: Equals
+                    value: "*..*"

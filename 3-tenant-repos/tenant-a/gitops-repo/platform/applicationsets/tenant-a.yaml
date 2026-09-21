@@ -7,18 +7,31 @@ spec:
   # https://argo-cd.readthedocs.io/en/stable/operator-manual/applicationset/Template/#go-templating
   goTemplate: true
   generators:
-    - git:
-        repoURL: 'https://github.com/ok-karthik/internal-developer-platform.git'
-        revision: HEAD
-        directories:
-          # app x env — one Application per environment of every service this tenant owns.
-          - path: 3-tenant-repos/tenant-a/gitops-repo/services/*/*
+    # Fleet routing (PLAN.md Phase 18.2). The scaffolder holds no cluster endpoints: the
+    # git generator finds every app x env directory, and the cluster generator binds each
+    # one to every registered cluster whose `environment` label equals that directory's
+    # env. Register a cluster (a Secret labelled argocd.argoproj.io/secret-type: cluster)
+    # and matching apps land on it; this file does not change.
+    - matrix:
+        generators:
+          - git:
+              repoURL: 'https://github.com/ok-karthik/internal-developer-platform.git'
+              revision: HEAD
+              directories:
+                # app x env — one entry per environment of every service this tenant owns.
+                - path: 3-tenant-repos/tenant-a/gitops-repo/services/*/*
+          - clusters:
+              selector:
+                matchLabels:
+                  environment: '{{ .path.basename }}'
   template:
     metadata:
       # For path 3-tenant-repos/tenant-a/gitops-repo/services/app-a/dev the segments are
       # 0=3-tenant-repos 1=tenant-a 2=gitops-repo 3=services 4=app-a 5=dev — so segment 4
-      # is the app and basename is the env.
-      name: 'tenant-a-{{ index .path.segments 4 }}-{{ .path.basename }}'
+      # is the app and basename is the env. The cluster name is last because two clusters
+      # can share an env (eu-central-1 and us-east-1 prod), and Application names are
+      # unique per ArgoCD.
+      name: 'tenant-a-{{ index .path.segments 4 }}-{{ .path.basename }}-{{ .name }}'
     spec:
       project: tenant-a
       source:
@@ -26,7 +39,7 @@ spec:
         targetRevision: HEAD
         path: '{{ .path.path }}/manifests'
       destination:
-        server: 'https://kubernetes.default.svc'
+        server: '{{ .server }}'
         namespace: 'tenant-a'
       syncPolicy:
         automated:

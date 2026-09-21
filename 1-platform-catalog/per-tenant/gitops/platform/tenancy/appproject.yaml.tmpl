@@ -8,7 +8,11 @@ spec:
   sourceRepos:
     - "https://github.com/ok-karthik/internal-developer-platform.git"
   destinations:
-    - server: "https://kubernetes.default.svc"
+    # Any registered cluster, this tenant's namespace only. The tenant's ApplicationSet
+    # picks clusters by label (PLAN.md Phase 18.2); which clusters exist is a platform
+    # decision made by registering a cluster Secret, so the boundary that matters here
+    # is the namespace, not the server.
+    - server: "*"
       namespace: "[[ .TenantName ]]"
   clusterResourceWhitelist: []
   # namespaceResourceWhitelist is the tenant-facing API surface: every kind the
