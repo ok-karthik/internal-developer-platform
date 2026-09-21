@@ -1,16 +1,16 @@
-name: Tenant Workloads - CI/CD Pipeline
+name: Tenant Repos - CI/CD Pipeline
 
 # Closes the GitOps loop. The scaffolder writes source + values; ArgoCD syncs only
 # rendered manifests; this workflow is the bridge between them.
 #
-#   <team>/apps/<app>/                       source        -> container image
-#   <team>/gitops/apps/<app>/<env>/values.yaml  team's API -> input to the chart
-#   1-platform-catalog/charts/service/       platform-owned, ONE chart for everyone
-#   <team>/gitops/apps/<app>/<env>/manifests/   output     -> what ArgoCD syncs
+#   <tenant>/workloads-repo/services/<app>/            source        -> container image
+#   <tenant>/gitops-repo/services/<app>/<env>/values.yaml  tenant's API -> input to the chart
+#   1-platform-catalog/charts/service/                 platform-owned, ONE chart for everyone
+#   <tenant>/gitops-repo/services/<app>/<env>/manifests/   output   -> what ArgoCD syncs
 #
 # The chart lives in charts/, not per-service/, because it is never scaffolded
 # into a tenant repo — it has no destinations key, and only its rendered OUTPUT
-# reaches 3-tenant-workloads/. Everything under per-tenant/ and per-service/ gets copied; this
+# reaches 3-tenant-repos/. Everything under per-tenant/ and per-service/ gets copied; this
 # gets rendered. Different verbs, different directories.
 #
 # The discovery unit is a values.yaml, not a directory of charts: a file existing
@@ -22,10 +22,10 @@ on:
     branches:
       - main
     paths:
-      - '3-tenant-workloads/*/apps/**'
-      - '3-tenant-workloads/*/gitops/apps/**/values.yaml'
+      - '3-tenant-repos/*/workloads-repo/services/**'
+      - '3-tenant-repos/*/gitops-repo/services/**/values.yaml'
       - '1-platform-catalog/charts/service/**'
-      - '.github/workflows/tenant-workloads-ci-cd.yaml'
+      - '.github/workflows/tenant-repos-ci-cd.yaml'
 
 # contents: write pushes the rendered manifests back; packages: write publishes to GHCR.
 permissions:
@@ -89,7 +89,7 @@ jobs:
 
           # Deduplicate: an app with dev/ and prod/ yields two values.yaml files but
           # must produce exactly one image build.
-          find 3-tenant-workloads/*/gitops/apps/*/*/values.yaml -type f 2>/dev/null \
+          find 3-tenant-repos/*/gitops-repo/services/*/*/values.yaml -type f 2>/dev/null \
             | awk -F'/' '{print $2"/"$5}' | sort -u > /tmp/apps.txt || true
 
           if [ ! -s /tmp/apps.txt ]; then
@@ -98,7 +98,7 @@ jobs:
           fi
 
           while IFS='/' read -r TEAM APP; do
-            SRC_DIR="3-tenant-workloads/$TEAM/apps/$APP"
+            SRC_DIR="3-tenant-repos/$TEAM/workloads-repo/services/$APP"
 
             if [ ! -d "$SRC_DIR" ]; then
               echo "::warning::$TEAM/$APP has values.yaml but no source at $SRC_DIR — skipping build."
@@ -140,7 +140,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          find 3-tenant-workloads/*/gitops/apps/*/*/values.yaml -type f 2>/dev/null \
+          find 3-tenant-repos/*/gitops-repo/services/*/*/values.yaml -type f 2>/dev/null \
             | sort > /tmp/values.txt || true
 
           if [ ! -s /tmp/values.txt ]; then
@@ -149,8 +149,8 @@ jobs:
           fi
 
           while read -r VALUES; do
-            # 3-tenant-workloads/<team>/gitops/apps/<app>/<env>/values.yaml
-            #        $1          $2      $3     $4    $5     $6      $7
+            # 3-tenant-repos/<tenant>/gitops-repo/services/<app>/<env>/values.yaml
+            #       $1          $2         $3         $4       $5     $6      $7
             TEAM=$(echo "$VALUES" | awk -F'/' '{print $2}')
             APP=$(echo  "$VALUES" | awk -F'/' '{print $5}')
             ENV=$(echo  "$VALUES" | awk -F'/' '{print $6}')
@@ -173,6 +173,14 @@ jobs:
               > "$OUT_DIR/rendered.yaml"
 
             echo "Wrote $OUT_DIR/rendered.yaml ($(wc -l < "$OUT_DIR/rendered.yaml") lines)"
+
+            # ACK capability claims (s3.yaml, iam.yaml, ...) are desired state authored by
+            # the scaffolder next to values.yaml. manifests/ is the ONLY directory ArgoCD
+            # syncs, so without this copy they are scaffolded, validated by Kyverno, and
+            # never applied. Do not point the ApplicationSet at the env directory instead:
+            # ArgoCD would try to apply values.yaml as a manifest.
+            find "$(dirname "$VALUES")" -maxdepth 1 -name '*.yaml' ! -name 'values.yaml' \
+              -exec cp {} "$OUT_DIR/" \;
             echo "::endgroup::"
           done < /tmp/values.txt
 
@@ -181,7 +189,7 @@ jobs:
           set -euo pipefail
           git config --global user.name  "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add 3-tenant-workloads/
+          git add 3-tenant-repos/
 
           if git diff --staged --quiet; then
             echo "No manifest changes detected. Skipping commit."

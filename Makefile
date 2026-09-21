@@ -3,7 +3,7 @@ CLUSTER_PROVIDER ?= k3d
 CLUSTER_NAME ?= nexus-platform
 AWS_CREDS ?= ./aws-creds.ini
 
-.PHONY: help check-deps create-cluster delete-cluster install-argocd bootstrap configure-aws up setup clean destroy get-argocd-creds wait-for-apps install-scaffolder run-api demo-onboard-team demo-add-service fire-synthetic-alert print-kubeconfig-stanza
+.PHONY: help check-deps create-cluster delete-cluster install-argocd bootstrap configure-aws up setup clean destroy get-argocd-creds wait-for-apps install-scaffolder run-api demo-onboard-tenant demo-add-service fire-synthetic-alert print-kubeconfig-stanza
 
 # Default target: show help
 help:
@@ -228,7 +228,7 @@ fire-synthetic-alert:
 	sleep 3; \
 	echo "Firing a synthetic 'page' alert for app-a..."; \
 	curl -s -XPOST http://localhost:9093/api/v2/alerts -H 'Content-Type: application/json' -d '[{ \
-	  "labels": {"alertname":"SyntheticTestAlert","severity":"page","namespace":"team-a","sloi":"app-a-availability"}, \
+	  "labels": {"alertname":"SyntheticTestAlert","severity":"page","namespace":"tenant-a","sloi":"app-a-availability"}, \
 	  "annotations": {"summary":"Synthetic alert fired by make fire-synthetic-alert"}, \
 	  "startsAt": "'$$(date -u +%Y-%m-%dT%H:%M:%S.000Z)'" \
 	}]'; \
@@ -272,29 +272,32 @@ run-api:
 #
 # The CLI defaults --output-root to the current directory and appends nothing to
 # it — correct for a client standing in their own repo. This repo's demo flow
-# wants the output under 3-tenant-workloads/, so that path is named HERE rather
+# wants the output under 3-tenant-repos/, so that path is named HERE rather
 # than compiled into the binary. `git rev-parse --show-toplevel` is git's own
 # root-finder and works from any subdirectory.
 #
 # --catalog-root is passed too, so local edits to 1-platform-catalog/ take effect
 # without pushing; omit it and the CLI fetches the catalog from the main branch.
 REPO_ROOT = $$(git rev-parse --show-toplevel)
-DEMO_TEAM ?= payments
-DEMO_APP  ?= checkout-api
-DEMO_PATH ?= go-service-postgres
+DEMO_TENANT ?= tenant-a
+DEMO_OWNER  ?= team-a
+DEMO_APP    ?= app-a
+DEMO_PATH   ?= go-service-postgres
 
-demo-onboard-team:
-	cd 2-idp-scaffolder/golang && go run . onboard-team \
-	  --output-root  "$(REPO_ROOT)/3-tenant-workloads" \
+demo-onboard-tenant:
+	cd 2-idp-scaffolder/golang && go run . onboard-tenant \
+	  --output-root  "$(REPO_ROOT)/3-tenant-repos" \
 	  --catalog-root "$(REPO_ROOT)/1-platform-catalog" \
-	  --team-name    "$(DEMO_TEAM)"
+	  --tenant-name  "$(DEMO_TENANT)" \
+	  --owner        "$(DEMO_OWNER)"
 
 demo-add-service:
 	cd 2-idp-scaffolder/golang && go run . add-service \
-	  --output-root  "$(REPO_ROOT)/3-tenant-workloads" \
+	  --output-root  "$(REPO_ROOT)/3-tenant-repos" \
 	  --catalog-root "$(REPO_ROOT)/1-platform-catalog" \
-	  --team-name    "$(DEMO_TEAM)" \
+	  --tenant-name  "$(DEMO_TENANT)" \
 	  --app-name     "$(DEMO_APP)" \
-	  --golden-path  "$(DEMO_PATH)"
+	  --golden-path  "$(DEMO_PATH)" \
+	  --capabilities postgres,s3
 
 

@@ -7,7 +7,7 @@ on:
     paths:
       - '2-idp-scaffolder/**'
       - '1-platform-catalog/**'
-      - '3-tenant-workloads/**'
+      - '3-tenant-repos/**'
       - '4-platform-engineering/2-cluster-services/security-governance/**'
 
 env:
@@ -75,7 +75,7 @@ jobs:
           cd 2-idp-scaffolder/python
           uv run python main.py onboard-tenant --tenant-name test-tenant --owner test-owner
           uv run python main.py add-service --tenant-name test-tenant --app-name test-app --golden-path go-service-postgres
-          mv ../../3-tenant-workloads/test-tenant /tmp/python-output/test-tenant
+          mv ../../3-tenant-repos/test-tenant /tmp/python-output/test-tenant
 
       - name: Assert Byte-for-Byte Parity
         run: |
@@ -94,7 +94,7 @@ jobs:
 
       - name: Run Kyverno Policies
         run: |
-          RESOURCES=$(find 3-tenant-workloads/*/gitops -type f -name '*.yaml' ! -name 'values.yaml' | sed 's/^/--resource /')
+          RESOURCES=$(find 3-tenant-repos/*/gitops-repo -type f -name '*.yaml' ! -name 'values.yaml' | sed 's/^/--resource /')
           if [ -z "$RESOURCES" ]; then
             echo "No resources found to validate."
             exit 0
