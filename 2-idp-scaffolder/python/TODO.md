@@ -199,7 +199,7 @@ resolved once in the CLI and passed down; still outstanding.
 
 Add `--catalog-root` and `--output-root` to both verbs, same names as Go's. **The
 acceptance test in CI needs `--output-root`** — without it Python can only write into
-the real `3-tenant-workloads/`, which is why running the comparison above requires
+the real `3-tenant-repos/`, which is why running the comparison above requires
 removing the scratch team afterwards.
 
 **Delete while here** — all dead since the Copier removal:
@@ -235,7 +235,7 @@ was also already dead in practice before removal: the CIDR it computed was never
 substituted into `team-iam.tf.tmpl` (hardcoded to `10.0.0.0/16` regardless of team), so it
 was computing and persisting a value nothing downstream read. If a per-tenant or per-spoke
 VPC is ever genuinely needed again, design it against the account model in
-`4-platform-engineering/1-cloud-foundation/aws/organization/`, not as a resurrection of
+`iac-modules-repo/governance/organization` in `enterprise-aws-infrastructure`, not as a resurrection of
 this file.
 
 ---
@@ -285,7 +285,7 @@ for i in 1 2 3; do uv run python main.py add-service -t acc -a x \
 
 # Phase 2 — dry run writes nothing
 uv run python main.py add-service -t acc -a x --golden-path go-service-postgres --dry-run
-git status --short ../../3-tenant-workloads/    # must be empty
+git status --short ../../3-tenant-repos/    # must be empty
 ```
 
 ---

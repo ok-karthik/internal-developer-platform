@@ -28,11 +28,11 @@ destinations:
   per-tenant/root: "{tenant}/"
   per-tenant/infra: "{tenant}/infra/"
   per-tenant/gitops: "{tenant}/gitops/"
-  per-service/apps/runtimes: "{tenant}/apps/{app}/"
-  per-service/apps/service-meta: "{tenant}/apps/{app}/"
-  per-service/infra/capabilities: "{tenant}/infra/apps/{app}/{env}/"
-  per-service/gitops/capabilities: "{tenant}/gitops/apps/{app}/{env}/"
-  per-service/gitops/release: "{tenant}/gitops/apps/{app}/{env}/"
+  per-service/apps/runtimes: "{tenant}/workloads-repo/services/{app}/"
+  per-service/apps/service-meta: "{tenant}/workloads-repo/services/{app}/"
+  per-service/infra/capabilities: "{tenant}/workloads-repo/infra/services/{app}/{env}/"
+  per-service/gitops/capabilities: "{tenant}/gitops-repo/services/{app}/{env}/"
+  per-service/gitops/release: "{tenant}/gitops-repo/services/{app}/{env}/"
 `, goldenPathRuntime, runtimes.String())
 
 }

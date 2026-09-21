@@ -21,43 +21,49 @@ runtimes:
   java-springboot: { description: Java Spring Boot service }
 
 # Capabilities are claims resolved to pinned modules (bumped via Renovate).
-capabilities_source_base: "git::https://github.com/ok-karthik/internal-developer-platform.git//4-platform-engineering/3-capability-modules"
+# The modules live in their own repository (ADR 0011). The provider is the repository:
+# a second cloud means a second infra repo and a second capabilities_source_base.
+capabilities_source_base: "git::https://github.com/ok-karthik/enterprise-aws-infrastructure.git//iac-modules-repo"
 
 # The `provisioner` field dictates the dispatch path and lifecycle:
 # - ack: Continuous reconciliation (no plan step). For cheap, recreatable resources.
 # - terraform: Requires a plan/review gate. For stateful, expensive resources.
+# `version` is passed straight through to `?ref=`; tags are module-scoped (<module>-vX.Y.Z).
 capabilities:
-  # The module path acts as the cloud portability seam (e.g. aws/postgres vs azure/postgres).
   postgres:
     provisioner: terraform   # stateful, expensive, wants a plan step
-    module: aws/postgres     # provider is a path segment, not a name prefix
-    version: v2.2.0
+    module: data/postgres
+    version: postgres-v2.0.0
   s3:
     provisioner: ack         # cheap, recreatable, per-app
-    module: aws/s3
-    version: v2.2.0
+    module: storage/s3
+    version: s3-v2.0.0
     kind: Bucket
     group: s3.services.k8s.aws
   iam:
     provisioner: ack
-    module: aws/iam
-    version: v2.2.0
+    module: identity/workload-iam
+    version: workload-iam-v2.0.0
     kind: Role
     group: iam.services.k8s.aws
 
 # The output contract: literal catalog source directory -> relative output path.
 # charts/service/ is deliberately absent (it is rendered by CI, not scaffolded).
+# Each tenant is two directories, one per real repository (ADR 0010):
+#   workloads-repo/ - humans write it   -> <org>/<tenant>-workloads
+#   gitops-repo/    - CI writes it, ArgoCD reads it -> <org>/<tenant>-gitops
+# Keys are literal SOURCE paths inside this catalog, so they keep saying `apps`.
 destinations:
-  # Rendered once per tenant by onboard-tenant. Mirrors output tree structure.
-  per-tenant/root:   "{tenant}/"
-  per-tenant/infra:  "{tenant}/infra/"
-  per-tenant/gitops: "{tenant}/gitops/"
+  # Rendered once per tenant by onboard-tenant.
+  per-tenant/root:   "{tenant}/workloads-repo/"
+  per-tenant/infra:  "{tenant}/workloads-repo/infra/"
+  per-tenant/gitops: "{tenant}/gitops-repo/"
 
   # Composed per service by add-service. Output path contains {app}/{env}.
-  per-service/apps/runtimes:      "{tenant}/apps/{app}/"
-  per-service/apps/service-meta:  "{tenant}/apps/{app}/"
-  per-service/gitops/release:     "{tenant}/gitops/apps/{app}/{env}/"
+  per-service/apps/runtimes:      "{tenant}/workloads-repo/services/{app}/"
+  per-service/apps/service-meta:  "{tenant}/workloads-repo/services/{app}/"
+  per-service/gitops/release:     "{tenant}/gitops-repo/services/{app}/{env}/"
 
   # Provisioner-specific capability destinations.
-  per-service/infra/capabilities:  "{tenant}/infra/apps/{app}/{env}/"   # provisioner: terraform (*.tf.tmpl)
-  per-service/gitops/capabilities: "{tenant}/gitops/apps/{app}/{env}/"  # provisioner: ack (*.yaml.tmpl)
+  per-service/infra/capabilities:  "{tenant}/workloads-repo/infra/services/{app}/{env}/"   # provisioner: terraform (*.tf.tmpl)
+  per-service/gitops/capabilities: "{tenant}/gitops-repo/services/{app}/{env}/"            # provisioner: ack (*.yaml.tmpl)

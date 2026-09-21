@@ -30,7 +30,7 @@ func init() {
 
 	// Define the flags (Long flag, short flag, default value, description)
 	onboardTenantCmd.Flags().StringVarP(&cfg.TenantName, "tenant-name", "t", "", "Name of the tenant (Required)")
-	
+
 	// Deprecated team-name alias
 	onboardTenantCmd.Flags().StringVar(&cfg.TenantName, "team-name", "", "Name of the tenant")
 	onboardTenantCmd.Flags().MarkDeprecated("team-name", "use --tenant-name instead")
@@ -43,7 +43,7 @@ func init() {
 	// Note: since both flags map to cfg.TenantName, we just require the new one.
 	// We handle if someone only provided team-name in a pre-run hook or we just require tenant-name for now.
 	// Cobra requires the actual flag name passed to MarkFlagRequired.
-	// Actually, requiring tenant-name makes team-name fail if tenant-name isn't also passed. 
-	// A better way is to check manually in PreRunE, but for simplicity we will just remove MarkFlagRequired 
+	// Actually, requiring tenant-name makes team-name fail if tenant-name isn't also passed.
+	// A better way is to check manually in PreRunE, but for simplicity we will just remove MarkFlagRequired
 	// and check inside RunE.
 }

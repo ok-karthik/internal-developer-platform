@@ -2,7 +2,7 @@
 #
 # Anything app-specific (image.repository, nameOverride, hosts) is deliberately
 # left empty here and supplied by the per-env values.yaml that `add-service`
-# scaffolds into <team>/gitops/apps/<app>/<env>/. Keep this file to values that
+# scaffolds into <tenant>/gitops-repo/services/<app>/<env>/. Keep this file to values that
 # are genuinely the same for every service on the platform.
 
 replicaCount: 1

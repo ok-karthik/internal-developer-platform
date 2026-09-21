@@ -38,8 +38,8 @@ func TestRenderServiceGolden(t *testing.T) {
 	// C. Resolve config for a test service (e.g. go-service-postgres)
 	cfg, err := Resolve(spec, "go-service-postgres", Config{
 		TenantName: "payments",
-		AppName:  "checkout",
-		Env:      "dev",
+		AppName:    "checkout",
+		Env:        "dev",
 	})
 	if err != nil {
 		t.Fatalf("Resolve failed: %v", err)
@@ -188,8 +188,8 @@ func TestRenderService_BadRuntimeErrorPath(t *testing.T) {
 	// Pass a runtime that does not exist in the catalog
 	cfg := Config{
 		TenantName: "payments",
-		AppName:  "checkout",
-		Runtime:  "doesnotexist",
+		AppName:    "checkout",
+		Runtime:    "doesnotexist",
 	}
 
 	// 1. Assert non-nil error
@@ -235,8 +235,8 @@ func TestRenderService_DryRun(t *testing.T) {
 
 	cfg, err := Resolve(spec, "go-service-postgres", Config{
 		TenantName: "payments",
-		AppName:  "checkout",
-		Env:      "dev",
+		AppName:    "checkout",
+		Env:        "dev",
 	})
 	if err != nil {
 		t.Fatalf("Resolve failed: %v", err)
@@ -283,8 +283,8 @@ func TestRenderService_SkipIfExists(t *testing.T) {
 
 	cfg, err := Resolve(spec, "go-service-postgres", Config{
 		TenantName: "payments",
-		AppName:  "checkout",
-		Env:      "dev",
+		AppName:    "checkout",
+		Env:        "dev",
 	})
 	if err != nil {
 		t.Fatalf("Resolve failed: %v", err)
@@ -296,7 +296,7 @@ func TestRenderService_SkipIfExists(t *testing.T) {
 	}
 
 	// Hand edit main.go
-	mainGoPath := filepath.Join(tmpOut, "payments", "apps", "checkout", "main.go")
+	mainGoPath := filepath.Join(tmpOut, "payments", "workloads-repo", "services", "checkout", "main.go")
 	handEdit := []byte("// hand edit\n")
 	if err := os.WriteFile(mainGoPath, handEdit, 0644); err != nil {
 		t.Fatalf("Failed writing hand edit: %v", err)
@@ -348,8 +348,8 @@ func TestRenderService_ContextCanceled(t *testing.T) {
 
 	cfg := Config{
 		TenantName: "payments",
-		AppName:  "checkout",
-		Runtime:  "go",
+		AppName:    "checkout",
+		Runtime:    "go",
 	}
 
 	// 3. Create a context and cancel it IMMEDIATELY

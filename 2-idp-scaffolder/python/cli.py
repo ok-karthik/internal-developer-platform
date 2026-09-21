@@ -4,6 +4,19 @@ import schemas, render, catalog
 
 from pydantic import ValidationError
 
+def resolve_destination(cat_data, key: str, tenant: str, app: str = "", env: str = "dev", system: str = ""):
+    """Mirror of Go's Renderer.resolveDestination: substitute {tenant}/{system}/{app}/{env}
+    into the catalog's destinations template and root it under the tenant repos dir.
+
+    Output paths live in catalog.yaml, not in code, so both engines land files in the
+    same place by construction rather than by two hardcoded copies staying in sync.
+    """
+    dest = cat_data.destinations[key]
+    dest = dest.replace("{tenant}", tenant).replace("{system}", system)
+    dest = dest.replace("{app}", app).replace("{env}", env or "dev")
+    return render.TENANT_REPOS_DIR / dest
+
+
 def add_service_workload(
     tenant_name: str,
     app_name: str,
@@ -30,8 +43,8 @@ def add_service_workload(
 
     env = render.create_jinja_env(render.CATALOG_DIR)
     
-    # 2. Render Runtime Source + Service Meta into apps/<app>
-    app_dst = render.TENANT_WORKLOADS_DIR / tenant_name / "apps" / app_name
+    # 2. Render Runtime Source + Service Meta into workloads-repo/services/<app>
+    app_dst = resolve_destination(cat_data, "per-service/apps/runtimes", tenant_name, app_name, env_name, system)
     svc_data = {"TenantName": tenant_name, "AppName": app_name, "SystemName": system}
 
     for block_dir in [render.CATALOG_DIR / "per-service" / "apps" / "runtimes" / runtime,
@@ -48,9 +61,9 @@ def add_service_workload(
                     out_path.write_text(content, encoding="utf-8")
                     typer.echo(f"  [WROTE] {out_path.relative_to(render.REPO_ROOT)}")
 
-    # 3. Render Delivery Release values into gitops/apps/<app>/<env>/
+    # 3. Render Delivery Release values into gitops-repo/services/<app>/<env>/
     gitops_src = render.CATALOG_DIR / "per-service" / "gitops" / "release"
-    gitops_dst = render.TENANT_WORKLOADS_DIR / tenant_name / "gitops" / "apps" / app_name / env_name
+    gitops_dst = resolve_destination(cat_data, "per-service/gitops/release", tenant_name, app_name, env_name, system)
     if gitops_src.exists():
         for path in gitops_src.rglob("*"):
             if path.is_file():
@@ -68,8 +81,8 @@ def add_service_workload(
     # which destination it lands in — mirrors Go's internal/templater
     # RenderService dispatch exactly, so the two engines cannot silently
     # diverge on which capabilities land where.
-    infra_dst = render.TENANT_WORKLOADS_DIR / tenant_name / "infra" / "apps" / app_name / env_name
-    gitops_caps_dst = render.TENANT_WORKLOADS_DIR / tenant_name / "gitops" / "apps" / app_name / env_name
+    infra_dst = resolve_destination(cat_data, "per-service/infra/capabilities", tenant_name, app_name, env_name, system)
+    gitops_caps_dst = resolve_destination(cat_data, "per-service/gitops/capabilities", tenant_name, app_name, env_name, system)
     for cap_name in capabilities:
         if cap_name not in cat_data.capabilities:
             continue
@@ -111,10 +124,10 @@ def onboard_tenant_workload(tenant_name: str, owner: list[str]) -> bool:
 
     cat_data = catalog.load_catalog(catalog_dir / "catalog.yaml")
 
-    # Render the per-tenant tree (apps, infra, gitops) — rendered ONCE per team
+    # Render the per-tenant tree (workloads-repo, gitops-repo) — rendered ONCE per tenant
     for dest_key in ["per-tenant/root", "per-tenant/infra", "per-tenant/gitops"]:
         src_dir = catalog_dir / dest_key
-        dst_dir = render.TENANT_WORKLOADS_DIR / cat_data.destinations[dest_key].format(tenant=tenant_name)
+        dst_dir = resolve_destination(cat_data, dest_key, tenant_name)
         
         if not src_dir.exists():
             continue

@@ -5,7 +5,7 @@ the version-pinned capability → module mapping, and a `destinations:` table th
 output contract. Three directories sit alongside it, and their names carry the fact that
 matters — *how often each one renders*:
 
-- **`per-tenant/`** — rendered **once per team**, by `onboard-team`.
+- **`per-tenant/`** — rendered **once per tenant**, by `onboard-tenant`.
 - **`per-service/`** — rendered **once per service** (or once per requested capability), by
   `add-service`.
 - **`charts/`** — never scaffolded at all. CI renders it and only the output reaches a
@@ -19,19 +19,19 @@ readable projection of it. If they disagree, `catalog.yaml` is right and this ta
 stale — fix the table.
 
 Every path on the left is relative to this directory; every path on the right is
-relative to `3-tenant-workloads/`.
+relative to `3-tenant-repos/`. Each tenant is two directories — `workloads-repo/` and `gitops-repo/` — one per real repository (ADR 0010).
 
 | You edit this | It renders to | Rendered by | How often |
 |---|---|---|---|
-| `per-tenant/apps/` | `{team}/apps/` | `onboard-team` | once per team |
-| `per-tenant/infra/` | `{team}/infra/` | `onboard-team` | once per team |
-| `per-tenant/gitops/` | `{team}/gitops/` | `onboard-team` | once per team |
-| `per-service/apps/runtimes/<lang>/` | `{team}/apps/{app}/` | `add-service` | once per service — **one** `<lang>` picked by `--runtime` / golden path |
-| `per-service/apps/service-meta/` | `{team}/apps/{app}/` | `add-service` | once per service, always |
-| `per-service/infra/capabilities/<cap>.tf.tmpl` | `{team}/infra/apps/{app}/{env}/` | `add-service` | one file per requested capability with `provisioner: terraform` |
-| `per-service/gitops/capabilities/<cap>.yaml.tmpl` | `{team}/gitops/apps/{app}/{env}/` | `add-service` | one file per requested capability with `provisioner: ack` |
-| `per-service/gitops/release/` | `{team}/gitops/apps/{app}/{env}/` | `add-service` | once per service per env |
-| `charts/service/` | **nothing** — never scaffolded | CI, via `helm template` | output only, into `{team}/gitops/apps/{app}/{env}/manifests/` |
+| `per-tenant/root/` | `{tenant}/workloads-repo/` | `onboard-tenant` | once per tenant |
+| `per-tenant/infra/` | `{tenant}/workloads-repo/infra/` | `onboard-tenant` | once per tenant |
+| `per-tenant/gitops/` | `{tenant}/gitops-repo/` | `onboard-tenant` | once per tenant |
+| `per-service/apps/runtimes/<lang>/` | `{tenant}/workloads-repo/services/{app}/` | `add-service` | once per service — **one** `<lang>` picked by `--runtime` / golden path |
+| `per-service/apps/service-meta/` | `{tenant}/workloads-repo/services/{app}/` | `add-service` | once per service, always |
+| `per-service/infra/capabilities/<cap>.tf.tmpl` | `{tenant}/workloads-repo/infra/services/{app}/{env}/` | `add-service` | one file per requested capability with `provisioner: terraform` |
+| `per-service/gitops/capabilities/<cap>.yaml.tmpl` | `{tenant}/gitops-repo/services/{app}/{env}/` | `add-service` | one file per requested capability with `provisioner: ack` |
+| `per-service/gitops/release/` | `{tenant}/gitops-repo/services/{app}/{env}/` | `add-service` | once per service per env |
+| `charts/service/` | **nothing** — never scaffolded | CI, via `helm template` | output only, into `{tenant}/gitops-repo/services/{app}/{env}/manifests/` |
 
 **Why the directory names carry cardinality.** The prefix (`per-tenant` / `per-service`)
 tells you *how often* something renders; the path underneath tells you *where it lands*.

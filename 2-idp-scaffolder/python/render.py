@@ -14,8 +14,8 @@ REPO_ROOT: Path = Path(__file__).resolve().parents[2]
 # Platform catalog containing golden paths and capabilities
 CATALOG_DIR: Path = REPO_ROOT / "1-platform-catalog"
 
-# Target output directory for tenant workloads
-TENANT_WORKLOADS_DIR: Path = REPO_ROOT / "3-tenant-workloads"
+# Target output directory for tenant repositories
+TENANT_REPOS_DIR: Path = REPO_ROOT / "3-tenant-repos"
 
 env = Environment(
     loader=FileSystemLoader(CATALOG_DIR),
@@ -148,14 +148,14 @@ def list_available_cloud_services() -> list[str]:
 
 def list_tenant_repositories(tenant_name: str) -> list[str]:
     """List all repos under a tenant"""
-    tenant_dir = Path(TENANT_WORKLOADS_DIR / tenant_name)
+    tenant_dir = Path(TENANT_REPOS_DIR / tenant_name)
     if not tenant_dir.exists():
         return []
     return [template.name for template in tenant_dir.iterdir() if template.is_dir()]
 
 def list_onboarded_tenants() -> list[str]:
     """List all onboarded tenants"""
-    if not Path(TENANT_WORKLOADS_DIR).exists():
+    if not Path(TENANT_REPOS_DIR).exists():
         return []
-    return [template.name for template in Path(TENANT_WORKLOADS_DIR).iterdir() if template.is_dir()]
+    return [template.name for template in Path(TENANT_REPOS_DIR).iterdir() if template.is_dir()]
 

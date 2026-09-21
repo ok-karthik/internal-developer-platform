@@ -55,7 +55,7 @@ Go has no equivalent, so this is a genuine Python-side advantage.
 ### 4. No per-tenant VPC allocation (removed)
 
 An earlier version of this engine allocated a unique `/16` VPC CIDR per team into
-`3-tenant-workloads/cloud_vpcs_allocated.yaml`, on the assumption that each team would get
+`3-tenant-repos/cloud_vpcs_allocated.yaml`, on the assumption that each team would get
 its own VPC (and implicitly, its own cluster). That's not the design that shipped — the
 platform runs one shared EKS cluster with namespace-per-tenant as the soft isolation
 boundary, and one AWS account per *environment* (not per team) as the hard one. The
@@ -141,7 +141,7 @@ uv run python main.py onboard-team --team-name acc
 uv run python main.py add-service --team-name acc --app-name checkout \
     --golden-path go-service-postgres
 
-diff -r /tmp/go-out/3-tenant-workloads/acc ../../3-tenant-workloads/acc
+diff -r /tmp/go-out/3-tenant-repos/acc ../../3-tenant-repos/acc
 ```
 
 **This currently produces no output** — the trees are byte-identical, both verbs, every
@@ -150,7 +150,7 @@ the regex that rewrites `[[- if .X ]]` to `[% if X %]` cannot carry Go's `-` tri
 across, so without those flags a false conditional leaves an indented blank line behind.
 
 > Python has no `--output-root` yet (`TODO.md` Phase 3), so it always writes into the real
-> `3-tenant-workloads/`. Remove the scratch team afterwards, or use a team name you do not
+> `3-tenant-repos/`. Remove the scratch team afterwards, or use a team name you do not
 > mind deleting.
 
 ---

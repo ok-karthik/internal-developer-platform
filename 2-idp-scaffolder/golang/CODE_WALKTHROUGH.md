@@ -68,7 +68,7 @@ At its core, the Go IDP Scaffolder performs one fundamental task:
                                                       │
                                                       ▼
                                           ┌───────────────────────┐
-                                          │  3-tenant-workloads/  │
+                                          │  3-tenant-repos/  │
                                           │  <team>/{apps,infra,  │
                                           │         gitops}/      │
                                           └───────────────────────┘
@@ -99,23 +99,23 @@ At its core, the Go IDP Scaffolder performs one fundamental task:
 
 ### The Output Layout Contract
 
-The scaffolder targets a tenant-first monorepo layout that splits cleanly into independent polyrepos via `git subtree split`:
+The scaffolder targets a tenant-first monorepo layout. Each tenant is two directories, one per real repository ([ADR 0010](../../docs/adr/0010-tenant-repository-topology.md)):
 
 ```
-3-tenant-workloads/<team>/
-├── apps/                             ← Root of <team>-apps repo (Application Source)
-│   ├── CODEOWNERS                    ← Team owns *
-│   └── <app>/                        go.mod, main.go, catalog-info.yaml
-├── infra/                            ← Root of <team>-infra repo (Terraform)
-│   ├── CODEOWNERS                    ← Platform owns platform/; Team owns apps/
-│   ├── platform/                     providers.tf, team-iam.tf (Platform-owned)
-│   └── apps/<app>/<env>/             postgres.tf (Team-owned Terraform capability claims)
-└── gitops/                           ← Root of <team>-gitops repo (GitOps Delivery)
-    ├── CODEOWNERS                    ← Platform owns platform/; Team owns apps/
+3-tenant-repos/<tenant>/
+├── workloads-repo/                   ← Root of <tenant>-workloads repo (humans write it)
+│   ├── CODEOWNERS                    ← Team owns *; platform owns /infra/platform/
+│   ├── tenant.yaml
+│   ├── services/<app>/               go.mod, main.go, catalog-info.yaml
+│   └── infra/
+│       ├── platform/                 providers.tf, team-iam.tf (Platform-owned)
+│       └── services/<app>/<env>/     postgres.tf (Team-owned Terraform capability claims)
+└── gitops-repo/                      ← Root of <tenant>-gitops repo (CI writes, ArgoCD reads)
+    ├── CODEOWNERS                    ← Platform owns platform/; Team owns services/
     ├── platform/
-    │   ├── team/                     AppProject, Namespace, NetworkPolicy, ResourceQuota
-    │   └── applicationsets/          <team>.yaml (ArgoCD ApplicationSet)
-    └── apps/<app>/<env>/             values.yaml, s3.yaml, iam.yaml (ACK CRD claims)
+    │   ├── tenancy/                  AppProject, Namespace, NetworkPolicy, ResourceQuota
+    │   └── applicationsets/          <tenant>.yaml (ArgoCD ApplicationSet)
+    └── services/<app>/<env>/         values.yaml, s3.yaml, iam.yaml (ACK CRD claims), manifests/
 ```
 
 ---
@@ -403,14 +403,14 @@ func (r *Renderer) resolveDestination(destTemplate string, cfg Config) string {
 
 | Source Directory | Output Path (`destinations:`) | Triggered By | Frequency |
 |---|---|---|---|
-| `per-tenant/apps/` | `{team}/apps/` | `onboard-team` | Once per team |
-| `per-tenant/infra/` | `{team}/infra/` | `onboard-team` | Once per team |
-| `per-tenant/gitops/` | `{team}/gitops/` | `onboard-team` | Once per team |
-| `per-service/apps/runtimes/<lang>/` | `{team}/apps/{app}/` | `add-service` | Once per service |
-| `per-service/apps/service-meta/` | `{team}/apps/{app}/` | `add-service` | Once per service |
-| `per-service/gitops/release/` | `{team}/gitops/apps/{app}/{env}/` | `add-service` | Per service per env |
-| `per-service/infra/capabilities/*.tf.tmpl` | `{team}/infra/apps/{app}/{env}/` | `add-service` | Terraform capabilities |
-| `per-service/gitops/capabilities/*.yaml.tmpl` | `{team}/gitops/apps/{app}/{env}/` | `add-service` | ACK CRD capabilities |
+| `per-tenant/root/` | `{tenant}/workloads-repo/` | `onboard-tenant` | Once per tenant |
+| `per-tenant/infra/` | `{tenant}/workloads-repo/infra/` | `onboard-tenant` | Once per tenant |
+| `per-tenant/gitops/` | `{tenant}/gitops-repo/` | `onboard-tenant` | Once per tenant |
+| `per-service/apps/runtimes/<lang>/` | `{tenant}/workloads-repo/services/{app}/` | `add-service` | Once per service |
+| `per-service/apps/service-meta/` | `{tenant}/workloads-repo/services/{app}/` | `add-service` | Once per service |
+| `per-service/gitops/release/` | `{tenant}/gitops-repo/services/{app}/{env}/` | `add-service` | Per service per env |
+| `per-service/infra/capabilities/*.tf.tmpl` | `{tenant}/workloads-repo/infra/services/{app}/{env}/` | `add-service` | Terraform capabilities |
+| `per-service/gitops/capabilities/*.yaml.tmpl` | `{tenant}/gitops-repo/services/{app}/{env}/` | `add-service` | ACK CRD capabilities |
 
 ---
 
@@ -627,8 +627,8 @@ if errors.Is(err, templater.ErrUnknownCapability) {
         │     └── catalog-info.yaml.tmpl → payments/apps/checkout-api/catalog-info.yaml
         │
         ├─ 3. Delivery (Release):
-        │     walkAndRender("per-service/gitops/release" → "payments/gitops/apps/checkout-api/dev")
-        │     └── values.yaml.tmpl → payments/gitops/apps/checkout-api/dev/values.yaml
+        │     walkAndRender("per-service/gitops/release" → "tenant-a/gitops-repo/services/app-a/dev")
+        │     └── values.yaml.tmpl → tenant-a/gitops-repo/services/app-a/dev/values.yaml
         │
         └─ 4. Capability Claims Dispatch:
               - If provisioner == "terraform":
@@ -636,7 +636,7 @@ if errors.Is(err, templater.ErrUnknownCapability) {
                                       → "payments/infra/apps/checkout-api/dev/postgres.tf")
               - If provisioner == "ack":
                 processSingleTemplate("per-service/gitops/capabilities/s3.yaml.tmpl"
-                                      → "payments/gitops/apps/checkout-api/dev/s3.yaml")
+                                      → "tenant-a/gitops-repo/services/app-a/dev/s3.yaml")
 ```
 
 ---

@@ -11,12 +11,12 @@ spec:
         repoURL: 'https://github.com/ok-karthik/internal-developer-platform.git'
         revision: HEAD
         directories:
-          # app x env — one Application per environment of every app this team owns.
-          - path: 3-tenant-workloads/[[ .TenantName ]]/gitops/apps/*/*
+          # app x env — one Application per environment of every service this tenant owns.
+          - path: 3-tenant-repos/[[ .TenantName ]]/gitops-repo/services/*/*
   template:
     metadata:
-      # For path 3-tenant-workloads/team-a/gitops/apps/app-a/dev the segments are
-      # 0=3-tenant-workloads 1=team-a 2=gitops 3=apps 4=app-a 5=dev — so segment 4
+      # For path 3-tenant-repos/tenant-a/gitops-repo/services/app-a/dev the segments are
+      # 0=3-tenant-repos 1=tenant-a 2=gitops-repo 3=services 4=app-a 5=dev — so segment 4
       # is the app and basename is the env.
       name: '[[ .TenantName ]]-{{ index .path.segments 4 }}-{{ .path.basename }}'
     spec:

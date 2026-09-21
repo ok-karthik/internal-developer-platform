@@ -34,7 +34,7 @@ func init() {
 	rootCmd.AddCommand(addServiceCmd)
 
 	addServiceCmd.Flags().StringVarP(&cfg.TenantName, "tenant-name", "t", "", "Name of the tenant")
-	
+
 	// Deprecated team-name alias
 	addServiceCmd.Flags().StringVar(&cfg.TenantName, "team-name", "", "Name of the tenant")
 	addServiceCmd.Flags().MarkDeprecated("team-name", "use --tenant-name instead")
