@@ -1,0 +1,26 @@
+# Both are REQUIRED and have no default on purpose: a NodeClass pointing at the wrong
+# cluster's subnets is worse than a chart that refuses to render.
+#
+# clusterName: the EKS cluster name. Karpenter finds subnets and security groups by the
+#   `karpenter.sh/discovery: <clusterName>` tag that enterprise-aws-infrastructure
+#   (compute/eks, network/vpc) puts on them.
+# nodeRole: name of the IAM role the launched nodes assume. Created by compute/eks when
+#   enable_karpenter = true (it is the `karpenter_node_iam_role_name` output).
+clusterName: ""
+nodeRole: ""
+
+# AL2023 alias. `latest` follows AWS's newest AMI on every drift check, which is fine in
+# dev and a surprise in prod — pin a release (al2023@v20250xxx) per environment there.
+amiAlias: al2023@latest
+
+nodePool:
+  # Spot first, on-demand as the fallback. Karpenter prefers spot when both are allowed.
+  capacityTypes: [spot, on-demand]
+  instanceCategories: [c, m, r]
+  # Cap on what this pool may ever provision — the blast radius of a runaway scale-up.
+  limits:
+    cpu: "1000"
+    memory: 1000Gi
+  disruption:
+    consolidationPolicy: WhenEmptyOrUnderutilized
+    consolidateAfter: 30s

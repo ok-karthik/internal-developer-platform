@@ -1,0 +1,110 @@
+# Karpenter — the in-cluster half (PLAN.md Phase 18.4, ADR 0013).
+#
+# The AWS half (controller IAM role + Pod Identity association, node role, SQS interruption
+# queue, EventBridge rules, subnet/SG discovery tags) is built by `compute/eks` in
+# enterprise-aws-infrastructure (`enable_karpenter = true`). This directory only installs the
+# controller and declares the node configuration, so a Karpenter upgrade or a NodePool change
+# is a PR here with no Terraform state involved.
+#
+# One Application per REGISTERED CLUSTER that opted in, using the fleet contract from
+# Phase 18.2: a cluster receives Karpenter only if its ArgoCD cluster Secret carries the
+# label `karpenter: enabled`. The local k3d cluster is not labelled, so it never gets it
+# (Karpenter cannot run without AWS).
+#
+# Per-cluster facts come from the cluster Secret, which the foundation stack writes when it
+# creates the cluster — nothing is hardcoded here:
+#   cluster name      -> the Secret's `name` (must equal the EKS cluster name)
+#   node role name    -> annotation `platform.io/karpenter-node-role`
+#   interruption queue-> annotation `platform.io/karpenter-queue`
+---
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: karpenter
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - clusters:
+        selector:
+          matchLabels:
+            karpenter: enabled
+  template:
+    metadata:
+      name: 'karpenter-{{ .name }}'
+    spec:
+      project: default
+      source:
+        repoURL: 'oci://public.ecr.aws/karpenter'
+        chart: karpenter
+        targetRevision: '1.12.0'
+        helm:
+          # Wave 0 installs the controller and its CRDs; the node configuration below is
+          # wave 2 so it is applied only after they exist.
+          values: |
+            settings:
+              clusterName: '{{ .name }}'
+              interruptionQueue: '{{ index .metadata.annotations "platform.io/karpenter-queue" }}'
+            # The controller's AWS identity is an EKS Pod Identity association created by
+            # compute/eks for this service account, so no IRSA annotation is set here.
+            serviceAccount:
+              name: karpenter
+            controller:
+              resources:
+                requests:
+                  cpu: 500m
+                  memory: 512Mi
+      destination:
+        server: '{{ .server }}'
+        namespace: kube-system
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - ServerSideApply=true
+---
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: karpenter-nodes
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - clusters:
+        selector:
+          matchLabels:
+            karpenter: enabled
+  template:
+    metadata:
+      name: 'karpenter-nodes-{{ .name }}'
+    spec:
+      project: default
+      source:
+        repoURL: 'https://github.com/ok-karthik/internal-developer-platform.git'
+        targetRevision: HEAD
+        path: 1-platform-catalog/charts/karpenter-nodes
+        helm:
+          parameters:
+            - name: clusterName
+              value: '{{ .name }}'
+            - name: nodeRole
+              value: '{{ index .metadata.annotations "platform.io/karpenter-node-role" }}'
+      destination:
+        server: '{{ .server }}'
+        namespace: kube-system
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          # The CRDs arrive with the controller Application; do not fail the first sync
+          # if it races them.
+          - SkipDryRunOnMissingResource=true

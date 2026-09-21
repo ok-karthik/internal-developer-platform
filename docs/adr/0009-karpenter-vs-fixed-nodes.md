@@ -1,7 +1,7 @@
 # Karpenter vs. Fixed Node Groups
 
 **Date:** 2026-08-22
-**Status:** Accepted
+**Status:** Superseded by [ADR 0013](0013-karpenter-two-halves.md)
 
 ## Context
 The platform currently provisions EKS worker nodes using an `aws_eks_node_group` with a fixed configuration (`max_size = desired + 2`). This is a static approach where capacity and instance types are chosen by a human ahead of time.

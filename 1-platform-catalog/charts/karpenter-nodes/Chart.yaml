@@ -1,0 +1,5 @@
+apiVersion: v2
+name: karpenter-nodes
+description: Karpenter EC2NodeClass + NodePool for one EKS cluster (PLAN.md Phase 18.4, ADR 0013)
+type: application
+version: 0.1.0
