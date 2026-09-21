@@ -6,7 +6,25 @@
 # into the SAME Terraform root module directory, and local value names must be
 # unique within a module. Two capabilities each declaring `locals { tags = ... }`
 # is a hard "Duplicate local value definition" error at terraform validate.
-# Tags are inlined below instead, so each file stays self-contained.
+# Tags are inlined below instead, so each file stays self-contained. The same rule
+# is why every data block below is named after the capability: `data "aws_region"
+# "current"` in two capability files would collide the same way.
+#
+# Network placement is read at plan time from the SSM parameter catalog the cloud
+# foundation publishes on every stack apply (PLAN.md Phase 18.1, Pattern A), never
+# hardcoded. The module's vpc_id / subnet_ids default to empty, which silently creates
+# NO security group and NO subnet group — the database would land in the account's
+# default VPC and the mistake would only surface at `terraform apply`.
+
+data "aws_region" "postgres" {}
+
+data "aws_ssm_parameter" "postgres_vpc_id" {
+  name = "/platform/[[ .Env ]]/${data.aws_region.postgres.region}/vpc/id"
+}
+
+data "aws_ssm_parameter" "postgres_database_subnets" {
+  name = "/platform/[[ .Env ]]/${data.aws_region.postgres.region}/vpc/database_subnets"
+}
 
 module "postgres" {
   source = "[[ .CapabilitiesSourceBase ]]/[[ .Module ]]?ref=[[ .Version ]]"
@@ -14,6 +32,9 @@ module "postgres" {
   team_name = "[[ .TenantName ]]"
   app_name  = "[[ .AppName ]]"
   env       = "[[ .Env ]]"
+
+  vpc_id     = data.aws_ssm_parameter.postgres_vpc_id.value
+  subnet_ids = split(",", data.aws_ssm_parameter.postgres_database_subnets.value)
 
   tags = {
     Team        = "[[ .TenantName ]]"

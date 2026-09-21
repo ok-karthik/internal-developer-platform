@@ -28,16 +28,16 @@ apiVersion: platform.io/v1alpha1
 kind: XAWSBucket
 metadata:
   name: my-first-cloud-bucket
-  namespace: team-a
+  namespace: tenant-a
 spec:
   parameters:
-    bucketName: team-a-my-idp-test-bucket
+    bucketName: tenant-a-my-idp-test-bucket
     region: eu-central-1
     isEncrypted: true
 ```
 
-`XAWSBucket` is not yet in `team-a`'s `AppProject` `namespaceResourceWhitelist` — adding it
-is a one-line YAML change in `1-platform-catalog/per-tenant/gitops/platform/team/appproject.yaml.tmpl`
+`XAWSBucket` is not yet in the `tenant-a` `AppProject` `namespaceResourceWhitelist` — adding it
+is a one-line YAML change in `1-platform-catalog/per-tenant/gitops/platform/tenancy/appproject.yaml.tmpl`
 the moment this capability is offered for real, following the same pattern as every other
 kind in that file.
 

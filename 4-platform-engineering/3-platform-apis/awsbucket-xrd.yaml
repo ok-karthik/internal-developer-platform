@@ -5,7 +5,7 @@
 # and need a separate namespaced "Claim" kind (z_claim.yaml in the archived
 # version) as a proxy, because the XR itself cannot live in a tenant's
 # namespace. v2 XRDs default `scope: Namespaced` — the XR itself is
-# namespaced, so it can be created directly inside team-a's namespace with
+# namespaced, so it can be created directly inside the tenant-a namespace with
 # no claim indirection, matching this platform's tenancy model where a
 # resource's namespace IS its ownership boundary (same reasoning as ACK's
 # single-CR-per-namespace shape, and Phase 7.7's per-tenant SecretStore over

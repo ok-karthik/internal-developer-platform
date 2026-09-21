@@ -1,6 +1,6 @@
 ## Tenant Idempotent Infrastructure Modules ## - Do not remove these - Danger zone start!
 # A per-tenant "aws-vpc" module used to be rendered here, backed by a CIDR the
-# Python engine allocated into 3-tenant-workloads/cloud_vpcs_allocated.yaml.
+# Python engine allocated into 3-tenant-repos/cloud_vpcs_allocated.yaml.
 # Removed: it assumed each team would get its own VPC (and implicitly, its
 # own cluster) — an earlier design this platform moved away from. What
 # actually got built (Phase 1 + Phase 5) is one shared EKS cluster with
@@ -13,13 +13,13 @@
 # block had this ever been applied.
 
 # This is where per-namespace IRSA/Pod Identity trust-policy scoping attaches
-# once a real EKS cluster's OIDC issuer exists (4-platform-engineering/1-cloud-foundation/
-# is k3d-only today, under local/). See "IRSA / Pod Identity is the missing fourth wall of
+# once a real EKS cluster's OIDC issuer exists (the cloud foundation lives in
+# enterprise-aws-infrastructure; this repo only has the k3d harness under 1-cloud-foundation/local/). See "IRSA / Pod Identity is the missing fourth wall of
 # the tenancy model" in .agents/AGENTS.md — it is the AWS-side counterpart to
 # the AppProject/NetworkPolicy/RBAC boundary this blueprint already creates.
 module "aws-iam" {
-    source    = "git::https://github.com/ok-karthik/internal-developer-platform.git//4-platform-engineering/3-capability-modules/aws/iam?ref=v2.2.0"
-    team_name = "[[ .TenantName ]]"
-    app_name  = "shared"
+  source    = "git::https://github.com/ok-karthik/enterprise-aws-infrastructure.git//iac-modules-repo/identity/workload-iam?ref=workload-iam-v2.0.0"
+  team_name = "[[ .TenantName ]]"
+  app_name  = "shared"
 }
 ## Tenant Idempotent Infrastructure Modules ## - Do not remove these - Danger zone end!
