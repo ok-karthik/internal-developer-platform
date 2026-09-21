@@ -21,9 +21,10 @@ platform-engineering-idp-gitops-reference-architecture/
 │   │   ├── infra/capabilities/<cap>.tf.tmpl    # provisioner: terraform — Terraform module claims
 │   │   ├── gitops/capabilities/<cap>.yaml.tmpl # provisioner: ack — ACK CRD claims
 │   │   └── gitops/release/             # Per-env values.yaml scaffolded by the CLI
-│   └── charts/service/                 # Platform-owned Helm chart. NEVER scaffolded — no
-│                                       # destinations key; CI renders it and only the output
-│                                       # reaches 3-tenant-repos/
+│   └── charts/                         # Platform-owned Helm charts. NEVER scaffolded — no
+│       │                               # destinations key.
+│       ├── service/                    # CI renders it; only the output reaches 3-tenant-repos/
+│       └── karpenter-nodes/            # EC2NodeClass + NodePool, applied per cluster by ArgoCD
 ├── 2-idp-scaffolder/                   # IDP Scaffolder Implementations
 │   ├── golang/                         # Go implementation of the IDP Scaffolder CLI (Cobra)
 │   │   ├── cmd/cli/                    # Cobra commands (`root.go`, `onboard_tenant.go`, etc)
@@ -53,15 +54,18 @@ platform-engineering-idp-gitops-reference-architecture/
     ├── 1-cloud-foundation/              # The CONTRACT with the cloud foundation, which lives in
     │   │                                 # enterprise-aws-infrastructure (ADR 0012). This repo
     │   │                                 # owns no cloud Terraform.
-    │   ├── README.md                     #   What the platform needs and the SSM params it reads
+    │   ├── README.md                     #   What the platform needs: SSM params + the cluster-
+    │   │                                 #   registration Secret contract (labels/annotations)
     │   └── local/                        #   k3d. A TEST HARNESS — the only foundation this
-    │                                     #   repo can stand up alone.
+    │       └── cluster-secret.yaml       #   repo can stand up alone. Registers k3d as env=dev.
     ├── 2-cluster-services/               # ArgoCD App-of-Apps declarations (App manifests
     │                                     # per addon) merged with the raw resources some
     │                                     # of them deploy, e.g. ingress-routing/middlewares.yaml,
     │                                     # observability/otel-instrumentation.yaml — one
     │                                     # concept, one directory. Portable Kubernetes →
-    │                                     # NOT nested by provider.
+    │                                     # NOT nested by provider. Includes karpenter/
+    │                                     # (per-cluster ApplicationSets), observability/opencost.yaml
+    │                                     # and security-governance/require-cost-tags.yaml.
     └── 3-platform-apis/                 # Platform API definitions (Crossplane XRDs).
 ```
 
@@ -100,7 +104,7 @@ it (a `PrometheusRule` never selected by Prometheus, for instance) fails quietly
 every manifest still showing Synced/Healthy. Every file in the addon tree carries an explicit `argocd.argoproj.io/sync-wave`
 too, so ordering is fully specified rather than half-implied by `SkipDryRunOnMissingResource`:
 `0` = CRD-providing installers (kyverno, cert-manager, traefik, opentelemetry, prometheus,
-ACK), `1` = remaining installers (loki, tempo, promtail, argo-rollouts, sealed-secrets),
+ACK, karpenter), `1` = remaining installers (loki, tempo, promtail, argo-rollouts, sealed-secrets),
 `2` = namespaced config (ingresses, middlewares, instrumentation, grafana-datasources),
 `3` = policies and the tenant `ApplicationSet` — last, so they never gate the platform's
 own boot.
@@ -141,7 +145,7 @@ Key decisions:
 - **`per-tenant/` mirrors its output.** `per-tenant/<kind>/` is laid out exactly like the tree it produces, so the nesting *is* the path logic and no file needs its own destination rule. Three keys replace what would otherwise be one key per output directory.
 - **Helm only** for delivery (no Kustomize); **`1-platform-catalog/catalog.yaml`** is the source of truth for golden paths and the capability → module mapping.
 - **Output paths live in data, not code.** The `destinations:` table in `catalog.yaml` maps each catalog source directory to its output path template (`{tenant}`, `{app}`, `{env}`). No Go file contains a hardcoded output path; restructuring `3-tenant-repos/` is a YAML edit. `LoadCatalog` validates that every required key is present and fails before writing anything.
-- **ArgoCD discovery is convention-based, two levels:** a cluster-wide bootstrap ApplicationSet globs `3-tenant-repos/*/gitops-repo/platform/applicationsets` (one Application per tenant, applying that tenant's AppSet); each tenant AppSet then globs `3-tenant-repos/<tenant>/gitops-repo/services/*/*` (app × env). The Kyverno `restrict-applicationset` policy pins each tenant's AppSet to its own `gitops-repo`. `add-service` never edits a root app-of-apps file.
+- **ArgoCD discovery is convention-based, two levels:** a cluster-wide bootstrap ApplicationSet globs `3-tenant-repos/*/gitops-repo/platform/applicationsets` (one Application per tenant, applying that tenant's AppSet); each tenant AppSet then globs `3-tenant-repos/<tenant>/gitops-repo/services/*/*` (app × env) and **matrix-joins it with the ArgoCD cluster registry**: an app whose env directory is `dev` deploys to every registered cluster labelled `environment: dev` (Phase 18.2). The scaffolder never holds a cluster endpoint; registering a cluster is what routes apps to it, and a cluster with no matching label receives nothing — that is the gated promotion of ADR 0003 made mechanical. The tenant `AppProject` allows any server but only the tenant's own namespace. The Kyverno `restrict-applicationset` policy pins each tenant's AppSet to its own `gitops-repo`. `add-service` never edits a root app-of-apps file.
 
 > **CLI status:** both verbs are implemented in **both** engines and produce matching output.
 >
@@ -225,6 +229,35 @@ permission sets) can only match on the group string it receives — see Phase 7.
 
 ---
 
+## 🌐 Fleet Routing & Cross-Repo Contract (Phase 18)
+
+- **Clusters are routed by label, never by endpoint.** A cluster is registered as an ArgoCD
+  cluster Secret. The tenant ApplicationSet matrix-joins app×env directories with clusters
+  whose `environment` label equals the env directory. No matching cluster → the app deploys
+  nowhere (locally k3d is `environment: dev`, so `prod` apps do not deploy). Application
+  names end in `-<cluster>`. The full label/annotation table is in
+  `4-platform-engineering/1-cloud-foundation/README.md` — keep that the single source.
+- **The SSM contract has ONE writer:** `governance/discovery-publisher` in
+  `enterprise-aws-infrastructure`. The `publish_ssm_parameters` switches on `compute/eks` and
+  `network/vpc` are off in live. Never assume a module that owns a value also publishes it.
+  Names: `/platform/<env>/<region>/{vpc/id, vpc/database_subnets, eks/cluster_name,
+  eks/oidc_provider_arn, eks/cluster_endpoint, eks/cluster_ca_data, eks/karpenter_node_role,
+  eks/karpenter_queue_name, ack/cross_account_role_arn}`.
+- **Terraform in the foundation repo never calls the Kubernetes API** (keeps offline
+  `validate` reliable). So the ArgoCD cluster Secret cannot be written by Terraform; it is
+  meant to be assembled in-cluster from SSM via External Secrets.
+- **Open, do not describe as done:** (1) the four new SSM keys are being added to
+  `discovery-publisher` (its PLAN 2.10); (2) `network/vpc` does not tag subnets
+  `karpenter.sh/discovery`; (3) the ExternalSecret that builds the cluster Secret is **not
+  written** — it needs a Parameter Store `ClusterSecretStore` (the only store here reads
+  Secrets Manager) and the hub→spoke auth (likely ArgoCD `awsAuthConfig`) is unverified.
+  Do not put that ExternalSecret under `2-cluster-services/`: it would fail on k3d and break
+  `make setup`.
+- **Cross-repo wording.** A prompt for the other repo must use *that repo's* plan numbers
+  (its phases are its own) and gates that run offline (`make validate` needs AWS creds).
+- **Nothing in Phase 18 has run on a cluster.** Verified offline only: both engines
+  byte-identical, Go tests, Kyverno, `helm template` of both charts.
+
 ## 🚀 Execution & Verification Commands
 
 ### Go Scaffolder (`2-idp-scaffolder/golang/`)
@@ -279,6 +312,23 @@ diff -r /tmp/go-out/<tenant> 3-tenant-repos/<tenant>
 ```
 
 
+### Kyverno policies
+
+```bash
+kyverno apply 4-platform-engineering/2-cluster-services/security-governance/ \
+  $(find 3-tenant-repos/*/gitops-repo -type f -name '*.yaml' ! -name 'values.yaml' | sed 's/^/--resource /')
+```
+- **Use the CLI version CI pins (v1.11.4).** Homebrew's 1.19.x panics on this tree even
+  before any change. Download the release tarball rather than trusting `brew install kyverno`.
+- **A policy is not tested until a bad input has failed it.** After changing one, craft a
+  violating resource (other tenant's path, `..` traversal, missing tag) and confirm `fail: 1`.
+  A pass count that did not rise after adding a rule means the rule matched nothing.
+- `restrict-applicationset` uses `foreach` over both the top-level and the `matrix` generator
+  shapes; a plain `pattern` cannot see inside a matrix, and Kyverno's `*` matches across `/`.
+- `sed -i` on macOS needs `-i ''`; prefer a small Python edit for scripted file changes.
+- Go tests can report `(cached)` and hide a stale golden: use `go test -count=1`. There is no
+  golden update flag; edit the file under `internal/templater/testdata/`.
+
 ## ✅ Resolved CLI Design Decisions & Refinements
 
 1. **Golden-Path as Seed, Capabilities as Override:** (See [ADR 0002](docs/adr/0002-golden-path-and-capabilities.md))
@@ -301,6 +351,9 @@ diff -r /tmp/go-out/<tenant> 3-tenant-repos/<tenant>
 14. **Two tenant repos, split on who *writes* a file, not on the technology in it.** `3-tenant-repos/<tenant>/` holds `workloads-repo/` (humans write it: service source plus the Terraform for the infrastructure those services claim) and `gitops-repo/` (CI writes it, ArgoCD reads it). A service and the infrastructure it claims are one unit of change; the gitops repo is separate so ArgoCD never reads source, no bot can write to the repo humans author, and machine commits stay out of source history. Permission separation inside a repo is a `CODEOWNERS` path rule, not another repository. Full reasoning, alternatives, the honest cost, the revisit trigger, and the extraction commands (`git filter-repo` for the workloads repo, `git subtree split` for gitops) are in [ADR 0010](../docs/adr/0010-tenant-repository-topology.md).
 15. **Capability modules live in their own repository, pinned by module-scoped tags.** (See [ADR 0011](../docs/adr/0011-capability-modules-external-repo.md))
 16. **This repository owns no cloud Terraform.** The cloud foundation is consumed through the SSM parameter contract, not built here. (See [ADR 0012](../docs/adr/0012-platform-repo-owns-no-cloud-terraform.md))
+17. **Karpenter is split across the repo boundary.** AWS half (IAM, SQS, EventBridge, discovery tags) in `enterprise-aws-infrastructure`; controller + `EC2NodeClass`/`NodePool` here, per cluster labelled `karpenter: enabled`. Supersedes ADR 0009. (See [ADR 0013](../docs/adr/0013-karpenter-two-halves.md))
+18. **Cost attribution is enforced at admission, not reported afterwards.** Every ACK claim must carry `Tenant`, `Service` and `CostCenter` tags and `Tenant` must equal its namespace (`require-cost-tags` Kyverno policy); OpenCost attributes in-cluster spend by namespace. `CostCenter` currently defaults to the tenant name — there is no real cost-centre mapping yet. Terraform claims are gated in `enterprise-aws-infrastructure`.
+19. **`make setup` was broken until Phase 18:** `bootstrap`/`clean` referenced a root `bootstrap.yaml` that lives at `4-platform-engineering/bootstrap.yaml`. Fixed, and `bootstrap` now also applies `local/cluster-secret.yaml`. **The full `make setup` has still never been run end to end** (Phase 14 is blocked on Docker, a push, and `asciinema`).
 
 ## 🔭 Roadmap — Scaffolder identity (not planned work; direction only)
 

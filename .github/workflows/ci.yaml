@@ -87,6 +87,10 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v7
 
+      - name: Lint platform charts
+        run: |
+          helm lint 1-platform-catalog/charts/karpenter-nodes --set clusterName=ci --set nodeRole=ci
+
       - name: Install Kyverno CLI
         run: |
           curl -sL "https://github.com/kyverno/kyverno/releases/download/v1.11.4/kyverno-cli_v1.11.4_linux_x86_64.tar.gz" | tar xz

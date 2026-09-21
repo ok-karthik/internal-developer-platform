@@ -128,8 +128,10 @@ install-argocd:
 		-f 4-platform-engineering/2-cluster-services/gitops-orchestration/values.yaml
 
 bootstrap:
+	@echo "Registering the local cluster with ArgoCD (labelled, so tenant ApplicationSets can target it)..."
+	kubectl apply -f 4-platform-engineering/1-cloud-foundation/local/cluster-secret.yaml
 	@echo "Bootstrapping platform..."
-	kubectl apply -f bootstrap.yaml
+	kubectl apply -f 4-platform-engineering/bootstrap.yaml
 	@echo "Triggering immediate refresh/sync on all ArgoCD applications..."
 	@sleep 2
 	@kubectl get app -n argocd -o name 2>/dev/null | xargs -I {} kubectl patch {} -n argocd --type merge -p '{"metadata":{"annotations":{"argocd.argoproj.io/refresh":"normal"}}}' 2>/dev/null || true
@@ -198,7 +200,8 @@ get-argocd-creds:
 
 clean:
 	@echo "Cleaning up deployed components..."
-	kubectl delete -f bootstrap.yaml --ignore-not-found=true
+	kubectl delete -f 4-platform-engineering/bootstrap.yaml --ignore-not-found=true
+	kubectl delete -f 4-platform-engineering/1-cloud-foundation/local/cluster-secret.yaml --ignore-not-found=true
 	helm uninstall argocd -n argocd || true
 	kubectl delete namespace argocd --ignore-not-found=true
 	kubectl delete secret aws-creds -n crossplane-system --ignore-not-found=true

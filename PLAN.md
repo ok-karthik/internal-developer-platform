@@ -133,6 +133,11 @@ screenshot, no transcript — that any of it has ever executed. The ratio of *cl
 
 Everything below runs on k3d and costs nothing.
 
+> **Status (2026-09-21): not started.** Blocked, not skipped: Docker/OrbStack was not running,
+> `asciinema` is not installed, and the ApplicationSets read `github.com/ok-karthik/internal-developer-platform`
+> at `HEAD`, so tenant apps only appear after the branch is pushed (same blocker as Phase 19.7
+> gate 6). Nothing under `docs/demo/` exists yet.
+
 **(a) One end-to-end recording, ~90 seconds.** `make setup` → `onboard-tenant` →
 `add-service` → ArgoCD syncs → the app answers an HTTP request. Record with `asciinema`
 (text, greppable, small) and embed near the top of the README. A reader watches this;
@@ -157,6 +162,36 @@ Incident Response is the highest-demand gap this plan ever identified.
 Defines the contract boundaries between the Cloud Foundation (`enterprise-aws-infrastructure`)
 and this Developer Platform (`internal-developer-platform`), and formalizes how tenant workloads
 dynamically discover infrastructure and fan out across multi-cluster fleets.
+
+> **Status (2026-09-21).** 18.1 was already real (`postgres.tf.tmpl` reads the SSM contract,
+> Phase 19.3). **18.2, 18.3 and 18.4 are now implemented in this repo and verified offline**;
+> none of it has run on a cluster.
+> - **18.2:** the tenant ApplicationSet is a `matrix` of the git generator and a cluster
+>   generator selecting on `environment: <env dir>`; the AppProject allows any server but only
+>   the tenant's namespace; `restrict-applicationset` was rewritten with `foreach` because the
+>   old pattern cannot see inside a matrix. `local/cluster-secret.yaml` registers k3d as
+>   `environment: dev`, so **`prod` apps now deploy nowhere locally** until a `prod` cluster is
+>   registered. Application names gained a `-<cluster>` suffix.
+> - **18.3:** `Team` tag renamed `Tenant` and `CostCenter` added on all three capabilities;
+>   `require-cost-tags` Kyverno policy (ACK `Bucket`/`Role` need `Tenant`+`Service`+`CostCenter`,
+>   `Tenant` must equal the namespace); OpenCost app. **`CostCenter` is just the tenant name** —
+>   there is no cost-centre mapping. Terraform claims are not gated here; that is OPA in the
+>   foundation repo.
+> - **18.4:** built as the in-cluster half only, per-cluster via a `karpenter: enabled` label
+>   (see ADR 0013, which supersedes ADR 0009). Controller chart `1.12.0`, node config in
+>   `1-platform-catalog/charts/karpenter-nodes/`. The foundation repo's `compute/eks` already
+>   provides the AWS half, **but** the node role, queue, cluster endpoint and CA are not yet in
+>   the SSM contract (the foundation repo is adding them to `governance/discovery-publisher`,
+>   the only module that writes contract parameters), `network/vpc` does not put
+>   `karpenter.sh/discovery` on subnets, and the ExternalSecret that builds the ArgoCD cluster
+>   Secret from those parameters is **not written here yet** — so this cannot work on a real
+>   cluster until all three land.
+> - Verified: Go tests (uncached), both engines byte-identical, Kyverno 1.11.4 (CI's version)
+>   passes the fixture and rejects other-tenant path, `..` traversal, old non-matrix shape,
+>   missing `CostCenter` and wrong `Tenant`; both charts `helm template` cleanly.
+> - Also fixed: `make bootstrap`/`clean` applied a `bootstrap.yaml` that does not exist at the
+>   repo root (it is `4-platform-engineering/bootstrap.yaml`), so `make setup` could not have
+>   worked.
 
 ### 18.1 — The Discovery Contract: How Tenants Discover VPC & Cluster Context
 
