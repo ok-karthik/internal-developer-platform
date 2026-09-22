@@ -12,6 +12,11 @@ spec:
     path: 4-platform-engineering/2-cluster-services # This tells Argo to apply everything inside the bootstrap folder!
     directory:
       recurse: true
+      # ArgoCD treats every *.yaml/*.json under a recursed directory as a Kubernetes
+      # manifest. These two are not: one is Helm values (read via $values by
+      # gitops-orchestration/argocd.yaml), one is a Grafana dashboard. Left in, the whole
+      # root app fails with "Object 'Kind' is missing" and nothing syncs.
+      exclude: '{gitops-orchestration/values.yaml,observability/dora-dashboard.json}'
   destination:
     server: https://kubernetes.default.svc
     namespace: argocd
