@@ -25,7 +25,14 @@ resources:
     cpu: 100m
     memory: 128Mi
   limits:
-    cpu: 500m
+    # cpu limit stays at 4x request, same multiplier as memory (512Mi/128Mi), to match
+    # the tenant LimitRange's maxLimitRequestRatio.cpu: "4"
+    # (per-tenant/gitops/platform/tenancy/namespace.yaml.tmpl). 500m was 5x and the
+    # ReplicaSet controller rejected every pod with "cpu max limit to request ratio per
+    # Container is 4, but provided ratio is 5.000000" — found running a real service
+    # end to end for the first time (PLAN.md Phase 14), not caught before because
+    # `make setup` had never gotten this far.
+    cpu: 400m
     memory: 512Mi
 
 # Observability -------------------------------------------------------------
