@@ -54,3 +54,10 @@ spec:
       kind: "SecretStore"
     - group: "external-secrets.io"
       kind: "ExternalSecret"
+    # 1-platform-catalog/charts/service/templates/instrumentation.yaml renders one of
+    # these per service, always — missing here since the chart was added and never
+    # caught because `make setup` had never synced a real tenant app end to end
+    # (found running it, PLAN.md Phase 14): ArgoCD refuses the whole Application with
+    # "resource opentelemetry.io:Instrumentation is not permitted in project tenant-a".
+    - group: "opentelemetry.io"
+      kind: "Instrumentation"
