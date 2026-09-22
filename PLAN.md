@@ -133,10 +133,75 @@ screenshot, no transcript — that any of it has ever executed. The ratio of *cl
 
 Everything below runs on k3d and costs nothing.
 
-> **Status (2026-09-21): not started.** Blocked, not skipped: Docker/OrbStack was not running,
-> `asciinema` is not installed, and the ApplicationSets read `github.com/ok-karthik/internal-developer-platform`
-> at `HEAD`, so tenant apps only appear after the branch is pushed (same blocker as Phase 19.7
-> gate 6). Nothing under `docs/demo/` exists yet.
+> **Status (2026-09-22): in progress, stopped mid-run — not (a)/(b)/(c)/(d) done yet.**
+> Docker/OrbStack was started and `asciinema` installed, unblocking the two things that
+> stopped this the night before. Then `make setup` was actually run end to end for the
+> first time ever on this repo, which is the real point of this phase even before any
+> recording exists: **it surfaced four real, previously-invisible bugs**, all found by
+> running the platform rather than reading it, all fixed and pushed to `main` tonight
+> (`286664c`, `84661b6`, `2ee07ce`, `4a6a30e`, `0b6939a`):
+>
+> 1. `bootstrap.yaml`'s `directory.recurse: true` had no `exclude`, so it tried to apply
+>    `gitops-orchestration/values.yaml` (Helm values) and `observability/dora-dashboard.json`
+>    (a Grafana dashboard) as Kubernetes manifests. `platform-bootstrap` failed outright with
+>    `Object 'Kind' is missing` — **`make setup` could never have synced anything, ever,
+>    before tonight.**
+> 2. `identity/realm-config.yaml`'s ConfigMap is deliberately wave 0 (must exist before the
+>    keycloak pod mounts it) but nothing created the `keycloak` namespace that early —
+>    `keycloak.yaml`'s `CreateNamespace=true` only fires at wave 1, and ArgoCD never advances
+>    past a wave with a failing resource. Fixed by giving the ConfigMap its own co-located
+>    `Namespace` object at wave 0 (Namespace-kind resources apply before other kinds within a
+>    wave regardless of file order).
+> 3. `charts.bitnami.com` (keycloak's chart source) is retired — Bitnami moved to OCI-only.
+>    Every sync attempt against it was a dead 401/404. Moved to
+>    `oci://registry-1.docker.io/bitnamicharts`, same values, chart bumped to `25.2.0`.
+> 4. The tenant `AppProject`'s `namespaceResourceWhitelist` never included
+>    `opentelemetry.io/Instrumentation`, which `charts/service/templates/instrumentation.yaml`
+>    renders for **every** service, always. ArgoCD refused the whole tenant Application:
+>    `resource opentelemetry.io:Instrumentation is not permitted in project tenant-a`. No
+>    service scaffolded by this platform could ever have synced before this fix.
+> 5. The scaffolder's default `resources.limits.cpu` (500m) is a 5x ratio over
+>    `resources.requests.cpu` (100m); the tenant `LimitRange` caps
+>    `maxLimitRequestRatio.cpu` at 4. The ReplicaSet controller rejected every pod:
+>    `cpu max limit to request ratio per Container is 4, but provided ratio is 5.000000`.
+>    **No service scaffolded by this platform could ever have run a single pod**, on any
+>    tenant, ever — this predates Phase 18 entirely. Fixed by lowering the default limit to
+>    `400m` (the same 4x multiplier memory already uses, 512Mi/128Mi); re-rendered the
+>    `tenant-a` fixture and updated the Go golden testdata.
+>
+> All five are real, load-bearing defects that existed before Phase 18 and were invisible
+> only because `make setup` had never been run to completion. None are Phase 18 regressions.
+>
+> **Also found, not a code bug:** the local k3d harness's `argocd-application-controller`
+> has no memory request/limit set, and got **OOMKilled 14 times** against OrbStack's default
+> 6GB VM once the full addon set (Phases 0–19 plus this session's karpenter/opencost
+> additions) was actually running concurrently. Every "stuck" ArgoCD sync tonight traced
+> back to this, not to application logic. Worked around locally by raising OrbStack to
+> 10GB (`orbctl config set memory_mib 10240` + restart) — **a local dev-machine setting,
+> not committed to the repo.** Not yet done: giving the controller an explicit
+> `resources:` block in `gitops-orchestration/values.yaml` so this doesn't require a
+> manually-sized host every time, and documenting a minimum OrbStack/Docker memory in
+> `local/README.md`.
+>
+> **State at cutoff (07:58 local, stopped on request):** `make setup`'s core addon tree is
+> `Synced`/`Healthy` (traefik, cert-manager, kyverno, prometheus, crossplane, external-dns,
+> external-secrets, opentelemetry, loki, promtail, tempo, argo-rollouts, opencost,
+> otel-resources, platform-apis, traefik-resources). `tenant-a` was onboarded and `app-a`
+> scaffolded with `--capabilities postgres,s3` (18.2's matrix generator produced
+> `tenant-a-app-a-dev-local`, proving the cluster-label routing live — see 18.2 below). Fix
+> #5 (the CPU ratio) landed in the push that closed this session but **had not yet been
+> picked up by ArgoCD's git poll** when work stopped — `tenant-a-app-a-dev-local` was last
+> seen `OutOfSync`/`Degraded` on the pre-fix values. Next step on resume: confirm it
+> re-syncs to `Synced`/`Healthy` with a running `app-a` pod (should be automatic within
+> ArgoCD's ~3min poll, or force with a hard refresh), then continue into (a)–(d).
+> `ack-iam-controller`/`ack-s3-controller` stay `Degraded` — expected, not a bug: this local
+> harness has no real AWS credentials (`local/README.md` already says so). `keycloak` and
+> `sealed-secrets` show sync status `Unknown` (never fully compared) with health `Healthy`;
+> not investigated further, likely cosmetic. `argocd` (the self-managed app) and
+> `metrics-server` show `OutOfSync` with otherwise-healthy live resources — not chased down,
+> may be the same Helm-hook/generation-staleness pattern seen elsewhere tonight, may be
+> nothing. **No recording, alert-fire, or runbook walk has happened yet** — (a)/(b)/(c)/(d)
+> are still fully ahead. `docs/demo/` does not exist yet.
 
 **(a) One end-to-end recording, ~90 seconds.** `make setup` → `onboard-tenant` →
 `add-service` → ArgoCD syncs → the app answers an HTTP request. Record with `asciinema`
