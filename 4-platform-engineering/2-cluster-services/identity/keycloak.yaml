@@ -21,8 +21,12 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: 'https://charts.bitnami.com/bitnami'
-    targetRevision: '24.2.4'
+    # Bitnami retired the classic chart repo (charts.bitnami.com); every chart there 404s
+    # now (found running `make setup` end to end, PLAN.md Phase 14). OCI is the only
+    # distribution channel left, same as ack-iam.yaml / ack-s3.yaml / karpenter.yaml already
+    # use for their charts.
+    repoURL: 'oci://registry-1.docker.io/bitnamicharts'
+    targetRevision: '25.2.0'
     chart: keycloak
     helm:
       values: |
