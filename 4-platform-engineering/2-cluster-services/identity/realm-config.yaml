@@ -8,6 +8,24 @@
 # its installer" ordering is inverted here on purpose. The wave table is a
 # guideline; a genuine reverse dependency overrides it, and this comment is
 # why an auditor should not "fix" this into wave 2.
+#
+# That inversion has a corollary this file used to miss: at wave 0 there is no
+# `keycloak` namespace yet either — keycloak.yaml's Application only creates
+# it (CreateNamespace=true) at wave 1, and platform-bootstrap will not
+# advance past a wave with a failing resource, so the ConfigMap apply hung
+# forever retrying "namespaces \"keycloak\" not found" (found running
+# `make setup` end to end, PLAN.md Phase 14). Fix: own the Namespace here too,
+# same wave. ArgoCD applies Namespace-kind resources before other kinds within
+# a wave regardless of file order, so this one Namespace object is what
+# actually makes wave 0 self-sufficient — keycloak.yaml's CreateNamespace=true
+# is then a harmless no-op against a namespace that already exists.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: keycloak
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+---
 apiVersion: v1
 kind: ConfigMap
 metadata:
