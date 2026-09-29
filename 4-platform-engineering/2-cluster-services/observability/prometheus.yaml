@@ -23,6 +23,11 @@ spec:
       # to "a receiver got a POST" is demonstrable without a real PagerDuty/
       # Slack account. `make fire-synthetic-alert` exercises this end-to-end.
       values: |
+        # Local SLO loop only; long-term history is the central platform's job (ADR 0014).
+        prometheus:
+          prometheusSpec:
+            enableFeatures: ["otlp-write-receiver"]
+            retention: 48h
         alertmanager:
           config:
             global:

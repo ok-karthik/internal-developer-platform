@@ -15,11 +15,12 @@
 # which requires PrometheusRule objects to carry the Helm release name as a
 # label (ruleSelectorNilUsesHelmValues: true) — the release here is named
 # "prometheus" (4-platform-engineering/2-cluster-services/observability/prometheus.yaml).
-#
-# KNOWN GAP: see the comment in app-a-slo.yaml — these queries assume a
-# metrics scrape path (OTel Collector + ServiceMonitor/PodMonitor) that is
-# not yet built. `promtool check rules` validates PromQL syntax; it cannot
-# validate that these series exist.
+# KNOWN GAP: the pipeline for metrics now exists (Instrumentation CR ->
+# platform-otlp OpenTelemetryCollector -> Prometheus OTLP receiver, with
+# service_name and namespace labels added by transform/slo-labels). However,
+# the Go runtime template currently has no OTel SDK, so app-a emits no metrics
+# yet (see app-a-slo.yaml and ADR 0014). `promtool check rules` validates
+# PromQL syntax; it cannot validate that these series exist.
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:

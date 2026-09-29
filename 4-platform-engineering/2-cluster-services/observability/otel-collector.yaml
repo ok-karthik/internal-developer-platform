@@ -1,0 +1,56 @@
+# Platform OTLP collector — the single ingest point for tenant telemetry (ADR 0014).
+# Metrics -> local Prometheus (feeds the SLO burn-rate alerts). Traces -> debug only,
+# unless connected mode is on. Connected mode (off by default) ALSO forwards everything
+# to opentelemetry-platform-on-eks: set UPSTREAM_OTLP_ENDPOINT and add `otlp/upstream`
+# to both pipelines' exporters. Only works from a cluster routed to that repo's internal
+# NLB, never from local k3d.
+apiVersion: opentelemetry.io/v1beta1
+kind: OpenTelemetryCollector
+metadata:
+  name: platform-otlp            # operator names the Service platform-otlp-collector
+  namespace: monitoring
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  mode: deployment
+  replicas: 1
+  resources:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits:   { cpu: 200m, memory: 256Mi }
+  env:
+    - name: UPSTREAM_OTLP_ENDPOINT
+      value: "obs-cluster-otel-gw.example.internal:4317"   # placeholder; unused until connected mode
+  config:
+    receivers:
+      otlp:
+        protocols:
+          grpc: { endpoint: 0.0.0.0:4317 }
+          http: { endpoint: 0.0.0.0:4318 }
+    processors:
+      memory_limiter: { check_interval: 1s, limit_percentage: 80, spike_limit_percentage: 20 }
+      # Prometheus 2.x drops resource attributes; the SLO queries select on these two labels.
+      transform/slo-labels:
+        error_mode: ignore
+        metric_statements:
+          - context: datapoint
+            statements:
+              - set(attributes["service_name"], resource.attributes["service.name"]) where resource.attributes["service.name"] != nil
+              - set(attributes["namespace"], resource.attributes["k8s.namespace.name"]) where resource.attributes["k8s.namespace.name"] != nil
+      batch: {}
+    exporters:
+      otlphttp/prometheus:
+        metrics_endpoint: http://prometheus-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090/api/v1/otlp/v1/metrics
+      debug: { verbosity: basic }
+      otlp/upstream:
+        endpoint: ${env:UPSTREAM_OTLP_ENDPOINT}
+        tls: { insecure: true }   # internal NLB, plain OTLP — matches the central gateway
+    service:
+      pipelines:
+        metrics:
+          receivers: [otlp]
+          processors: [memory_limiter, transform/slo-labels, batch]
+          exporters: [otlphttp/prometheus]
+        traces:
+          receivers: [otlp]
+          processors: [memory_limiter, batch]
+          exporters: [debug]

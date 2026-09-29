@@ -39,22 +39,14 @@ kubectl -n tenant-a top pods -l app.kubernetes.io/instance=app-a 2>/dev/null || 
   echo "metrics-server not available locally — check the LimitRange ceiling instead:"
 kubectl -n tenant-a describe limitrange
 
-# Trace latency by span in Tempo — find the slow spans, not just the slow
-# request. This is the actual diagnostic value of tracing over logs here.
-kubectl -n monitoring port-forward svc/tempo 3100:3100 &
-curl -sG http://localhost:3100/api/search \
-  --data-urlencode 'tags=service.name="app-a"' \
-  --data-urlencode 'minDuration=500ms'
+# Application logs for the pods (pods/log is explicitly granted)
+kubectl -n tenant-a logs -l app.kubernetes.io/instance=app-a --tail=200 --since=1h
 
-# Correlate with logs for the same window (Loki)
-kubectl -n monitoring port-forward svc/loki-gateway 3100:80 &
-curl -sG http://localhost:3100/loki/api/v1/query_range \
-  --data-urlencode 'query={namespace="tenant-a", app="app-a"}' \
-  --data-urlencode 'start='"$(date -u -v-1H +%s)"'000000000' \
-  --data-urlencode 'end='"$(date -u +%s)"'000000000'
+# Traces exist only in connected mode (ADR 0014), forwarded to the central platform
+# (https://github.com/ok-karthik/opentelemetry-platform-on-eks) and viewable in its
+# central Grafana (Tempo). Standalone mode does not run a trace backend.
 
-# Grafana UI — Explore -> Tempo, filter by duration, is faster than the raw
-# API for finding the slowest 1% of traces.
+# Grafana UI (view Prometheus burn-rate alerts and latency SLO dashboard):
 open http://grafana.localhost
 ```
 
