@@ -903,3 +903,304 @@ equals a fresh render (apart from CI-written `manifests/`).
 
 Also fixed here: `team-iam.tf.tmpl` indented its `module` block with 4 spaces, so the rendered
 `team-iam.tf` failed `terraform fmt -check`. It now uses 2 spaces and `fmt -check` passes.
+
+---
+
+## Phase 20 — Observability boundary: local SLO loop only, central telemetry upstream
+
+**Decision (made, not open):** this repo keeps only what its SLO → alert → rollback loop
+needs to run on its own: Prometheus + Alertmanager + Grafana (kube-prometheus-stack) and
+one OTel Collector. Loki, Promtail and Tempo are deleted. Long-term telemetry, logs,
+traces and AIOps belong to
+[`opentelemetry-platform-on-eks`](https://github.com/ok-karthik/opentelemetry-platform-on-eks)
+(the "central platform" below). The collector can *also* forward to the central platform
+behind a switch that is **off by default**, so cloning only this repo still gives a
+working demo. Record all of this in ADR 0014 (20.8).
+
+Why the SLO loop stays local and is not delegated: a rollback's safety signal must not
+depend on a cross-cluster hop to another team's gateway. If the NLB or the central
+collector is down, rollback must still work.
+
+**Why this phase also fixes gaps and doesn't just delete things.** Found while specifying
+it, none of them fixed yet:
+
+1. **No metrics path exists.** The `app-a-slo.yaml` / `app-a-alerts.yaml` "KNOWN GAP"
+   comments already say so: the `Instrumentation` CRs only send traces, to Tempo. The
+   burn-rate alerts can never fire today.
+2. **Tenant pods cannot reach the `monitoring` namespace at all.** The tenant
+   `allow-egress-external` NetworkPolicy excludes `10.0.0.0/8`, and k3d pod IPs are
+   `10.42.x`. No rule allows egress to `monitoring`, so OTLP to Tempo was also blocked.
+3. **Protocol/port mismatch.** Both `Instrumentation` CRs send every language to `:4317`
+   (gRPC). The operator's Python and Java auto-instrumentation default to OTLP/**HTTP**, so
+   they need `:4318`.
+4. **`app-a` emits no telemetry, whatever the backend.** It is Go
+   (`per-service/apps/runtimes/go/`) with no OTel SDK. `instrumentation.opentelemetry.io/inject-sdk`
+   only injects `OTEL_*` env vars and instruments nothing. **Out of scope for this phase**
+   (it changes a runtime template, so both engines and the Go goldens). Name it in the SLO
+   comments and ADR 0014 as the one remaining gap. Do not claim the alerts fire end to end.
+
+Facts the executor needs (verified 2026-09-25):
+- Operator chart `opentelemetry-operator` 0.65.0 → operator **0.104.0**, which supports
+  `opentelemetry.io/v1beta1` `OpenTelemetryCollector`. Its default collector image is
+  `otel/opentelemetry-collector-k8s` (set in `observability/opentelemetry.yaml`).
+- `otelcol-k8s` includes `otlp`, `otlphttp`, `debug`, `batch`, `memory_limiter`,
+  `transform`, `resource`, `k8sattributes`. It does **not** include
+  `prometheusremotewrite`. So metrics go to Prometheus over **OTLP/HTTP**, not remote-write.
+- `kube-prometheus-stack` 61.1.0 → Prometheus operator v0.75 / Prometheus v2.53. Its OTLP
+  receiver is behind the `otlp-write-receiver` feature flag and listens at
+  `/api/v1/otlp/v1/metrics`. Prometheus 2.x does **not** turn resource attributes into
+  labels (only `service.name` → `job`). The SLO queries select on `service_name` and
+  `namespace`, so the collector must copy those onto every datapoint.
+- The central platform's ingest is `svc-nlb-otel-gateway` (optional extension in that
+  repo): **internal** NLB `obs-cluster-otel-gw`, plain OTLP on 4317/4318, no auth, no TLS.
+  It is reachable only from a VPC routed to it (peering/TGW), **never from local k3d**.
+
+### 20.1 — Delete the duplicate backends
+
+`git rm` in `4-platform-engineering/2-cluster-services/observability/`:
+`loki.yaml`, `promtail.yaml`, `tempo.yaml`, `grafana-datasources.yaml`. The datasources
+ConfigMap holds only Loki + Tempo; Grafana's Prometheus datasource comes from
+kube-prometheus-stack itself. `dora-dashboard.json` uses only `${DS_PROMETHEUS}`, so leave it.
+
+### 20.2 — Add `observability/otel-collector.yaml`
+
+New file. Wave `2` (namespaced config; the CRD comes from `opentelemetry` at wave 0). It
+**must** set `metadata.namespace` (addon namespace rule, AGENTS.md). Start from this and
+keep the comments short:
+
+```yaml
+# Platform OTLP collector — the single ingest point for tenant telemetry (ADR 0014).
+# Metrics -> local Prometheus (feeds the SLO burn-rate alerts). Traces -> debug only,
+# unless connected mode is on. Connected mode (off by default) ALSO forwards everything
+# to opentelemetry-platform-on-eks: set UPSTREAM_OTLP_ENDPOINT and add `otlp/upstream`
+# to both pipelines' exporters. Only works from a cluster routed to that repo's internal
+# NLB, never from local k3d.
+apiVersion: opentelemetry.io/v1beta1
+kind: OpenTelemetryCollector
+metadata:
+  name: platform-otlp            # operator names the Service platform-otlp-collector
+  namespace: monitoring
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  mode: deployment
+  replicas: 1
+  resources:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits:   { cpu: 200m, memory: 256Mi }
+  env:
+    - name: UPSTREAM_OTLP_ENDPOINT
+      value: "obs-cluster-otel-gw.example.internal:4317"   # placeholder; unused until connected mode
+  config:
+    receivers:
+      otlp:
+        protocols:
+          grpc: { endpoint: 0.0.0.0:4317 }
+          http: { endpoint: 0.0.0.0:4318 }
+    processors:
+      memory_limiter: { check_interval: 1s, limit_percentage: 80, spike_limit_percentage: 20 }
+      # Prometheus 2.x drops resource attributes; the SLO queries select on these two labels.
+      transform/slo-labels:
+        error_mode: ignore
+        metric_statements:
+          - context: datapoint
+            statements:
+              - set(attributes["service_name"], resource.attributes["service.name"]) where resource.attributes["service.name"] != nil
+              - set(attributes["namespace"], resource.attributes["k8s.namespace.name"]) where resource.attributes["k8s.namespace.name"] != nil
+      batch: {}
+    exporters:
+      otlphttp/prometheus:
+        metrics_endpoint: http://prometheus-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090/api/v1/otlp/v1/metrics
+      debug: { verbosity: basic }
+      otlp/upstream:
+        endpoint: ${env:UPSTREAM_OTLP_ENDPOINT}
+        tls: { insecure: true }   # internal NLB, plain OTLP — matches the central gateway
+    service:
+      pipelines:
+        metrics:
+          receivers: [otlp]
+          processors: [memory_limiter, transform/slo-labels, batch]
+          exporters: [otlphttp/prometheus]
+        traces:
+          receivers: [otlp]
+          processors: [memory_limiter, batch]
+          exporters: [debug]
+```
+
+Validate the `config:` block offline with the exact collector version the operator runs.
+Extract `spec.config` to a file, replace `${env:UPSTREAM_OTLP_ENDPOINT}` by exporting the env var, then:
+
+```bash
+curl -sfL https://github.com/open-telemetry/opentelemetry-collector-releases/releases/download/v0.104.0/otelcol-k8s_0.104.0_darwin_arm64.tar.gz | tar xz otelcol-k8s
+UPSTREAM_OTLP_ENDPOINT=x.invalid:4317 ./otelcol-k8s validate --config=/tmp/collector-config.yaml   # must exit 0
+```
+
+If `otelcol-k8s` 0.104.0 does not exist as a release asset, use the nearest newer
+`otelcol-k8s` and say so in the commit message. Do **not** switch to the contrib image
+just to get `prometheusremotewrite`.
+
+### 20.3 — Enable Prometheus's OTLP receiver, shorten retention
+
+In `observability/prometheus.yaml`, add to the existing `values: |` block (next to `alertmanager:`):
+
+```yaml
+prometheus:
+  prometheusSpec:
+    enableFeatures: ["otlp-write-receiver"]
+    retention: 48h   # local SLO loop only; long-term history is the central platform's job (ADR 0014)
+```
+
+Add a one-line comment pointing to ADR 0014. Leave the Alertmanager routing tree alone.
+
+### 20.4 — Point both `Instrumentation` CRs at the collector
+
+Both files must stay consistent:
+- `4-platform-engineering/2-cluster-services/observability/otel-instrumentation.yaml`
+- `1-platform-catalog/charts/service/templates/instrumentation.yaml`
+
+Changes in each:
+- `spec.exporter.endpoint` → `http://platform-otlp-collector.monitoring.svc.cluster.local:4317`
+  (gRPC default: Node.js and `inject-sdk`). Fix the comment: it says "traces to Tempo".
+- `python.env` and `java.env`: add
+  `OTEL_EXPORTER_OTLP_ENDPOINT: http://platform-otlp-collector.monitoring.svc.cluster.local:4318`
+  (these agents speak OTLP/HTTP). `java:` has no `env:` yet, so add one.
+- `python.env`: add `OTEL_SEMCONV_STABILITY_OPT_IN: http`. Without it, Python emits the
+  old `http.server.duration` (milliseconds), not the `http.server.request.duration`
+  (seconds) that the SLO queries select.
+
+Then re-render the committed fixture exactly as 19.2 does:
+
+```bash
+helm template app-a 1-platform-catalog/charts/service \
+  --values 3-tenant-repos/tenant-a/gitops-repo/services/app-a/dev/values.yaml \
+  --namespace tenant-a \
+  > 3-tenant-repos/tenant-a/gitops-repo/services/app-a/dev/manifests/rendered.yaml
+git diff --stat 3-tenant-repos/   # expect ONLY the Instrumentation block to change
+```
+
+### 20.5 — Let tenant pods reach the collector (NetworkPolicy)
+
+Append a rule 6 to `1-platform-catalog/per-tenant/gitops/platform/tenancy/networkpolicy.yaml.tmpl`,
+in the same numbered/commented style as rules 4 and 5:
+
+```yaml
+---
+# 6. FIX — telemetry egress to the platform OTLP collector only (ADR 0014).
+#    Rule 5 excludes 10.0.0.0/8, which covers every in-cluster pod IP, so without
+#    this nothing a tenant emits ever leaves its namespace.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-otlp-egress
+  namespace: [[ .TenantName ]]
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/component: opentelemetry-collector
+      ports:
+        - protocol: TCP
+          port: 4317
+        - protocol: TCP
+          port: 4318
+```
+
+`namespaceSelector` and `podSelector` go in the **same** `to:` entry (AND), not in two
+entries (OR). Two entries would open all of `monitoring`. It uses only `.TenantName`, so
+there are no new template fields and no Python render-data change. Regenerate the `tenant-a`
+fixture with the Go CLI into a temp dir and copy only `platform/tenancy/networkpolicy.yaml`
+over. Do not re-run `onboard-tenant` into the real tree (it truncates files).
+
+### 20.6 — Update SLO comments and runbooks
+
+- `observability/slo/app-a-slo.yaml` and `app-a-alerts.yaml`: rewrite the "KNOWN GAP"
+  comments. The pipeline now exists (Instrumentation → `platform-otlp` collector →
+  Prometheus OTLP receiver, labels from `transform/slo-labels`). The one remaining gap is
+  that the Go runtime template has no OTel SDK, so `app-a` emits no metrics yet (20 finding 4).
+- `docs/runbooks/app-a-availability-burn.md` and `app-a-latency-burn.md`: delete the Loki
+  and Tempo `port-forward` + `curl` blocks. Logs use the `kubectl logs` already there. For
+  traces, say they exist only in connected mode, in the central platform's Grafana (Tempo),
+  and name the repo. Keep Grafana for the Prometheus burn-rate view. Keep the Mitigate
+  sections unchanged.
+
+### 20.7 — Stale references
+
+- `.agents/AGENTS.md` wave list (~line 110): drop `loki, tempo, promtail` from wave `1`.
+- `.agents/AGENTS.md` §"Resolved CLI Design Decisions": add
+  `20. **Observability boundary.** (See [ADR 0014](../docs/adr/0014-observability-boundary.md))`.
+- Leave `PLAN.md` line ~188 (the Phase 14 status log naming loki/promtail/tempo) alone. It
+  records what ran.
+- `git grep -niE "loki|promtail|tempo" -- . ':!PLAN.md' ':!docs/adr'` must return only
+  intentional mentions (ADR 0014, runbook "traces live in the central platform" lines).
+
+### 20.8 — ADR 0014
+
+`docs/adr/0014-observability-boundary.md`, same shape as ADR 0013 (Date / Status /
+Context / Decision / Consequences / Revisit Trigger). Status: Accepted. Content:
+
+- **Context:** this repo ran a full LGTM stack that duplicated `opentelemetry-platform-on-eks`,
+  cost its own compute, and was never referenced from here. The SLO/rollback story needs
+  only PromQL rules + Alertmanager. Include findings 1–3 above as the context that made
+  the stack look more complete than it was.
+- **Decision:** a table of what stays here (Prometheus/Alertmanager/Grafana, 48h;
+  `platform-otlp` collector; SLO rules) vs. what belongs to the central platform (logs,
+  traces, long-term metrics, AIOps/RCA agents). Standalone is the default. Connected mode
+  is the two-line collector change. The rollback signal is local on purpose (no
+  cross-cluster hop in the safety path). Rejected alternatives in one line each: keep full
+  LGTM (duplicate cost, two unrelated stacks); CloudWatch (rewrite `PrometheusRule` as
+  alarms, per-metric cost, AWS lock-in); always forward (breaks standalone, rollback
+  depends on another repo's uptime).
+- **Consequences:** one intentional duplicate (a small Prometheus in each repo). Standalone
+  has no log/trace UI. Connected mode needs VPC routing to the central platform's internal
+  NLB, so it cannot run on k3d. `sre-agent-guardrails` and the central platform's AIOps plan
+  consume the central platform only; this repo is an optional extra source for them, never
+  a dependency. Open gap: the Go runtime has no OTel SDK (finding 4). Nothing here has run
+  on a cluster.
+- **Revisit trigger:** if the central platform grows multi-tenant ingest (auth + per-tenant
+  limits) *and* this repo stops needing to demo standalone, move connected mode to default.
+
+### 20.9 — Verification gate
+
+```bash
+# 1. Collector config valid on the operator's collector version (20.2) — exit 0
+# 2. Chart renders; fixture matches a fresh render
+helm template app-a 1-platform-catalog/charts/service \
+  --values 3-tenant-repos/tenant-a/gitops-repo/services/app-a/dev/values.yaml \
+  --namespace tenant-a | diff - 3-tenant-repos/tenant-a/gitops-repo/services/app-a/dev/manifests/rendered.yaml
+# 3. Both engines still agree byte for byte (19.7 step 1) — the NetworkPolicy template changed
+# 4. Go tests: cd 2-idp-scaffolder/golang && go test -count=1 ./...
+# 5. Kyverno over tenant trees still passes (CI-pinned v1.11.4, see AGENTS.md)
+# 6. SLO rules still parse
+yq '.spec' 4-platform-engineering/2-cluster-services/observability/slo/app-a-alerts.yaml > /tmp/rules.yaml
+promtool check rules /tmp/rules.yaml
+# 7. Every new namespaced object sets metadata.namespace and a sync-wave
+# 8. Stale-reference grep from 20.7 is clean
+```
+
+Optional, if `make setup` runs (Phase 14): `kubectl -n monitoring get otelcol,svc` shows
+`platform-otlp-collector`. `curl` an OTLP metric into it via a port-forward and confirm
+the series appears in Prometheus with `service_name` and `namespace` labels. That proves
+the pipeline without needing finding 4 fixed.
+
+**Out of scope:** adding the OTel SDK to the Go runtime (finding 4), Argo Rollouts
+`AnalysisTemplate` wiring (`rollout.enabled` is still `false` by default), and any change
+in `opentelemetry-platform-on-eks` (a one-line README back-link there is a separate task
+in that repo).
+
+**Done and verified (2026-09-29).**
+- Duplicate backends (`loki.yaml`, `promtail.yaml`, `tempo.yaml`, `grafana-datasources.yaml`) deleted.
+- `otel-collector.yaml` added at wave 2 (`platform-otlp`, `monitoring` namespace) with `transform/slo-labels` adding `service_name` and `namespace` labels; config verified with `otelcol validate`.
+- `prometheus.yaml` enables `otlp-write-receiver` with 48h retention for local SLO loop (ADR 0014).
+- `otel-instrumentation.yaml` and chart template point to `platform-otlp-collector` (4317 gRPC, 4318 HTTP); `rendered.yaml` re-rendered and verified.
+- `allow-otlp-egress` rule 6 added to `networkpolicy.yaml.tmpl`; `networkpolicy.yaml` fixture regenerated; Go and Python engines verified byte-identical.
+- Comments updated in `app-a-slo.yaml` and `app-a-alerts.yaml`; runbooks updated.
+- ADR 0014 written and accepted; references updated in `.agents/AGENTS.md`, `README.md`, and `docs/disaster-recovery.md`.
+- All verification gates passed: Go unit tests (`go test ./...`), Kyverno policy validation (pinned v1.11.4: 8 passed), PromQL rule validation via `promtool check rules` (8 rules found), and stale reference grep.
+

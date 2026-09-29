@@ -395,7 +395,7 @@ This blueprint integrates best-in-class cloud-native tooling to form a cohesive 
 | **Prog. Delivery** | **Argo Rollouts** | Automated Canary & Blue-Green deployments integrated with edge routing. |
 | **Edge Gateway** | **Traefik** | L7 ingress, API gateway, rate-limiting, and middleware injection. |
 | **Secrets Ops** | **Sealed Secrets** | Asymmetric encryption enabling safe storage of secrets in Git. |
-| **Observability** | **Grafana Stack**| Unified metrics (Prometheus), logs (Loki), and traces (Tempo) — plus SLO-based, multi-window multi-burn-rate alerting on `app-a` routed through Alertmanager, each alert linked to a runbook (`4-platform-engineering/2-cluster-services/observability/slo/`, `docs/runbooks/`). |
+| **Observability** | **Prometheus + OTel** | Local Prometheus (SLO loop) and OTel Collector feeding multi-window multi-burn-rate alerting on `app-a` routed through Alertmanager, each alert linked to a runbook (`4-platform-engineering/2-cluster-services/observability/slo/`, `docs/runbooks/`). Central logs/traces live in `opentelemetry-platform-on-eks` (ADR 0014). |
 | **Dep. Management**| **Renovate** | Automated dependency bumps. `go.mod` and `pyproject.toml` are covered by the built-in managers; one custom regex manager handles the version pins in `catalog.yaml`, which no package manager understands. |
 | **DORA Metrics** | **Grafana dashboard** | Deployment frequency and change failure rate as real PromQL against ArgoCD's own sync metrics (`4-platform-engineering/2-cluster-services/observability/dora-dashboard.json`); lead time and MTTR are documented gaps, not faked ones — see the dashboard's own panels. |
 
@@ -472,11 +472,10 @@ they'd be easy to miss.
 - **Neither scaffolder engine is idempotent.** Re-running `add-service` overwrites any hand
   edits made to a previously generated file. A "skip if exists" mode and a working
   `--dry-run` flag are the next items on both engines' `TODO.md`.
-- **Observability alerts assume a metrics pipeline that isn't fully wired.** Traces reach
-  Tempo automatically; metrics don't yet reach Prometheus the same way (that needs an
-  OpenTelemetry Collector + a `ServiceMonitor`, not yet built), so the burn-rate alerts in
-  `4-platform-engineering/2-cluster-services/observability/slo/` are correct but currently
-  have nothing to fire on.
+- **Go runtime has no OTel SDK yet.** The telemetry pipeline is wired (Instrumentation CR ->
+  `platform-otlp` OpenTelemetryCollector -> Prometheus OTLP receiver with `service_name` and `namespace`
+  labels), but the Go runtime template has no OTel SDK, so `app-a` does not emit metric series
+  yet (see `4-platform-engineering/2-cluster-services/observability/slo/app-a-slo.yaml` and ADR 0014).
 - **The scaffolder CLI has no login of its own.** Anyone who can run the binary can
   scaffold into any team's directory — the pull request + `CODEOWNERS` review is the real
   gate today. See [Roadmap](#-roadmap) for the planned fix (reusing the same Keycloak

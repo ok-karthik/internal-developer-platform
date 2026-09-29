@@ -42,22 +42,11 @@ kubectl -n tenant-a get events --sort-by=.lastTimestamp | tail -20
 # Application logs for the failing pods (pods/log is explicitly granted)
 kubectl -n tenant-a logs -l app.kubernetes.io/instance=app-a --tail=200 --since=1h
 
-# Recent 5xx-tagged log lines via Loki (Grafana Explore, or the HTTP API directly
-# — port-forward is the local-cluster equivalent of the Grafana Explore URL):
-kubectl -n monitoring port-forward svc/loki-gateway 3100:80 &
-curl -sG http://localhost:3100/loki/api/v1/query_range \
-  --data-urlencode 'query={namespace="tenant-a", app="app-a"} |= "status=5"' \
-  --data-urlencode 'start='"$(date -u -v-1H +%s)"'000000000' \
-  --data-urlencode 'end='"$(date -u +%s)"'000000000'
+# Traces exist only in connected mode (ADR 0014), forwarded to the central platform
+# (https://github.com/ok-karthik/opentelemetry-platform-on-eks) and viewable in its
+# central Grafana (Tempo). Standalone mode does not run a trace backend.
 
-# Trace a specific failing request in Tempo (grab a trace ID from a 5xx log
-# line above, or from Grafana Explore -> Tempo, since traces are wired via
-# the Instrumentation CR to http://tempo.monitoring.svc.cluster.local:4317):
-kubectl -n monitoring port-forward svc/tempo 3100:3100 &
-curl -s http://localhost:3100/api/traces/<trace-id> | jq .
-
-# Grafana UI (has both datasources pre-wired, easier for correlating
-# logs <-> traces than raw curl):
+# Grafana UI (view Prometheus burn-rate alerts and SLO dashboard):
 open http://grafana.localhost   # after `make bootstrap` + ingress is up
 ```
 

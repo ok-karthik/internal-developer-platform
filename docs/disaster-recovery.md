@@ -10,7 +10,7 @@ However, Git does not hold everything. The following state exists only outside G
 
 | Not in git | Consequence if lost | Mitigation |
 |---|---|---|
-| PVC data (Prometheus TSDB, Loki chunks, Keycloak DB) | Metrics and log history are lost. | Keycloak realm is fully declarative (Phase 7). For observability data, we accept the data loss in a DR scenario, optimizing for faster RTO over historical metrics retention. |
+| PVC data (Prometheus TSDB, Keycloak DB) | Metrics history is lost. | Keycloak realm is fully declarative (Phase 7). For observability data, we accept the data loss in a DR scenario, optimizing for faster RTO over historical metrics retention (48h retention per ADR 0014). |
 | Terraform state | The platform's own AWS resources (VPC, IAM roles, EKS cluster) become unmanaged. | State is stored in a versioned S3 bucket (`acme-corp-terraform-state`). We rely on AWS S3 durability and versioning. |
 | **Sealed Secrets Private Key** | **Every `SealedSecret` in git becomes permanently undecryptable.** | **CRITICAL:** The Sealed Secrets controller key must be backed up securely off-cluster. |
 

@@ -6,8 +6,8 @@ metadata:
     {{- include "app.labels" . | nindent 4 }}
 spec:
   exporter:
-    # Point traces to the centralized Tempo service running in the monitoring namespace
-    endpoint: http://tempo.monitoring.svc.cluster.local:4317
+    # Send telemetry to the platform OTLP collector (ADR 0014)
+    endpoint: http://platform-otlp-collector.monitoring.svc.cluster.local:4317
   propagators:
     - tracecontext
     - baggage
@@ -21,7 +21,14 @@ spec:
         value: "system_metrics"
       - name: OTEL_LOGS_EXPORTER
         value: "none"
+      - name: OTEL_EXPORTER_OTLP_ENDPOINT
+        value: "http://platform-otlp-collector.monitoring.svc.cluster.local:4318"
+      - name: OTEL_SEMCONV_STABILITY_OPT_IN
+        value: "http"
   java:
     image: ghcr.io/open-telemetry/opentelemetry-operator/autoinstrumentation-java:latest
+    env:
+      - name: OTEL_EXPORTER_OTLP_ENDPOINT
+        value: "http://platform-otlp-collector.monitoring.svc.cluster.local:4318"
   nodejs:
     image: ghcr.io/open-telemetry/opentelemetry-operator/autoinstrumentation-nodejs:latest

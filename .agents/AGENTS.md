@@ -104,8 +104,8 @@ it (a `PrometheusRule` never selected by Prometheus, for instance) fails quietly
 every manifest still showing Synced/Healthy. Every file in the addon tree carries an explicit `argocd.argoproj.io/sync-wave`
 too, so ordering is fully specified rather than half-implied by `SkipDryRunOnMissingResource`:
 `0` = CRD-providing installers (kyverno, cert-manager, traefik, opentelemetry, prometheus,
-ACK, karpenter), `1` = remaining installers (loki, tempo, promtail, argo-rollouts, sealed-secrets),
-`2` = namespaced config (ingresses, middlewares, instrumentation, grafana-datasources),
+ACK, karpenter), `1` = remaining installers (argo-rollouts, sealed-secrets),
+`2` = namespaced config (ingresses, middlewares, instrumentation, otel-collector),
 `3` = policies and the tenant `ApplicationSet` — last, so they never gate the platform's
 own boot.
 
@@ -354,6 +354,7 @@ kyverno apply 4-platform-engineering/2-cluster-services/security-governance/ \
 17. **Karpenter is split across the repo boundary.** AWS half (IAM, SQS, EventBridge, discovery tags) in `enterprise-aws-infrastructure`; controller + `EC2NodeClass`/`NodePool` here, per cluster labelled `karpenter: enabled`. Supersedes ADR 0009. (See [ADR 0013](../docs/adr/0013-karpenter-two-halves.md))
 18. **Cost attribution is enforced at admission, not reported afterwards.** Every ACK claim must carry `Tenant`, `Service` and `CostCenter` tags and `Tenant` must equal its namespace (`require-cost-tags` Kyverno policy); OpenCost attributes in-cluster spend by namespace. `CostCenter` currently defaults to the tenant name — there is no real cost-centre mapping yet. Terraform claims are gated in `enterprise-aws-infrastructure`.
 19. **`make setup` was broken until Phase 18:** `bootstrap`/`clean` referenced a root `bootstrap.yaml` that lives at `4-platform-engineering/bootstrap.yaml`. Fixed, and `bootstrap` now also applies `local/cluster-secret.yaml`. **The full `make setup` has still never been run end to end** (Phase 14 is blocked on Docker, a push, and `asciinema`).
+20. **Observability boundary.** (See [ADR 0014](../docs/adr/0014-observability-boundary.md))
 
 ## 🔭 Roadmap — Scaffolder identity (not planned work; direction only)
 

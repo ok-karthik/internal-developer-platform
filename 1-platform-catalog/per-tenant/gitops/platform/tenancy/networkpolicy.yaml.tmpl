@@ -93,3 +93,30 @@ spec:
             except:
               - 169.254.169.254/32   # IMDS
               - 10.0.0.0/8           # force intra-VPC through explicit rules
+---
+# 6. FIX — telemetry egress to the platform OTLP collector only (ADR 0014).
+#    Rule 5 excludes 10.0.0.0/8, which covers every in-cluster pod IP, so without
+#    this nothing a tenant emits ever leaves its namespace.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-otlp-egress
+  namespace: [[ .TenantName ]]
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/component: opentelemetry-collector
+      ports:
+        - protocol: TCP
+          port: 4317
+        - protocol: TCP
+          port: 4318
+

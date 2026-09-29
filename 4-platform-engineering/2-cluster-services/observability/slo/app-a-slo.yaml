@@ -5,17 +5,13 @@
 # burn-rate math and thresholds here are the source of truth that
 # app-a-alerts.yaml's PrometheusRule was hand-derived from; keep them in sync
 # if either changes.
-#
-# KNOWN GAP: the metric names below (OTel semantic-convention HTTP server
-# duration histogram) assume traces AND metrics reach Prometheus. Today the
-# OpenTelemetry `Instrumentation` CR
-# (4-platform-engineering/2-cluster-services/observability/otel-instrumentation.yaml)
-# only wires traces to Tempo — there is no `OpenTelemetryCollector` deployment
-# or `ServiceMonitor`/`PodMonitor` exporting app-a's metrics into Prometheus
-# yet. Wiring that scrape path is a prerequisite for these SLOs and alerts to
-# fire in reality; it is out of scope for this change and is named here rather
-# than silently assumed to work, per this repo's own rule about not claiming
-# more than what is built.
+# KNOWN GAP: the pipeline for metrics now exists (Instrumentation CR ->
+# platform-otlp OpenTelemetryCollector -> Prometheus OTLP receiver, with
+# service_name and namespace labels added by transform/slo-labels). However,
+# the Go runtime template (per-service/apps/runtimes/go/) currently includes no
+# OpenTelemetry SDK (inject-sdk only injects env vars, it cannot auto-instrument Go),
+# so app-a does not emit these metric series yet. This remaining gap is left
+# explicit per this repo's rule of not claiming more than what is built (ADR 0014).
 apiVersion: v1
 kind: ConfigMap
 metadata:
