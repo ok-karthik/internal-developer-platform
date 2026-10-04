@@ -200,6 +200,7 @@ permission sets) can only match on the group string it receives — see Phase 7.
 - **Rendering is table-driven.** `blueprint{src, destKey}` slices drive both verbs through one `renderDestinations` helper. Adding a building block is a table row, not a new `if` block — the previous copy-pasted loops had already drifted apart and produced a real bug.
 - **Keep resolution pure.** `templater.Resolve(spec, goldenPath, in Config) (Config, error)` reads nothing outside its parameters. Policy belongs there, not in a cobra `RunE` closure, so `cmd/api/` can reuse it. It clones the incoming capabilities slice — a struct copy shares a slice's backing array, so appending without a copy writes through into the caller's data.
 - **Exported methods validate their own inputs.** `RenderService` guards an empty `Runtime` even though the CLI already does: `path.Join` drops empty segments, so the walk would silently target `per-service/apps/runtimes` and render *every* runtime into one directory.
+- **Names are validated at the render boundary.** `RenderTenantFoundation` and `RenderService` check tenant, app, env, system and owner against `nameRule` in `internal/templater/names.go` before writing anything. Any new user-supplied name that reaches a path or a Kubernetes name must be added there.
 
 ### 3. Terraform Capability Modules (`enterprise-aws-infrastructure`, `iac-modules-repo/`)
 - The modules live in their own repository (ADR 0011), not here. Each is released with its own annotated tag (`<module>-vX.Y.Z`, e.g. `postgres-v2.0.0`). Module git source URLs:

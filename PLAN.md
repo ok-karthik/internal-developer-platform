@@ -66,8 +66,6 @@ Built and verified offline in this repo; none of it has run on a real cluster.
 
 ## Follow-ups noticed, not yet planned
 
-- The Go CLI does not validate tenant/app names (`--app-name ../../x` writes outside the tenant).
-  The Phase 23 workflow guards it; the CLI should too.
 - Docs undersell the CLI: `--dry-run` works and re-runs skip existing files, but README and
   `.agents/AGENTS.md` items 11/13 say otherwise and point to a "Go TODO" that does not exist.
 - `.agents/AGENTS.md` ADR links are written from the repo root, so they break on GitHub.
@@ -81,6 +79,7 @@ Built and verified offline in this repo; none of it has run on a real cluster.
 
 ## Recently done
 
+- **Phase 24** (2026-10-04) — the CLI validates tenant/app/env/system/owner names; unsafe names write nothing.
 - **Phase 21** (2026-10-04) — rich Backstage metadata in catalog-info; app-a fixture regenerated.
 - **Phase 22** (2026-10-04) — Go is the only scaffolder engine; Python deleted; ADR 0015. PR #39.
 - **Phase 20** (2026-09-29) — local SLO loop only, central telemetry upstream; ADR 0014.
