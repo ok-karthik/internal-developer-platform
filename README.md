@@ -1,10 +1,12 @@
-# 🏛️ Platform Engineering: IDP & GitOps Reference Architecture
+# 🏛️ Internal Developer Platform — Golden Paths to GitOps on Kubernetes
 
 [![Version](https://img.shields.io/badge/version-v2.2.0-blue)](https://github.com/ok-karthik/internal-developer-platform/releases/tag/v2.2.0)
 
-**A self-service platform where a developer types one command and gets a running
+> **Production-grade reference implementation:** A Go CLI scaffolds microservices from blessed golden paths into tenant repos; ArgoCD deploys them onto a multi-tenant Kubernetes platform with policy admission, SLO observability, and supply-chain security built in.
+
+A self-service platform where a developer types one command and gets a running
 microservice — with its own database, its own network policy, its own dashboards, and its
-own place in the org's tenancy model — without filing a ticket.**
+own place in the org's tenancy model — without filing a ticket.
 
 Built on **Platform-as-a-Product**: the platform is the product, application teams are its
 customers. Four pillars deliver that:
