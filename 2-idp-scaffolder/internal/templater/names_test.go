@@ -83,3 +83,10 @@ func TestValidateServiceNamesJoinedLength(t *testing.T) {
 		}
 	}
 }
+
+func TestValidateTenantNamesRequiresOwner(t *testing.T) {
+	err := validateTenantNames(Config{TenantName: "tenant-a", Owners: nil})
+	if !errors.Is(err, ErrOwnerRequired) || fieldOf(t, err) != "owner" {
+		t.Errorf("no owner: got %v, want ErrOwnerRequired on field owner", err)
+	}
+}

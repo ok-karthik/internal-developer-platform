@@ -27,6 +27,9 @@ func validateTenantNames(cfg Config) error {
 	if err := checkName("tenant-name", cfg.TenantName); err != nil {
 		return err
 	}
+	if len(cfg.Owners) == 0 {
+		return &ValidationError{Field: "owner", Err: ErrOwnerRequired}
+	}
 	for _, o := range cfg.Owners {
 		if err := checkName("owner", o); err != nil {
 			return err
