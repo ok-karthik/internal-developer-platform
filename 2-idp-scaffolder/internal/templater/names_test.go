@@ -60,3 +60,26 @@ func TestValidateServiceNames(t *testing.T) {
 		t.Errorf("bad env: got %v", err)
 	}
 }
+
+func TestValidateServiceNamesJoinedLength(t *testing.T) {
+	a := func(n int) string { return strings.Repeat("a", n) }
+	pass := []Config{
+		{TenantName: "tenant-a", AppName: "app-a", Env: "dev"},
+		{TenantName: a(20), AppName: a(20), Env: a(21)}, // joined 63
+	}
+	for _, c := range pass {
+		if err := validateServiceNames(c); err != nil {
+			t.Errorf("%d+%d+%d: %v, want nil", len(c.TenantName), len(c.AppName), len(c.Env), err)
+		}
+	}
+	fail := []Config{
+		{TenantName: a(20), AppName: a(20), Env: a(22)}, // joined 64
+		{TenantName: a(40), AppName: a(40), Env: a(40)},
+	}
+	for _, c := range fail {
+		err := validateServiceNames(c)
+		if !errors.Is(err, ErrNameTooLong) || fieldOf(t, err) != "tenant-name+app-name+env" {
+			t.Errorf("%d+%d+%d: got %v, want ErrNameTooLong", len(c.TenantName), len(c.AppName), len(c.Env), err)
+		}
+	}
+}

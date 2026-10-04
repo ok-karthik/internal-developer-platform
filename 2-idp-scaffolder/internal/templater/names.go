@@ -4,9 +4,14 @@ import "regexp"
 
 // nameRule is the one rule for every user-supplied name the scaffolder turns into a
 // folder path or a Kubernetes/Backstage name. Starts with a letter (Kubernetes
-// Service names require it); max 40 so "<tenant>-<app>-<env>-<cluster>" and Helm's
-// 53-char release limit still fit.
+// Service names require it); max 40 per name keeps Helm's 53-char release limit and
+// DNS labels safe. The joined "<tenant>-<app>-<env>" has its own 63 cap, see maxDerivedName.
 var nameRule = regexp.MustCompile(`^[a-z]([-a-z0-9]{0,38}[a-z0-9])?$`)
+
+// maxDerivedName caps len("<tenant>-<app>-<env>"). s3.yaml.tmpl and iam.yaml.tmpl name the
+// S3 bucket and the IAM role with that joined string. AWS allows 63 characters for a
+// bucket name and 64 for a role name, so 63 is the safe limit for both.
+const maxDerivedName = 63
 
 // checkName returns a *ValidationError naming the field when value breaks nameRule.
 func checkName(field, value string) error {
@@ -46,6 +51,10 @@ func validateServiceNames(cfg Config) error {
 		if err := checkName("system", cfg.SystemName); err != nil {
 			return err
 		}
+	}
+	joined := cfg.TenantName + "-" + cfg.AppName + "-" + cfg.Env
+	if len(joined) > maxDerivedName {
+		return &ValidationError{Field: "tenant-name+app-name+env", Value: joined, Err: ErrNameTooLong}
 	}
 	return nil
 }

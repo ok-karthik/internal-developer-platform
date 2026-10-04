@@ -12,6 +12,7 @@ var (
 	ErrUnknownGoldenPath = errors.New("golden path not found")
 	ErrRuntimeRequired   = errors.New("a runtime is required")
 	ErrInvalidName       = errors.New("must be 1-40 chars of lowercase letters, digits and dashes, start with a letter, and not end with a dash")
+	ErrNameTooLong       = errors.New("tenant-app-env is longer than 63 characters, the AWS limit for the S3 bucket and IAM role names built from it")
 )
 
 // ValidationError provides structured metadata about which field failed validation.
