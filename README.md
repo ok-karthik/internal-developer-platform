@@ -123,11 +123,11 @@ Once the platform is running, generate a new microservice with one command:
 cd 2-idp-scaffolder
 
 # Step 1 — once per tenant: namespace, network policy, RBAC, etc.
-go run . onboard-tenant --catalog-root ../1-platform-catalog \
+go run . onboard-tenant --catalog-root ../1-platform-catalog --output-root /tmp/idp-out \
                         --tenant-name tenant-a --owner team-a
 
 # Step 2 — once per service: source code + deployment config
-go run . add-service --catalog-root ../1-platform-catalog \
+go run . add-service --catalog-root ../1-platform-catalog --output-root /tmp/idp-out \
                      --tenant-name tenant-a --app-name app-a \
                      --golden-path go-service-postgres
 ```
