@@ -1,6 +1,6 @@
-# AGENTS.md - Platform Engineering IDP GitOps Reference Architecture
+# AGENTS.md - Internal Developer Platform: Golden Paths to GitOps on Kubernetes
 
-This repository is an enterprise-grade **Internal Developer Platform (IDP)** blueprint for zero-touch microservice onboarding, GitOps continuous delivery, and infrastructure management.
+This repository is a reference **Internal Developer Platform (IDP)** for zero-touch microservice onboarding, GitOps continuous delivery, and infrastructure management.
 
 ---
 
