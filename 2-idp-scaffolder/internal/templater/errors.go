@@ -11,6 +11,7 @@ var (
 	ErrUnknownRuntime    = errors.New("unknown runtime")
 	ErrUnknownGoldenPath = errors.New("golden path not found")
 	ErrRuntimeRequired   = errors.New("a runtime is required")
+	ErrInvalidName       = errors.New("must be 1-40 chars of lowercase letters, digits and dashes, start with a letter, and not end with a dash")
 )
 
 // ValidationError provides structured metadata about which field failed validation.
