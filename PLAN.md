@@ -1204,3 +1204,55 @@ in that repo).
 - ADR 0014 written and accepted; references updated in `.agents/AGENTS.md`, `README.md`, and `docs/disaster-recovery.md`.
 - All verification gates passed: Go unit tests (`go test ./...`), Kyverno policy validation (pinned v1.11.4: 8 passed), PromQL rule validation via `promtool check rules` (8 rules found), and stale reference grep.
 
+---
+
+## Phase 21 — Scaffolder: Rich Backstage Metadata & Portal Links (`catalog-info.yaml.tmpl`)
+
+**Goal:** The scaffolder (`add-service`) must populate rich, clickable Backstage metadata
+automatically, rather than producing a bare stub that requires hand-editing. Every new
+service scaffolded across the platform should immediately show descriptions, tags, source
+links, GitOps links, and SLO dashboard links in Backstage.
+
+### 21.1 — Update `1-platform-catalog/per-service/apps/service-meta/catalog-info.yaml.tmpl`
+
+Enrich the shared template with standard Backstage fields:
+- `metadata.description`: generated default (e.g., `[[ .AppName ]] microservice for [[ .TenantName ]] with GitOps continuous delivery`).
+- `metadata.tags`: include `microservice`, `[[ .Runtime ]]`, and iterate over `[[ range .Capabilities ]]`.
+- `metadata.links`:
+  - `Service Source`: `https://github.com/ok-karthik/internal-developer-platform/tree/main/3-tenant-repos/[[ .TenantName ]]/workloads-repo/services/[[ .AppName ]]`
+  - `GitOps Delivery (ArgoCD)`: `https://github.com/ok-karthik/internal-developer-platform/tree/main/3-tenant-repos/[[ .TenantName ]]/gitops-repo/services/[[ .AppName ]]/[[ .Env ]]`
+  - `SLO Dashboard`: `http://grafana.localhost` (local) or central Grafana URL.
+  - `Service Endpoint`: `http://[[ .AppName ]].[[ .TenantName ]].localhost`
+- `metadata.annotations`:
+  - `backstage.io/source-location`: `url:https://github.com/ok-karthik/internal-developer-platform/tree/main/3-tenant-repos/[[ .TenantName ]]/workloads-repo/services/[[ .AppName ]]` (activates Backstage's native "VIEW SOURCE" button).
+  - `github.com/project-slug`: `ok-karthik/internal-developer-platform`
+  - `argocd/app-name`: `[[ .TenantName ]]-[[ .AppName ]]-[[ .Env ]]` (for future Backstage ArgoCD plugin integration).
+- Retain existing `spec.system` relation logic (`[[- if .SystemName ]]`).
+
+### 21.2 — Template Context (Go Scaffolder)
+
+Ensure Go CLI (`2-idp-scaffolder/internal/templater/render.go`) passes all necessary fields to `service-meta`:
+- Verify `ServiceView` / `Config` provides `.Runtime`, `.Capabilities`, `.Env`, `.TenantName`, `.AppName`, `.SystemName`.
+
+### 21.3 — Regenerate Fixture & Verification Gate
+
+1. Regenerate `tenant-a` fixture (`3-tenant-repos/tenant-a/workloads-repo/services/app-a/catalog-info.yaml`)
+   using Go CLI.
+2. Update Go templater testdata (`2-idp-scaffolder/internal/templater/testdata/`) if golden snapshots cover `catalog-info.yaml`.
+3. Run `go test -count=1 ./...` in `2-idp-scaffolder/`.
+4. Verify in local Backstage dev portal that a newly scaffolded test app appears with all links and tags active.
+
+---
+
+## Phase 22 — Go-only scaffolder (retire Python, flatten `golang/`)
+
+**Plan:** [`docs/plans/2026-10-04-go-only-scaffolder.md`](docs/plans/2026-10-04-go-only-scaffolder.md)
+(Opus plans → `implementer`/Sonnet executes in worktree `../idp-go-only` → `reviewer`/Opus checks).
+
+**Done and verified (2026-10-04).**
+- `2-idp-scaffolder/python/` deleted; Go codebase moved up to `2-idp-scaffolder/`.
+- Relative path constant in `internal/templater/render_test.go` adjusted from 4 levels to 3.
+- CI workflow `.github/workflows/ci.yaml` updated: removed Python jobs (`test-python-engine`, `verify-engine-parity`), added `smoke-test-go-cli`.
+- `Makefile`, `.gitignore`, `README.md`, `.agents/AGENTS.md`, and Backstage docs updated.
+- ADR 0015 written and accepted: `docs/adr/0015-go-only-scaffolder.md`.
+- All Go unit tests (`go test -count=1 ./...`) and `go vet` pass cleanly.

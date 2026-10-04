@@ -13,9 +13,10 @@ dist/
 .pytest_cache/
 .coverage
 htmlcov/
-2-idp-scaffolder/golang/scaffolder
+2-idp-scaffolder/scaffolder
 scaffolder
-2-idp-scaffolder/golang/idp-cli
+2-idp-scaffolder/idp-cli
+2-idp-scaffolder/bin/
 
 # Terraform local state/provider cache — .terraform.lock.hcl IS committed
 # (it pins provider versions); the downloaded provider binaries are not.

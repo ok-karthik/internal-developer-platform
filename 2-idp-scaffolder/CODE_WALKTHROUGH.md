@@ -1,6 +1,6 @@
 # Code Walkthrough — The Go IDP Scaffolder, Line by Line
 
-This document is a comprehensive, production-grade walkthrough of the Go IDP Scaffolder (`2-idp-scaffolder/golang/`). It explains the architecture, design decisions, memory mechanics, error handling, and end-to-end execution flow.
+This document is a comprehensive, production-grade walkthrough of the Go IDP Scaffolder (`2-idp-scaffolder/`). It explains the architecture, design decisions, memory mechanics, error handling, and end-to-end execution flow.
 
 Every trace, path, and code snippet below reflects the current codebase and has been verified against the test suite.
 
@@ -77,7 +77,7 @@ At its core, the Go IDP Scaffolder performs one fundamental task:
 ### Package Responsibilities
 
 ```
-2-idp-scaffolder/golang/
+2-idp-scaffolder/
 ├── main.go                       → Minimal process entrypoint; delegates to cli.Execute()
 ├── cmd/cli/
 │   ├── root.go                   → Root Cobra command, signal trapping, version pinning, remote fetching
@@ -99,7 +99,7 @@ At its core, the Go IDP Scaffolder performs one fundamental task:
 
 ### The Output Layout Contract
 
-The scaffolder targets a tenant-first monorepo layout. Each tenant is two directories, one per real repository ([ADR 0010](../../docs/adr/0010-tenant-repository-topology.md)):
+The scaffolder targets a tenant-first monorepo layout. Each tenant is two directories, one per real repository ([ADR 0010](../docs/adr/0010-tenant-repository-topology.md)):
 
 ```
 3-tenant-repos/<tenant>/

@@ -23,27 +23,13 @@ jobs:
         uses: actions/setup-go@v7
         with:
           go-version: '1.26'
-          cache-dependency-path: 2-idp-scaffolder/golang/go.sum
+          cache-dependency-path: 2-idp-scaffolder/go.sum
           
       - name: Run Go tests
-        working-directory: 2-idp-scaffolder/golang
+        working-directory: 2-idp-scaffolder
         run: go test -v ./...
 
-  test-python-engine:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      
-      - name: Install uv
-        uses: astral-sh/setup-uv@v10.0.1
-        with:
-          version: "latest"
-          
-      - name: Run Python catalog validation
-        working-directory: 2-idp-scaffolder/python
-        run: uv run python catalog.py
-
-  verify-engine-parity:
+  smoke-test-go-cli:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -52,34 +38,22 @@ jobs:
         uses: actions/setup-go@v7
         with:
           go-version: '1.26'
-          cache-dependency-path: 2-idp-scaffolder/golang/go.sum
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v10.0.1
-        with:
-          version: "latest"
+          cache-dependency-path: 2-idp-scaffolder/go.sum
 
       - name: Build Go CLI
-        working-directory: 2-idp-scaffolder/golang
+        working-directory: 2-idp-scaffolder
         run: go build -o idp-cli .
 
-      - name: Generate Go Output
+      - name: Scaffold a tenant and a service
         run: |
           mkdir -p /tmp/go-output
-          ./2-idp-scaffolder/golang/idp-cli onboard-tenant --tenant-name test-tenant --owner test-owner --catalog-root ./1-platform-catalog --output-root /tmp/go-output
-          ./2-idp-scaffolder/golang/idp-cli add-service --tenant-name test-tenant --app-name test-app --golden-path go-service-postgres --catalog-root ./1-platform-catalog --output-root /tmp/go-output
+          ./2-idp-scaffolder/idp-cli onboard-tenant --tenant-name test-tenant --owner test-owner --catalog-root ./1-platform-catalog --output-root /tmp/go-output
+          ./2-idp-scaffolder/idp-cli add-service --tenant-name test-tenant --app-name test-app --golden-path go-service-postgres --catalog-root ./1-platform-catalog --output-root /tmp/go-output
 
-      - name: Generate Python Output
+      - name: Assert output was written
         run: |
-          mkdir -p /tmp/python-output
-          cd 2-idp-scaffolder/python
-          uv run python main.py onboard-tenant --tenant-name test-tenant --owner test-owner
-          uv run python main.py add-service --tenant-name test-tenant --app-name test-app --golden-path go-service-postgres
-          mv ../../3-tenant-repos/test-tenant /tmp/python-output/test-tenant
-
-      - name: Assert Byte-for-Byte Parity
-        run: |
-          diff -r /tmp/go-output/test-tenant /tmp/python-output/test-tenant
+          test -f /tmp/go-output/test-tenant/workloads-repo/services/test-app/catalog-info.yaml
+          test -d /tmp/go-output/test-tenant/gitops-repo/services/test-app
 
   validate-tenancy:
     runs-on: ubuntu-latest

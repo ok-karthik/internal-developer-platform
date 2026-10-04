@@ -9,7 +9,7 @@ artifacts that follow from it — not a running Backstage instance.
 Scaffolding an actual Backstage instance means creating a second, separate application: a
 TypeScript monorepo (`npx @backstage/create-app`), its own `node_modules`, its own backend
 process, its own auth wiring — a different category of work from everything else in this
-repo, which is Kubernetes manifests, Terraform, and two CLI engines. `PLAN.md` itself
+repo, which is Kubernetes manifests, Terraform, and a Go CLI. `PLAN.md` itself
 timeboxes this to two days and says explicitly: *"steps 1-2 deliver most of the demo value
 in a few hours, and step 3 [wrapping the scaffolder] is where the schedule goes to die...
 if you hit the box, ship what works."* Given the phase's own 1.2% weight against Phases
@@ -21,7 +21,7 @@ architectural decision, the Software Template, and the config fragment.
 ## Does Backstage replace the CLI? No — it becomes a client of it.
 
 Catalog validation, golden-path resolution, template rendering, and destination routing
-are this platform's **domain logic**, and they stay in Go (`2-idp-scaffolder/golang/`).
+are this platform's **domain logic**, and they stay in Go (`2-idp-scaffolder/`).
 Backstage is a **presentation layer** on top. Putting the logic in Backstage TypeScript
 instead would mean exactly one client, forever, coupled to a framework this repo does not
 control — see `PLAN.md` Phase 8.0 for the full argument, including why a CLI a developer
@@ -40,7 +40,7 @@ Three ways to connect them, and the one actually used here:
 
 - **`software-template.yaml`** — a real Backstage Software Template using the built-in
   `fetch:template` and `publish:github` actions plus a placeholder custom action
-  (`idp:run-cli`) that shells to `2-idp-scaffolder/golang`'s `add-service` command inside
+  (`idp:run-cli`) that shells to `2-idp-scaffolder`'s `add-service` command inside
   its own container — approach (b). The custom action itself is a few lines of TypeScript
   once a real Backstage backend exists to host it; it is not written here because there is
   no backend to host it in, and an action file with no plugin around it would be inert.
@@ -54,5 +54,4 @@ Three ways to connect them, and the one actually used here:
 
 `cmd/cli/` in the Go scaffolder stays a thin adapter — no business logic ever moves into
 it. The day Backstage (or anything else) forces business logic into `cmd/`, that separation
-is broken. This belongs in `2-idp-scaffolder/golang/TODO.md`, which is out of scope to edit
-on this branch; recorded here so it is not lost.
+is broken. This belongs in a `2-idp-scaffolder/TODO.md` (which does not exist yet); recorded here so it is not lost.

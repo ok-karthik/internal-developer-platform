@@ -2,11 +2,28 @@ apiVersion: backstage.io/v1alpha1
 kind: Component
 metadata:
   name: app-a
+  description: Core microservice for Tenant A with PostgreSQL capability & GitOps delivery
+  tags:
+    - go
+    - microservice
+    - postgres
+  links:
+    - url: https://github.com/ok-karthik/internal-developer-platform/tree/main/3-tenant-repos/tenant-a/workloads-repo/services/app-a
+      title: Service Source
+      icon: github
+    - url: https://github.com/ok-karthik/internal-developer-platform/tree/main/3-tenant-repos/tenant-a/gitops-repo/services/app-a/dev
+      title: GitOps Delivery (ArgoCD)
+      icon: git
+    - url: http://grafana.localhost
+      title: SLO Burn-Rate Dashboard
+      icon: dashboard
+    - url: http://app-a.tenant-a.localhost
+      title: Service Endpoint
+      icon: web
   annotations:
-    github.com/project-slug: acme-corp/tenant-a-app-a
+    backstage.io/source-location: url:https://github.com/ok-karthik/internal-developer-platform/tree/main/3-tenant-repos/tenant-a/workloads-repo/services/app-a/
+    github.com/project-slug: ok-karthik/internal-developer-platform
 spec:
   type: service
   lifecycle: production
   owner: team-tenant-a
-  # System is a Backstage RELATION, not a location — it groups services without
-  # dictating a directory level. Omitted when --system is not supplied.

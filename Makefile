@@ -3,7 +3,7 @@ CLUSTER_PROVIDER ?= k3d
 CLUSTER_NAME ?= nexus-platform
 AWS_CREDS ?= ./aws-creds.ini
 
-.PHONY: help check-deps create-cluster delete-cluster install-argocd bootstrap configure-aws up setup clean destroy get-argocd-creds wait-for-apps install-scaffolder run-api demo-onboard-tenant demo-add-service fire-synthetic-alert print-kubeconfig-stanza
+.PHONY: help check-deps create-cluster delete-cluster install-argocd bootstrap configure-aws up setup clean destroy get-argocd-creds wait-for-apps demo-onboard-tenant demo-add-service fire-synthetic-alert print-kubeconfig-stanza
 
 # Default target: show help
 help:
@@ -265,12 +265,6 @@ print-kubeconfig-stanza:
 	@echo ""
 	@echo "Requires the kubelogin plugin: kubectl krew install oidc-login"
 
-install-scaffolder:
-	cd 2-idp-scaffolder/python && uv pip install -e .
-
-run-api:
-	cd 2-idp-scaffolder/python && fastapi dev api.py
-
 # --- Go scaffolder demo ------------------------------------------------------
 #
 # The CLI defaults --output-root to the current directory and appends nothing to
@@ -288,14 +282,14 @@ DEMO_APP    ?= app-a
 DEMO_PATH   ?= go-service-postgres
 
 demo-onboard-tenant:
-	cd 2-idp-scaffolder/golang && go run . onboard-tenant \
+	cd 2-idp-scaffolder && go run . onboard-tenant \
 	  --output-root  "$(REPO_ROOT)/3-tenant-repos" \
 	  --catalog-root "$(REPO_ROOT)/1-platform-catalog" \
 	  --tenant-name  "$(DEMO_TENANT)" \
 	  --owner        "$(DEMO_OWNER)"
 
 demo-add-service:
-	cd 2-idp-scaffolder/golang && go run . add-service \
+	cd 2-idp-scaffolder && go run . add-service \
 	  --output-root  "$(REPO_ROOT)/3-tenant-repos" \
 	  --catalog-root "$(REPO_ROOT)/1-platform-catalog" \
 	  --tenant-name  "$(DEMO_TENANT)" \

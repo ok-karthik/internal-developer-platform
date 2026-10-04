@@ -12,7 +12,7 @@ metadata:
   name: idp-add-service
   title: Add a new service (golden path)
   description: >
-    Runs the same 2-idp-scaffolder/golang add-service command the CLI
+    Runs the same 2-idp-scaffolder add-service command the CLI
     exposes, so the portal and the terminal produce byte-identical output —
     Backstage is a presentation layer over the CLI's domain logic, never a
     second implementation of it (see PLAN.md Phase 8.0).
