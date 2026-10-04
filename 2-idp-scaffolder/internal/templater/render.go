@@ -177,6 +177,11 @@ type blueprint struct {
 // RenderTenantFoundation scaffolds everything a team gets exactly once. All of it
 // is platform-owned, which is why it sits behind a single verb.
 func (r *Renderer) RenderTenantFoundation(ctx context.Context, cfg Config) error {
+	// Names become folder paths and Kubernetes names, so they are checked before anything is written.
+	if err := validateTenantNames(cfg); err != nil {
+		return err
+	}
+
 	teamBlueprints := []blueprint{
 		// Each destination key IS the source directory inside the catalog.yaml
 		{src: "per-tenant/root", destKey: "per-tenant/root"},     // CODEOWNERS for the merged apps+infra repo
@@ -197,6 +202,11 @@ func (r *Renderer) RenderService(ctx context.Context, cfg Config) error {
 			Field: "runtime",
 			Err:   ErrRuntimeRequired,
 		}
+	}
+
+	// Names become folder paths and Kubernetes names, so they are checked before anything is written.
+	if err := validateServiceNames(cfg); err != nil {
+		return err
 	}
 
 	buildingBlocks := []blueprint{

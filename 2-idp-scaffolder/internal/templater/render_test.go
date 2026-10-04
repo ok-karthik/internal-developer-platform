@@ -353,6 +353,7 @@ func TestRenderService_ContextCanceled(t *testing.T) {
 	cfg := Config{
 		TenantName: "payments",
 		AppName:    "checkout",
+		Env:        "dev",
 		Runtime:    "go",
 	}
 
@@ -502,4 +503,60 @@ func TestCatalogInfoIsValidBackstageEntity(t *testing.T) {
 			t.Errorf("spec.system = %v, want the key absent", got)
 		}
 	})
+}
+
+func TestRenderRejectsBadNamesAndWritesNothing(t *testing.T) {
+	spec, err := catalog.LoadCatalog(os.DirFS(catalogDir))
+	if err != nil {
+		t.Fatalf("LoadCatalog failed: %v", err)
+	}
+
+	goodSvc := Config{TenantName: "tenant-a", AppName: "app-a", Env: "dev", Runtime: "go"}
+	goodTenant := Config{TenantName: "tenant-a", Owners: []string{"team-a"}}
+
+	with := func(c Config, f func(*Config)) Config { f(&c); return c }
+
+	cases := []struct {
+		name    string
+		service bool
+		cfg     Config
+	}{
+		{"tenant traversal onboard", false, with(goodTenant, func(c *Config) { c.TenantName = "../../x" })},
+		{"tenant traversal add-service", true, with(goodSvc, func(c *Config) { c.TenantName = "../../x" })},
+		{"bad app", true, with(goodSvc, func(c *Config) { c.AppName = "Bad Name: x" })},
+		{"bad env", true, with(goodSvc, func(c *Config) { c.Env = "../prod" })},
+		{"bad owner", false, with(goodTenant, func(c *Config) { c.Owners = []string{"Team A"} })},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tmpOut := t.TempDir()
+			r := &Renderer{CatalogFS: os.DirFS(catalogDir), Spec: spec, OutputDir: tmpOut}
+
+			if tc.service {
+				err = r.RenderService(context.Background(), tc.cfg)
+			} else {
+				err = r.RenderTenantFoundation(context.Background(), tc.cfg)
+			}
+			if !errors.Is(err, ErrInvalidName) {
+				t.Fatalf("error = %v, want ErrInvalidName", err)
+			}
+
+			files := 0
+			walkErr := filepath.WalkDir(tmpOut, func(_ string, d os.DirEntry, err error) error {
+				if err != nil {
+					return err
+				}
+				if !d.IsDir() {
+					files++
+				}
+				return nil
+			})
+			if walkErr != nil {
+				t.Fatalf("WalkDir: %v", walkErr)
+			}
+			if files != 0 {
+				t.Errorf("wrote %d files, want 0", files)
+			}
+		})
+	}
 }
