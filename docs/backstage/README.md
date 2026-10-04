@@ -54,5 +54,4 @@ Three ways to connect them, and the one actually used here:
 
 `cmd/cli/` in the Go scaffolder stays a thin adapter — no business logic ever moves into
 it. The day Backstage (or anything else) forces business logic into `cmd/`, that separation
-is broken. This belongs in `2-idp-scaffolder/TODO.md (does not exist yet)`, which is out of scope to edit
-on this branch; recorded here so it is not lost.
+is broken. This belongs in a `2-idp-scaffolder/TODO.md` (which does not exist yet); recorded here so it is not lost.

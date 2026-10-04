@@ -14,7 +14,7 @@ Go is the only engine, and it lives at `2-idp-scaffolder/`. The Python engine is
 Consumers call the CLI:
 - Developers run it directly.
 - Backstage calls it through a custom scaffolder action (`idp:run-cli`) that runs the binary.
-- CI runs it (`smoke-test-go-cli` scaffolds a real tenant and service on every PR).
+- CI runs it (`smoke-test-go-cli` scaffolds a real tenant and service on every push to `main` and every PR that touches the scaffolder or catalog).
 
 There is no REST API for now.
 

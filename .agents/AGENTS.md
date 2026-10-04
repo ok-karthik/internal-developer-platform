@@ -305,7 +305,7 @@ kyverno apply 4-platform-engineering/2-cluster-services/security-governance/ \
 9. **Taxonomy (Team vs. Tenant):** `{tenant}` is the isolation boundary and the directory name (`3-tenant-repos/<tenant>`): namespace, AppProject, quota, and both repos are named after it. A *team* is the human group that owns a tenant (`--owner`), and appears only in CODEOWNERS and the `platform:<team>:<tier>` identity groups. Phase 13 reversed the earlier rule that used `<team>` as the directory. The fixture makes the difference visible: tenant `tenant-a`, owned by `team-a`.
 
 10. **Data-Driven Scaffolder (Catalog Destinations):** The CLI avoids hardcoded output paths. Instead, a `destinations:` ABI mapping block in `1-platform-catalog/catalog.yaml` defines the precise target directories for team blueprints, ApplicationSets, runtimes, service metadata, delivery values, and capabilities. Every key is the literal source directory inside the catalog, so the renderer derives the source path from the key rather than hardcoding both sides. Both scaffolders substitute `{tenant}`, `{app}`, `{env}` before writing (`{system}` was removed along with the system directory level — see decision 5), and `LoadCatalog` validates that every required key exists so a mismatch fails at load rather than mid-render.
-11. **Plan-then-Write is the intended architecture, NOT the current one.** Today the scaffolder renders and writes file-by-file. Go buffers each template in memory before writing it, so a *single* template failure leaves no truncated file — but a failure on file 5 of 10 still leaves four on disk. `--dry-run` is declared in `root.go` and **never read**, so passing it performs a full silent write. It has no in-memory `Plan` map yet. Getting there is Phase 3 in the Go TODO, and it is the prerequisite for an honest `--dry-run`, the API's plan endpoint, and in-memory golden tests. Do not describe this as done.
+11. **Plan-then-Write is the intended architecture, NOT the current one.** Today the scaffolder renders and writes file-by-file. Go buffers each template in memory before writing it, so a *single* template failure leaves no truncated file — but a failure on file 5 of 10 still leaves four on disk. `--dry-run` is declared in `root.go` and **never read**, so passing it performs a full silent write. It has no in-memory `Plan` map yet. Getting there is Phase 3 in the Go TODO, and it is the prerequisite for an honest `--dry-run`, a future API's plan endpoint, and in-memory golden tests. Do not describe this as done.
 12. **Runtimes are declared, and an undeclared directory is deliberately invisible.** `catalog.yaml` carries a `runtimes:` map alongside `capabilities:`, and `validate()` checks it in both useful directions: a golden path may not name a runtime that is not declared, and a declared runtime must have a directory under `per-service/apps/runtimes/`. `Resolve` applies the same check to an explicit `--runtime`, which never passes through golden-path validation. What is **not** checked — on purpose — is the reverse: a directory that exists but is not listed in `runtimes:` is simply not offered, which is what lets a half-built runtime sit in the tree without being scaffoldable. "Supported" is a platform decision, not a consequence of what happens to be on disk. `TestLoadCatalog_UndeclaredRuntimeDirectoryIsIgnored` guards this; do not "fix" it by adding a reverse check or by auto-discovering directories into `c.Runtimes`. Note the asymmetry with capabilities is principled rather than accidental: a capability entry carries `module` + `version` that the template cannot get from a directory name (the module is remote and independently versioned), whereas a runtime directory is local and self-contained. When runtimes acquire real metadata — base image, default port, deprecation status — the natural next step is a co-located `runtime.yaml` per directory (the Backstage model), not more central YAML.
 13. **Generated output is not yet idempotent.** The scaffolder uses truncating writes, so re-running `add-service` overwrites a team's edits to a scaffolded file. Skip-if-exists plus `--force` is planned alongside Plan-then-Write.
 
@@ -326,15 +326,14 @@ before someone reaches for the easy wrong version of it.
 
 ### The gap
 
-**The scaffolder has no notion of who is running it.** `--team` is a string, and both
-engines trust it. Anyone who can run the binary, or reach the FastAPI endpoint in
-`python/api.py`, can scaffold into any team's directory. The repo's own multi-tenancy
+**The scaffolder has no notion of who is running it.** `--tenant-name` is a string, and
+the CLI trusts it. Anyone who can run the binary can scaffold into any tenant's directory. The repo's own multi-tenancy
 story stops at the cluster boundary and does not extend to the tool that *creates*
 tenants — which is a gap worth naming out loud, because a reviewer will spot it.
 
 Today that is defensible: the scaffolder writes to a local working tree, and the real
 gate is the pull request plus `CODEOWNERS`. **Git review is the authorisation plane.**
-That stops being true the moment the API is hosted for more than one person, or a portal
+That stops being true the moment a scaffolder API is hosted (none exists — ADR 0015) for more than one person, or a portal
 (Backstage) calls it on a user's behalf — at that point the caller's identity is the only
 thing standing between one tenant's directory and another's.
 
@@ -368,7 +367,7 @@ groups claim and `cfg.Team`, applied at the same boundary. Neither concern belon
 inside `render.go`, and pushing them there would undo the separation that the TODO.md
 refactor phases were about.
 
-Ordering: this comes **after** Plan-then-Write (Go TODO Phase 3 / Python TODO Phase 2).
+Ordering: this comes **after** Plan-then-Write (item 11 under Resolved CLI Design Decisions).
 Adding an auth layer on top of an engine that still does partial writes on failure fixes
 the less important problem first — an unauthorised caller is a hypothetical today, a
 half-written tenant directory is reproducible right now.

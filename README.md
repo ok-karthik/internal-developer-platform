@@ -55,6 +55,7 @@ of each build phase, in order.
 - [How Requests Flow Through the Platform](#️-how-requests-flow-through-the-platform)
 - [Multi-Tenancy: Two Layers of Isolation](#-multi-tenancy-two-layers-of-isolation)
 - [Identity & Single Sign-On](#-identity--single-sign-on)
+- [Keeping the Catalog Honest](#-keeping-the-catalog-honest)
 - [Component Matrix](#-component-matrix)
 - [Cloud Portability](#️-cloud-portability)
 - [Operations Guide](#️-operations-guide)
@@ -356,7 +357,7 @@ not five separate systems that can drift apart.
 
 ## 🔬 Keeping the Catalog Honest
 
-The catalog is checked when it is loaded: `internal/catalog` fails before writing anything if a required `destinations:` key is missing. The templater has golden-file tests (`internal/templater/testdata/`), and CI scaffolds a real tenant and service on every PR (`smoke-test-go-cli`). A Python twin used to check this by byte-for-byte diff; it was retired in [ADR 0015](docs/adr/0015-go-only-scaffolder.md) because keeping two engines in sync cost more than it caught.
+The catalog is checked when it is loaded: `internal/catalog` fails before writing anything if a required `destinations:` key is missing. The templater has golden-file tests (`internal/templater/testdata/`), and CI scaffolds a real tenant and service on every push to `main` and every PR that touches the scaffolder or catalog (`smoke-test-go-cli`). A Python twin used to check this by byte-for-byte diff; it was retired in [ADR 0015](docs/adr/0015-go-only-scaffolder.md) because keeping two engines in sync cost more than it caught.
 
 ---
 
@@ -470,7 +471,7 @@ they'd be easy to miss.
 
 Not yet built, in rough priority order. Full history of what *is* built: [`PLAN.md`](PLAN.md).
 
-- [ ] **Scaffolder login.** Wire the CLI and REST API into the same Keycloak groups that
+- [ ] **Scaffolder login.** Wire the CLI (and any future API) into the same Keycloak groups that
   already drive Kubernetes RBAC and ArgoCD — so scaffolding into a team's directory
   requires being a member of that team, not just knowing the binary exists. Design notes:
   [`.agents/AGENTS.md`](.agents/AGENTS.md#-roadmap--scaffolder-identity-not-planned-work-direction-only).
@@ -537,7 +538,7 @@ IAM, load balancers, storage, and cluster authentication are only genuinely test
 - [`PLAN.md`](PLAN.md) — what was built, in order, one short entry per phase
 - [`docs/identity-and-sso.md`](docs/identity-and-sso.md) — the full identity system write-up
 - [`docs/gitops-delivery.md`](docs/gitops-delivery.md) — monorepo-to-polyrepo delivery, explained
-- [`docs/adr/001-tools-evaluated.md`](docs/adr/001-tools-evaluated.md) — tools considered and not adopted, with the reasoning
+- [`docs/adr/0001-tools-evaluated.md`](docs/adr/0001-tools-evaluated.md) — tools considered and not adopted, with the reasoning
 - [`docs/backstage/`](docs/backstage/) — the Backstage integration design (not yet a running instance)
 - [`docs/runbooks/`](docs/runbooks/) — incident response runbooks, one per alert
 - [`docs/incidents/2026-08-20-traefik-networkpolicy-ingress-blocked.md`](docs/incidents/2026-08-20-traefik-networkpolicy-ingress-blocked.md) — postmortem on the Traefik/NetworkPolicy routing incident
