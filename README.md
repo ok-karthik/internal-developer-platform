@@ -42,8 +42,8 @@ flowchart LR
     class Dev person;
 ```
 
-**Want the history of how this got built?** See [`PLAN.md`](PLAN.md) — a short changelog
-of each build phase, in order.
+**Want the history of how this got built?** See [`docs/plans/EXECUTION_LOG.md`](docs/plans/EXECUTION_LOG.md) — what each build phase
+did, in order. Open work is in [`PLAN.md`](PLAN.md).
 
 ---
 
@@ -469,7 +469,7 @@ they'd be easy to miss.
 
 ## 🔮 Roadmap
 
-Not yet built, in rough priority order. Full history of what *is* built: [`PLAN.md`](PLAN.md).
+Not yet built, in rough priority order. Full history of what *is* built: [`docs/plans/EXECUTION_LOG.md`](docs/plans/EXECUTION_LOG.md).
 
 - [ ] **Scaffolder login.** Wire the CLI (and any future API) into the same Keycloak groups that
   already drive Kubernetes RBAC and ArgoCD — so scaffolding into a team's directory
@@ -535,7 +535,8 @@ IAM, load balancers, storage, and cluster authentication are only genuinely test
 
 ## 📚 Further Reading
 
-- [`PLAN.md`](PLAN.md) — what was built, in order, one short entry per phase
+- [`PLAN.md`](PLAN.md) — open work only, with links to each plan
+- [`docs/plans/EXECUTION_LOG.md`](docs/plans/EXECUTION_LOG.md) — what was built, in order
 - [`docs/identity-and-sso.md`](docs/identity-and-sso.md) — the full identity system write-up
 - [`docs/gitops-delivery.md`](docs/gitops-delivery.md) — monorepo-to-polyrepo delivery, explained
 - [`docs/adr/0001-tools-evaluated.md`](docs/adr/0001-tools-evaluated.md) — tools considered and not adopted, with the reasoning
