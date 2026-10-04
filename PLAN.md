@@ -14,7 +14,6 @@ facts, exact scope, rules it could break, a verify sequence, and "done means".
 
 | Phase | What | State | Plan / details |
 |---|---|---|---|
-| **21** | Rich Backstage metadata in the scaffolded `catalog-info.yaml`; regenerate the hand-edited `app-a` fixture | Planned, ready for Sonnet | [`2026-10-04-backstage-catalog-metadata.md`](docs/plans/2026-10-04-backstage-catalog-metadata.md) |
 | **23** | Backstage → `github:actions:dispatch` → `scaffold-service.yaml` → Go CLI → PR | Planned, ready for Sonnet | [`2026-10-04-backstage-dispatch-workflow.md`](docs/plans/2026-10-04-backstage-dispatch-workflow.md) · background: [`docs/backstage/LEARNING.md`](docs/backstage/LEARNING.md) |
 | **14** | Prove it runs: recording, fire an alert, walk a runbook | In progress since 2026-09-22 | below · full record in the log, "Phase 14" |
 | **18** | Fleet / Karpenter: pieces that need the foundation repo | Waiting on `enterprise-aws-infrastructure` | below · log, "Phase 18" |
@@ -78,6 +77,7 @@ Built and verified offline in this repo; none of it has run on a real cluster.
 
 ## Recently done
 
+- **Phase 21** (2026-10-04) — rich Backstage metadata in catalog-info; app-a fixture regenerated.
 - **Phase 22** (2026-10-04) — Go is the only scaffolder engine; Python deleted; ADR 0015. PR #39.
 - **Phase 20** (2026-09-29) — local SLO loop only, central telemetry upstream; ADR 0014.
 - **Phase 19** (2026-09-21) — tenant two-repo layout, naming sweep, module pins (two leftovers above).
