@@ -2,8 +2,23 @@ apiVersion: backstage.io/v1alpha1
 kind: Component
 metadata:
   name: checkout
+  description: checkout — go service for tenant payments, delivered by GitOps
+  tags:
+    - go
+    - postgres
+  links:
+    - url: https://github.com/ok-karthik/internal-developer-platform/tree/main/3-tenant-repos/payments/workloads-repo/services/checkout
+      title: Source
+      icon: github
+    - url: https://github.com/ok-karthik/internal-developer-platform/tree/main/3-tenant-repos/payments/gitops-repo/services/checkout
+      title: GitOps config (all environments)
+      icon: github
+    - url: https://grafana.localhost
+      title: Grafana (local)
+      icon: dashboard
   annotations:
-    github.com/project-slug: acme-corp/payments-checkout
+    github.com/project-slug: ok-karthik/internal-developer-platform
+    backstage.io/source-location: url:https://github.com/ok-karthik/internal-developer-platform/tree/main/3-tenant-repos/payments/workloads-repo/services/checkout/
 spec:
   type: service
   lifecycle: production

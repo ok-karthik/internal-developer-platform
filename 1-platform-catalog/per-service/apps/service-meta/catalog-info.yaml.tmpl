@@ -2,8 +2,25 @@ apiVersion: backstage.io/v1alpha1
 kind: Component
 metadata:
   name: [[ .AppName ]]
+  description: [[ .AppName ]] — [[ .Runtime ]] service for tenant [[ .TenantName ]], delivered by GitOps
+  tags:
+    - [[ .Runtime ]]
+[[- range .Capabilities ]]
+    - [[ . ]]
+[[- end ]]
+  links:
+    - url: https://github.com/ok-karthik/internal-developer-platform/tree/main/3-tenant-repos/[[ .TenantName ]]/workloads-repo/services/[[ .AppName ]]
+      title: Source
+      icon: github
+    - url: https://github.com/ok-karthik/internal-developer-platform/tree/main/3-tenant-repos/[[ .TenantName ]]/gitops-repo/services/[[ .AppName ]]
+      title: GitOps config (all environments)
+      icon: github
+    - url: https://grafana.localhost
+      title: Grafana (local)
+      icon: dashboard
   annotations:
-    github.com/project-slug: acme-corp/[[ .TenantName ]]-[[ .AppName ]]
+    github.com/project-slug: ok-karthik/internal-developer-platform
+    backstage.io/source-location: url:https://github.com/ok-karthik/internal-developer-platform/tree/main/3-tenant-repos/[[ .TenantName ]]/workloads-repo/services/[[ .AppName ]]/
 spec:
   type: service
   lifecycle: production

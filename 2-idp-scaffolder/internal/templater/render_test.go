@@ -8,9 +8,13 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"regexp"
 	"scaffolder/internal/catalog"
 	"slices"
+	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 // 1. Declare the -update flag
@@ -384,4 +388,118 @@ func TestRenderService_ContextCanceled(t *testing.T) {
 	if fileCount != 0 {
 		t.Errorf("RenderService wrote %d files on canceled context, want 0", fileCount)
 	}
+}
+
+// TestCatalogInfoIsValidBackstageEntity renders catalog-info.yaml and checks the
+// shape Backstage needs: tags that obey its tag rule with no duplicates, links,
+// a source-location annotation, and spec.system only when a system was given.
+func TestCatalogInfoIsValidBackstageEntity(t *testing.T) {
+	type entity struct {
+		Metadata struct {
+			Name        string   `yaml:"name"`
+			Description string   `yaml:"description"`
+			Tags        []string `yaml:"tags"`
+			Links       []struct {
+				URL   string `yaml:"url"`
+				Title string `yaml:"title"`
+				Icon  string `yaml:"icon"`
+			} `yaml:"links"`
+			Annotations map[string]string `yaml:"annotations"`
+		} `yaml:"metadata"`
+		// A map, not a struct with *string: an empty "system:" line decodes to a
+		// nil pointer and would look absent, but Backstage rejects a null system.
+		Spec map[string]any `yaml:"spec"`
+	}
+	tagRule := regexp.MustCompile(`^[a-z0-9:+#]+(-[a-z0-9:+#]+)*$`)
+	nameRule := regexp.MustCompile(`^[a-zA-Z0-9]+([-_.][a-zA-Z0-9]+)*$`)
+	slugRule := regexp.MustCompile(`^[^/\s]+/[^/\s]+$`)
+
+	spec, err := catalog.LoadCatalog(os.DirFS(catalogDir))
+	if err != nil {
+		t.Fatalf("LoadCatalog failed: %v", err)
+	}
+
+	render := func(t *testing.T, system string) entity {
+		t.Helper()
+		out := t.TempDir()
+		r := &Renderer{CatalogFS: os.DirFS(catalogDir), Spec: spec, OutputDir: out}
+		cfg, err := Resolve(spec, "go-service-postgres", Config{
+			TenantName:   "tenant-a",
+			AppName:      "app-a",
+			Env:          "dev",
+			SystemName:   system,
+			Capabilities: []string{"postgres", "s3"},
+		})
+		if err != nil {
+			t.Fatalf("Resolve failed: %v", err)
+		}
+		if err := r.RenderService(context.Background(), cfg); err != nil {
+			t.Fatalf("RenderService failed: %v", err)
+		}
+		raw, err := os.ReadFile(filepath.Join(out, "tenant-a/workloads-repo/services/app-a/catalog-info.yaml"))
+		if err != nil {
+			t.Fatalf("read catalog-info.yaml: %v", err)
+		}
+		var e entity
+		if err := yaml.Unmarshal(raw, &e); err != nil {
+			t.Fatalf("catalog-info.yaml is not valid YAML: %v\n%s", err, raw)
+		}
+		return e
+	}
+
+	t.Run("with system", func(t *testing.T) {
+		e := render(t, "sys-a")
+		if e.Metadata.Name != "app-a" {
+			t.Errorf("metadata.name = %q, want app-a", e.Metadata.Name)
+		}
+		if len(e.Metadata.Name) > 63 || !nameRule.MatchString(e.Metadata.Name) {
+			t.Errorf("metadata.name %q violates Backstage name rule", e.Metadata.Name)
+		}
+		if e.Metadata.Description == "" {
+			t.Error("metadata.description is empty")
+		}
+		seen := map[string]bool{}
+		for _, tag := range e.Metadata.Tags {
+			if seen[tag] {
+				t.Errorf("duplicate tag %q in %v", tag, e.Metadata.Tags)
+			}
+			seen[tag] = true
+			if len(tag) > 63 || !tagRule.MatchString(tag) {
+				t.Errorf("tag %q violates Backstage tag rule", tag)
+			}
+		}
+		for _, want := range []string{"go", "postgres", "s3"} {
+			if !seen[want] {
+				t.Errorf("tags %v missing %q", e.Metadata.Tags, want)
+			}
+		}
+		if len(e.Metadata.Links) != 3 {
+			t.Errorf("got %d links, want 3", len(e.Metadata.Links))
+		}
+		for _, l := range e.Metadata.Links {
+			if !strings.HasPrefix(l.URL, "https://") {
+				t.Errorf("link %q is not https", l.URL)
+			}
+			if strings.Contains(l.URL, "/dev") {
+				t.Errorf("link %q is env-specific; catalog-info is per-service", l.URL)
+			}
+		}
+		// Backstage needs the trailing "/" on a folder location for relative paths to resolve.
+		if loc := e.Metadata.Annotations["backstage.io/source-location"]; !strings.HasPrefix(loc, "url:https://") || !strings.HasSuffix(loc, "/") {
+			t.Errorf("source-location = %q, want url:https://.../ (folder, trailing slash)", loc)
+		}
+		if slug := e.Metadata.Annotations["github.com/project-slug"]; !slugRule.MatchString(slug) {
+			t.Errorf("github.com/project-slug = %q, want <owner>/<repo>", slug)
+		}
+		if got := e.Spec["system"]; got != "sys-a" {
+			t.Errorf("spec.system = %v, want sys-a", got)
+		}
+	})
+
+	t.Run("without system", func(t *testing.T) {
+		e := render(t, "")
+		if got, ok := e.Spec["system"]; ok {
+			t.Errorf("spec.system = %v, want the key absent", got)
+		}
+	})
 }

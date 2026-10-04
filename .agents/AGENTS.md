@@ -289,8 +289,8 @@ kyverno apply 4-platform-engineering/2-cluster-services/security-governance/ \
 - `restrict-applicationset` uses `foreach` over both the top-level and the `matrix` generator
   shapes; a plain `pattern` cannot see inside a matrix, and Kyverno's `*` matches across `/`.
 - `sed -i` on macOS needs `-i ''`; prefer a small Python edit for scripted file changes.
-- Go tests can report `(cached)` and hide a stale golden: use `go test -count=1`. There is no
-  golden update flag; edit the file under `internal/templater/testdata/`.
+- Go tests can report `(cached)` and hide a stale golden: use `go test -count=1`. Refresh goldens with
+  `go test ./internal/templater -update`, then read `git diff internal/templater/testdata/`.
 
 ## ✅ Resolved CLI Design Decisions & Refinements
 
