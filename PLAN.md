@@ -14,14 +14,13 @@ facts, exact scope, rules it could break, a verify sequence, and "done means".
 
 | Phase | What | State | Plan / details |
 |---|---|---|---|
-| **24b** | Close Phase 24 review gaps: joined `<tenant>-<app>-<env>` ≤ 63 (AWS names), runtime + capabilities checked before writing, `--owner` required | Planned, ready for Sonnet — **do before 23** | [`2026-10-04-cli-validation-gaps.md`](docs/plans/2026-10-04-cli-validation-gaps.md) |
 | **23** | Backstage → `github:actions:dispatch` → `scaffold-service.yaml` → Go CLI → PR | Planned, ready for Sonnet | [`2026-10-04-backstage-dispatch-workflow.md`](docs/plans/2026-10-04-backstage-dispatch-workflow.md) · background: [`docs/backstage/LEARNING.md`](docs/backstage/LEARNING.md) |
 | **14** | Prove it runs: recording, fire an alert, walk a runbook | In progress since 2026-09-22 | below · full record in the log, "Phase 14" |
 | **18** | Fleet / Karpenter: pieces that need the foundation repo | Waiting on `enterprise-aws-infrastructure` | below · log, "Phase 18" |
 | **19** | Two small leftovers | Not started | below · log, "Phase 19" |
 
-Order: 24b then 23 (23 sends Backstage form input into the CLI, so the CLI must reject bad names
-first); 14 whenever you have a free evening with the laptop plugged in.
+Order: 23 next (24b, done, made the CLI reject bad names before Backstage form input reaches it);
+14 whenever you have a free evening with the laptop plugged in.
 
 **Working rules:** everything happens in this checkout on `main` — no worktrees or files outside
 the repo, no PRs for our own changes; one local commit per plan part.
@@ -80,6 +79,9 @@ Built and verified offline in this repo; none of it has run on a real cluster.
 - ArgoCD: `argocd.yaml` uses chart `targetRevision: '*'` (unpinned) and does not set
   `resourceTrackingMethod`; long Application names are only safe under annotation tracking. Pin both.
 - What name the external `postgres` module builds from `team_name`/`app_name`/`env` (other repo).
+- Catalog load checks that every runtime has a template folder, but not that every capability has
+  its `.tf.tmpl`/`.yaml.tmpl`. A capability declared without one fails half-way through `add-service`,
+  after the runtime files are written. Add the same `fs.Stat` check in `internal/catalog`.
 
 ## Recently done
 
