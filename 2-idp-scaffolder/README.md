@@ -32,14 +32,22 @@ and dashes, start with a letter, and not end with a dash:
 ```
 
 It starts with a letter because Kubernetes Service names require it, and it is capped at 40 so
-`<tenant>-<app>-<env>-<cluster>` and Helm's 53-character release limit still fit. A bad name exits 1
-and writes no files:
+Helm's 53-character release limit and DNS labels stay safe. On top of that, the joined
+`<tenant>-<app>-<env>` must be 63 characters or fewer, because it becomes the S3 bucket and IAM role
+name. `onboard-tenant` also needs at least one `--owner`. Every check runs before anything is
+written, so a failure exits 1 and writes no files:
 
 ```
 Error: app-name "Bad Name: x": must be 1-40 chars of lowercase letters, digits and dashes, start with a letter, and not end with a dash
 ```
 
-The rule lives in `internal/templater/names.go`.
+```
+Error: tenant-name+app-name+env "<tenant>-<app>-<env>": tenant-app-env is longer than 63 characters, the AWS limit for the S3 bucket and IAM role names built from it
+Error: owner: at least one --owner is required (it becomes CODEOWNERS and the RoleBinding subject)
+Error: capability "bogus": unknown capability
+```
+
+The rules live in `internal/templater/names.go`.
 
 Tests: `go build ./... && go vet ./... && gofmt -l . && go test -count=1 ./...`
 

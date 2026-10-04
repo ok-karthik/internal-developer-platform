@@ -83,6 +83,7 @@ Built and verified offline in this repo; none of it has run on a real cluster.
 
 ## Recently done
 
+- **Phase 24b** (2026-10-04) — joined-name cap (63), runtime/capabilities checked before writing, owner required.
 - **Phase 24** (2026-10-04) — the CLI validates tenant/app/env/system/owner names; unsafe names write nothing.
 - **Phase 21** (2026-10-04) — rich Backstage metadata in catalog-info; app-a fixture regenerated.
 - **Phase 22** (2026-10-04) — Go is the only scaffolder engine; Python deleted; ADR 0015. PR #39.
