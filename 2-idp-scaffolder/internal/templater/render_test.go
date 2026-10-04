@@ -17,7 +17,7 @@ import (
 var update = flag.Bool("update", false, "update golden files")
 
 // Path to 1-platform-catalog relative to internal/templater directory
-const catalogDir = "../../../../1-platform-catalog"
+const catalogDir = "../../../1-platform-catalog"
 
 func TestRenderServiceGolden(t *testing.T) {
 	// A. Load catalog
