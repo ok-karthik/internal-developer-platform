@@ -406,11 +406,13 @@ func TestCatalogInfoIsValidBackstageEntity(t *testing.T) {
 			} `yaml:"links"`
 			Annotations map[string]string `yaml:"annotations"`
 		} `yaml:"metadata"`
-		Spec struct {
-			System *string `yaml:"system"`
-		} `yaml:"spec"`
+		// A map, not a struct with *string: an empty "system:" line decodes to a
+		// nil pointer and would look absent, but Backstage rejects a null system.
+		Spec map[string]any `yaml:"spec"`
 	}
 	tagRule := regexp.MustCompile(`^[a-z0-9:+#]+(-[a-z0-9:+#]+)*$`)
+	nameRule := regexp.MustCompile(`^[a-zA-Z0-9]+([-_.][a-zA-Z0-9]+)*$`)
+	slugRule := regexp.MustCompile(`^[^/\s]+/[^/\s]+$`)
 
 	spec, err := catalog.LoadCatalog(os.DirFS(catalogDir))
 	if err != nil {
@@ -450,6 +452,9 @@ func TestCatalogInfoIsValidBackstageEntity(t *testing.T) {
 		if e.Metadata.Name != "app-a" {
 			t.Errorf("metadata.name = %q, want app-a", e.Metadata.Name)
 		}
+		if len(e.Metadata.Name) > 63 || !nameRule.MatchString(e.Metadata.Name) {
+			t.Errorf("metadata.name %q violates Backstage name rule", e.Metadata.Name)
+		}
 		if e.Metadata.Description == "" {
 			t.Error("metadata.description is empty")
 		}
@@ -459,7 +464,7 @@ func TestCatalogInfoIsValidBackstageEntity(t *testing.T) {
 				t.Errorf("duplicate tag %q in %v", tag, e.Metadata.Tags)
 			}
 			seen[tag] = true
-			if !tagRule.MatchString(tag) {
+			if len(tag) > 63 || !tagRule.MatchString(tag) {
 				t.Errorf("tag %q violates Backstage tag rule", tag)
 			}
 		}
@@ -479,18 +484,22 @@ func TestCatalogInfoIsValidBackstageEntity(t *testing.T) {
 				t.Errorf("link %q is env-specific; catalog-info is per-service", l.URL)
 			}
 		}
-		if loc := e.Metadata.Annotations["backstage.io/source-location"]; !strings.HasPrefix(loc, "url:https://") {
-			t.Errorf("source-location = %q, want prefix url:https://", loc)
+		// Backstage needs the trailing "/" on a folder location for relative paths to resolve.
+		if loc := e.Metadata.Annotations["backstage.io/source-location"]; !strings.HasPrefix(loc, "url:https://") || !strings.HasSuffix(loc, "/") {
+			t.Errorf("source-location = %q, want url:https://.../ (folder, trailing slash)", loc)
 		}
-		if e.Spec.System == nil || *e.Spec.System != "sys-a" {
-			t.Errorf("spec.system = %v, want sys-a", e.Spec.System)
+		if slug := e.Metadata.Annotations["github.com/project-slug"]; !slugRule.MatchString(slug) {
+			t.Errorf("github.com/project-slug = %q, want <owner>/<repo>", slug)
+		}
+		if got := e.Spec["system"]; got != "sys-a" {
+			t.Errorf("spec.system = %v, want sys-a", got)
 		}
 	})
 
 	t.Run("without system", func(t *testing.T) {
 		e := render(t, "")
-		if e.Spec.System != nil {
-			t.Errorf("spec.system = %q, want absent", *e.Spec.System)
+		if got, ok := e.Spec["system"]; ok {
+			t.Errorf("spec.system = %v, want the key absent", got)
 		}
 	})
 }
