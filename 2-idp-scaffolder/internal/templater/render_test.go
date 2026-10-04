@@ -529,7 +529,10 @@ func TestRenderRejectsBadNamesAndWritesNothing(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			tmpOut := t.TempDir()
+			// Output goes two levels below the walked root, so a "../../x" name that
+			// escapes OutputDir still lands inside root and is counted below.
+			root := t.TempDir()
+			tmpOut := filepath.Join(root, "out", "repo")
 			r := &Renderer{CatalogFS: os.DirFS(catalogDir), Spec: spec, OutputDir: tmpOut}
 
 			if tc.service {
@@ -542,7 +545,7 @@ func TestRenderRejectsBadNamesAndWritesNothing(t *testing.T) {
 			}
 
 			files := 0
-			walkErr := filepath.WalkDir(tmpOut, func(_ string, d os.DirEntry, err error) error {
+			walkErr := filepath.WalkDir(root, func(_ string, d os.DirEntry, err error) error {
 				if err != nil {
 					return err
 				}
