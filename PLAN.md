@@ -14,13 +14,17 @@ facts, exact scope, rules it could break, a verify sequence, and "done means".
 
 | Phase | What | State | Plan / details |
 |---|---|---|---|
+| **24** | The CLI validates tenant/app/env/system/owner names (no `../../x`, no YAML-breaking names) | Planned, ready for Sonnet — **do before 23** | [`2026-10-04-cli-name-validation.md`](docs/plans/2026-10-04-cli-name-validation.md) |
 | **23** | Backstage → `github:actions:dispatch` → `scaffold-service.yaml` → Go CLI → PR | Planned, ready for Sonnet | [`2026-10-04-backstage-dispatch-workflow.md`](docs/plans/2026-10-04-backstage-dispatch-workflow.md) · background: [`docs/backstage/LEARNING.md`](docs/backstage/LEARNING.md) |
 | **14** | Prove it runs: recording, fire an alert, walk a runbook | In progress since 2026-09-22 | below · full record in the log, "Phase 14" |
 | **18** | Fleet / Karpenter: pieces that need the foundation repo | Waiting on `enterprise-aws-infrastructure` | below · log, "Phase 18" |
 | **19** | Two small leftovers | Not started | below · log, "Phase 19" |
 
-Order suggestion: 21 then 23 (23's template links to what 21 generates); 14 whenever you have a
-free evening with the laptop plugged in.
+Order: 24 then 23 (23 sends Backstage form input into the CLI, so the CLI must reject bad names
+first); 14 whenever you have a free evening with the laptop plugged in.
+
+**Working rules:** everything happens in this checkout on `main` — no worktrees or files outside
+the repo, no PRs for our own changes; one local commit per plan part.
 
 ---
 

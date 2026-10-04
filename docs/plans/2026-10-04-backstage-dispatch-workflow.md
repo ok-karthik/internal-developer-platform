@@ -3,8 +3,11 @@
 **Executor:** `implementer` subagent (Sonnet). **Reviewer:** `reviewer` subagent (Opus).
 **Planned by:** Opus, 2026-10-04. Background reading for the owner: `docs/backstage/LEARNING.md`.
 
-- Worktree: `git worktree add ../idp-dispatch -b feat/backstage-dispatch-workflow main`.
-- **One commit per Part** (4 commits). Do **not** push, open a PR, merge, or change GitHub settings.
+- Work **in this checkout** (`/Users/karthik.orugonda/github/internal-developer-platform`) on `main`. No worktrees,
+  no files outside the repo folder. Stage files by name; leave the owner's unrelated edits alone.
+- **One local commit per Part** (4 commits). Do **not** push, open a PR, merge, or change GitHub settings.
+- **Runs after Phase 24** (CLI name validation). The report must explain in plain words what changed,
+  why, and where each config lives.
 
 ## What this builds, in one picture
 
@@ -47,7 +50,7 @@ new branch, delivered as a PR instead of a local change.
 | Golden paths in `catalog.yaml` | `go-service-postgres` (go, [postgres]), `python-worker-s3` (python, [s3]) |
 | Capabilities | `postgres`, `s3`, `iam` |
 | `add-service` flags | `--tenant-name/-t`, `--app-name/-a`, `--golden-path`, `--runtime`, `--capabilities` (comma list), `--system/-s`, `--env` (default `dev`); root: `--catalog-root`, `--output-root`, `--force`, `--dry-run` |
-| **CLI does not validate names** | no regex anywhere in `2-idp-scaffolder` (non-test). `--app-name ../../x` would write outside the tenant. The workflow MUST validate before calling the CLI |
+| CLI name validation | added in Phase 24 (`nameRule` in `internal/templater/names.go`). The workflow still validates first, with the identical regex |
 | CLI skips existing files | prints `[SKIP]`; so "app already exists" must be checked by the workflow, not inferred |
 | Repo Actions settings | `default_workflow_permissions: read`; **"Allow GitHub Actions to create and approve pull requests" is OFF** (`can_approve_pull_request_reviews: false`) → the PR step fails until the owner turns it on (owner step, below) |
 | GitHub limitation | a PR opened with `GITHUB_TOKEN` does **not** trigger `pull_request` workflows, so `ci.yaml` will not run on it automatically |
@@ -62,7 +65,9 @@ new branch, delivered as a PR instead of a local change.
 1. Backstage uses the built-in `github:actions:dispatch`. No custom TypeScript action, no REST API (ADR 0015).
 2. The workflow opens a **PR**; it never pushes to `main`.
 3. Inputs reach shell **only through `env:`**, never as `${{ inputs.x }}` inside `run:` (script-injection rule).
-4. Name rule for tenant and app: `^[a-z0-9]([-a-z0-9]{0,38}[a-z0-9])?$` (DNS-label style, ≤ 40 chars). System: same rule, or empty.
+4. Name rule for tenant and app: `^[a-z]([-a-z0-9]{0,38}[a-z0-9])?$` — **the same rule as the CLI's
+   `nameRule` (Phase 24, `internal/templater/names.go`)**. The CLI also rejects bad names; the workflow
+   checks first because it uses the names in `[[ -d ... ]]` paths and the branch name. System: same rule, or empty.
 5. Golden path is a `choice` input with the two catalog values; capabilities is a free string
    validated against `^(postgres|s3|iam)(,(postgres|s3|iam))*$` or empty.
 6. Env is fixed to `dev` (promotion is a separate copy-values step, ADR 0007).
@@ -113,7 +118,7 @@ jobs:
       - name: Validate inputs
         run: |
           set -euo pipefail
-          name_re='^[a-z0-9]([-a-z0-9]{0,38}[a-z0-9])?$'
+          name_re='^[a-z]([-a-z0-9]{0,38}[a-z0-9])?$'   # same as nameRule in 2-idp-scaffolder/internal/templater/names.go
           [[ "$TENANT" =~ $name_re ]] || { echo "::error::tenant_name '$TENANT' must match $name_re"; exit 1; }
           [[ "$APP"    =~ $name_re ]] || { echo "::error::app_name '$APP' must match $name_re"; exit 1; }
           [[ -z "$SYSTEM" || "$SYSTEM" =~ $name_re ]] || { echo "::error::system '$SYSTEM' must match $name_re"; exit 1; }
@@ -204,12 +209,12 @@ spec:
           title: Tenant
           type: string
           default: tenant-a
-          pattern: '^[a-z0-9]([-a-z0-9]{0,38}[a-z0-9])?$'
+          pattern: '^[a-z]([-a-z0-9]{0,38}[a-z0-9])?$'
           description: Must already be onboarded (3-tenant-repos/<tenant>/).
         appName:
           title: App name
           type: string
-          pattern: '^[a-z0-9]([-a-z0-9]{0,38}[a-z0-9])?$'
+          pattern: '^[a-z]([-a-z0-9]{0,38}[a-z0-9])?$'
           description: Lowercase letters, digits and dashes.
         goldenPath:
           title: Golden path
@@ -228,7 +233,7 @@ spec:
         system:
           title: Backstage system
           type: string
-          pattern: '^([a-z0-9]([-a-z0-9]{0,38}[a-z0-9])?)?$'
+          pattern: '^([a-z]([-a-z0-9]{0,38}[a-z0-9])?)?$'
   steps:
     - id: dispatch
       name: Ask GitHub Actions to scaffold the service
@@ -284,7 +289,7 @@ Context (the three options and their costs, from the README table), Decision (di
 Consequences: no TypeScript and no credentials in Backstage; Backstage reports "started", not
 "succeeded" (backstage/backstage issues #29727, #33104), so the user follows the output links;
 PRs opened by `GITHUB_TOKEN` do not trigger `ci.yaml` (reopen, or later a GitHub App token);
-the CLI does not validate names, so the workflow does — moving that check into the CLI is a follow-up.
+names are checked twice — by the workflow (before using them in paths and branch names) and by the CLI (Phase 24) — with one identical rule.
 Revisit trigger: a platform API exists (then a thin custom action calls it), or many templates
 need live progress in Backstage.
 
@@ -308,7 +313,7 @@ go run github.com/rhysd/actionlint/cmd/actionlint@latest .github/workflows/scaff
 grep -n 'inputs\.' .github/workflows/scaffold-service.yaml          # only env:/concurrency: lines
 python3 -c "import yaml;[yaml.safe_load(open(f)) for f in ['.github/workflows/scaffold-service.yaml','docs/backstage/software-template.yaml']];print('yaml-ok')"
 # the 6 local shell cases from Part 1, with exit codes
-git diff --name-only main...HEAD      # exactly the 4 Scope files
+git diff --name-only HEAD~4..HEAD     # exactly the 4 Scope files
 git status --short 3-tenant-repos/    # empty
 ```
 
@@ -330,7 +335,6 @@ git status --short 3-tenant-repos/    # empty
 
 ## Out of scope
 
-- Name validation inside the Go CLI (follow-up; the workflow guards it for now).
 - A GitHub App token so `ci.yaml` runs on bot PRs.
 - An `onboard-tenant` template.
 - Deploying Backstage into the cluster.

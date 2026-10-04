@@ -68,7 +68,10 @@ Both are template steps. The difference is **where our Go CLI runs**.
 `github:actions:dispatch` is basically Backstage pressing GitHub's **"Run workflow"** button
 for you, with the form values as the workflow's inputs.
 
-`idp:run-cli` was never built — it was a placeholder name in an earlier version of our template.
+`idp:run-cli` was never built — it is a placeholder name. **Until Phase 23 lands, our
+`docs/backstage/software-template.yaml` still says `action: idp:run-cli`** (around line 60);
+that is the custom action this section is talking about, and Phase 23 replaces it with
+`github:actions:dispatch`.
 
 ## 5. What this repo uses, and why
 
