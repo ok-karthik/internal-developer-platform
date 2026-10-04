@@ -25,15 +25,10 @@ platform-engineering-idp-gitops-reference-architecture/
 │       │                               # destinations key.
 │       ├── service/                    # CI renders it; only the output reaches 3-tenant-repos/
 │       └── karpenter-nodes/            # EC2NodeClass + NodePool, applied per cluster by ArgoCD
-├── 2-idp-scaffolder/                   # IDP Scaffolder Implementations
-│   ├── golang/                         # Go implementation of the IDP Scaffolder CLI (Cobra)
-│   │   ├── cmd/cli/                    # Cobra commands (`root.go`, `onboard_tenant.go`, etc)
-│   │   └── internal/templater/         # Template rendering engine (`render.go`)
-│   └── python/                         # Python implementation of the IDP Scaffolder CLI & REST API
-│       ├── cli.py / api.py             # Typer CLI and FastAPI REST endpoints
-│       ├── catalog.py                  # pydantic twin of internal/catalog — loads + validates catalog.yaml
-│       ├── render.py                   # Jinja2 engine, path roots (was utils.py)
-│       └── TODO.md                     # Remaining Python work, phased, with an answer key
+├── 2-idp-scaffolder/                   # The IDP Scaffolder CLI (Go + Cobra, ADR 0015)
+│   ├── cmd/cli/                        # Cobra commands (`root.go`, `onboard_tenant.go`, etc)
+│   ├── internal/templater/             # Template rendering engine (`render.go`)
+│   └── internal/catalog/               # Loads + validates catalog.yaml
 ├── 3-tenant-repos/                     # Container for simulated tenant REPOSITORIES (ADR 0010)
 │   └── <tenant>/                       # One directory per tenant (the isolation boundary)
 │       ├── workloads-repo/             # → <org>/<tenant>-workloads. Humans write it.
@@ -115,9 +110,8 @@ that encoded nothing about *once per team* vs *once per service*. Both are fixed
 `per-tenant/` and `per-service/` are the real directory names (the cardinality is in the
 name), and `per-service/` splits `infra/capabilities/` (provisioner: terraform) from
 `gitops/capabilities/` (provisioner: ack) into two real directories, so the directory
-itself is the router — no file-extension dispatch, no phantom key. Both scaffolder engines
-(`golang/internal/catalog/catalog.go`, `golang/internal/templater/render.go`, `python/catalog.py`,
-`python/cli.py`, `python/api.py`) implement the split; `provisioner:` in `catalog.yaml` is a
+itself is the router — no file-extension dispatch, no phantom key. The scaffolder
+(`internal/catalog/catalog.go`, `internal/templater/render.go`) implements the split; `provisioner:` in `catalog.yaml` is a
 data fact the renderer acts on, not a label nobody reads.
 
 ---
@@ -134,7 +128,7 @@ The scaffolder templates are organised around **platform lifecycle verbs**, not 
 **Golden paths** (`catalog.yaml`) compose three pieces: a runtime (`per-service/apps/runtimes/<lang>/`), infra **capabilities** (`per-service/infra/capabilities/<cap>.tf.tmpl` or `per-service/gitops/capabilities/<cap>.yaml.tmpl`, by `provisioner:`), and delivery (`per-service/gitops/release/`). Capabilities are declarative claims mapped to blessed, version-pinned modules (ADR 0011) — e.g. `postgres → data/postgres@postgres-v2.0.0`, `s3 → storage/s3`, `iam → identity/workload-iam`, all in `enterprise-aws-infrastructure` (ADR 0011). `per-service/apps/service-meta/` is runtime-agnostic and rendered for every service, which is why it is a sibling of `runtimes/` rather than living inside it.
 
 Key decisions:
-- **Go is the definitive scaffolder; Python is a second engine, not a legacy one.** Both implement `onboard-tenant` and `add-service` against the same `catalog.yaml`. The point of keeping two is that it makes the catalog a *falsifiable* contract: run both with the same inputs and `diff -r` the trees. **The two trees are currently byte-identical**, both verbs, every file. If a change makes them disagree, either the engines drifted or the catalog is under-specified — both are findings, and neither should be papered over. Matching Go's whitespace depends on `trim_blocks`/`lstrip_blocks` in the Python Jinja environment, because the regex that converts `[[- if ]]` to `[% if %]` cannot carry Go's `-` trim markers across.
+- **Go is the only scaffolder engine** (ADR 0015). It implements `onboard-tenant` and `add-service` against `catalog.yaml`. A Python twin used to exist and was deleted (last commit with it: `0688f58`). The catalog is checked by load-time validation in `internal/catalog`, golden-file tests, and the CI smoke run (`smoke-test-go-cli`).
 - **git-as-PR.** `add-service` writes into the git-tracked `3-tenant-repos/` tree; the resulting `git diff` simulates the PR that would be opened against a real tenant repo.
 - **Monorepo output, polyrepo mapping.** Everything lands under `3-tenant-repos/<tenant>/{workloads-repo,gitops-repo}/`; in production each of those two directories is a standalone repo (`<org>/<tenant>-workloads`, `<org>/<tenant>-gitops`). The `-repo` suffix means exactly that and nothing else. See [ADR 0010](../docs/adr/0010-tenant-repository-topology.md) for the reasoning and the extraction commands.
 - **`platform/` vs `services/` means the same thing in every tree.** `platform/` is platform-owned and CODEOWNERS-protected; `services/` belongs to the tenant's team. The repo directory (`workloads-repo` / `gitops-repo`) says what kind of artifact it is; the split is on who *writes* a file, not on the technology in it. Ownership reduces to two glob lines per repo.
@@ -147,11 +141,9 @@ Key decisions:
 - **Output paths live in data, not code.** The `destinations:` table in `catalog.yaml` maps each catalog source directory to its output path template (`{tenant}`, `{app}`, `{env}`). No Go file contains a hardcoded output path; restructuring `3-tenant-repos/` is a YAML edit. `LoadCatalog` validates that every required key is present and fails before writing anything.
 - **ArgoCD discovery is convention-based, two levels:** a cluster-wide bootstrap ApplicationSet globs `3-tenant-repos/*/gitops-repo/platform/applicationsets` (one Application per tenant, applying that tenant's AppSet); each tenant AppSet then globs `3-tenant-repos/<tenant>/gitops-repo/services/*/*` (app × env) and **matrix-joins it with the ArgoCD cluster registry**: an app whose env directory is `dev` deploys to every registered cluster labelled `environment: dev` (Phase 18.2). The scaffolder never holds a cluster endpoint; registering a cluster is what routes apps to it, and a cluster with no matching label receives nothing — that is the gated promotion of ADR 0003 made mechanical. The tenant `AppProject` allows any server but only the tenant's own namespace. The Kyverno `restrict-applicationset` policy pins each tenant's AppSet to its own `gitops-repo`. `add-service` never edits a root app-of-apps file.
 
-> **CLI status:** both verbs are implemented in **both** engines and produce matching output.
+> **CLI status:** both verbs are implemented in the Go CLI.
 >
-> The Go CLI defaults to fetching the catalog from GitHub via `go-getter`, so local edits to `1-platform-catalog/` do not take effect until pushed — **pass `--catalog-root ../../1-platform-catalog` when working locally.** `--output-root` likewise redirects the generated tree, which is what makes the two-engine `diff` possible without writing into the repo. The fetched ref is still hardcoded to a branch (`root.go`); pinning it is Phase 4 of the Go TODO.
->
-> The Python CLI has no root flags yet, so it always writes into the real `3-tenant-repos/` — Phase 3 of the Python TODO. It reads its output paths from `destinations:` in `catalog.yaml`, exactly as Go does.
+> The Go CLI defaults to fetching the catalog from GitHub via `go-getter`, so local edits to `1-platform-catalog/` do not take effect until pushed — **pass `--catalog-root ../1-platform-catalog` when working locally.** `--output-root` likewise redirects the generated tree, which lets you inspect output without writing into the repo. The fetched ref is still hardcoded to a branch (`root.go`); pinning it is Phase 4 of the Go TODO.
 
 ---
 
@@ -198,9 +190,8 @@ permission sets) can only match on the group string it receives — see Phase 7.
   - `[[ .AppName ]]` for app folders / files.
 - **Scoped Template Data**: Give each template a view containing exactly what it renders (e.g. `CapabilityView` carries `.Module`/`.Version` for one capability). A template that has to look itself up with `index .Capabilities "postgres"` is a smell — it cannot be reused and a YAML rename breaks it silently.
 - **Capability templates must NOT declare `locals`.** Every capability a service requests renders into the *same* Terraform root module directory, and local value names must be unique within a module. Two capability files each declaring `locals { tags = ... }` is a hard `Duplicate local value definition` error, so any service with 2+ capabilities produces Terraform that will not parse. Inline values into the `module` call instead. (This shipped once; `--capabilities postgres,s3` was broken and nothing caught it because the generated Terraform was never run through `terraform validate`.)
-- **Both engines must receive the same template fields.** Go builds `CapabilityView` by embedding `Config`, so adding `[[ .Env ]]` to a template works automatically; Python builds an explicit dict in `cli.py` and will raise on `StrictUndefined`. Adding a field to any shared template means updating the Python render data in the same commit.
 
-### 2. Go Scaffolder Conventions (`2-idp-scaffolder/golang/`)
+### 2. Go Scaffolder Conventions (`2-idp-scaffolder/`)
 - **CLI Framework**: [Cobra](https://github.com/spf13/cobra) (`cmd/cli/`).
 - **Templating Package**: `text/template` (not `html/template`).
 - **Catalog Access**: The renderer holds an `fs.FS` (`Renderer.CatalogFS`), not a directory path — that single field is the testability seam that allows `fstest.MapFS` in tests and `//go:embed` later.
@@ -210,14 +201,7 @@ permission sets) can only match on the group string it receives — see Phase 7.
 - **Keep resolution pure.** `templater.Resolve(spec, goldenPath, in Config) (Config, error)` reads nothing outside its parameters. Policy belongs there, not in a cobra `RunE` closure, so `cmd/api/` can reuse it. It clones the incoming capabilities slice — a struct copy shares a slice's backing array, so appending without a copy writes through into the caller's data.
 - **Exported methods validate their own inputs.** `RenderService` guards an empty `Runtime` even though the CLI already does: `path.Join` drops empty segments, so the walk would silently target `per-service/apps/runtimes` and render *every* runtime into one directory.
 
-### 3. Python Scaffolder Conventions (`2-idp-scaffolder/python/`)
-- **CLI Framework**: [Typer](https://typer.tiangolo.com/). **REST API**: [FastAPI](https://fastapi.tiangolo.com/).
-- **Templating**: Jinja2, **not Copier** (dropped — it renders to a directory and cannot return rendered bytes, which blocks Plan-then-Write). Configure it to match Go: `variable_start_string="[["`, `block_start_string="[%"`, `keep_trailing_newline=True`, and `undefined=StrictUndefined` so a typo'd variable fails instead of rendering an empty string.
-- **Go→Jinja conversion**: `render.render_template_string()` rewrites `[[ .Var ]]` → `[[ Var ]]` and `[[- if .X ]]` → `[% if X %]` by regex. The `-` trim markers are lost in that conversion, which is why the environment needs `trim_blocks`/`lstrip_blocks` to match Go's whitespace behaviour.
-- **Validation at the load boundary**: `catalog.py` mirrors `internal/catalog/catalog.go`, including a `REQUIRED_DESTINATIONS` list that **must stay textually identical to Go's `requiredDestinations`** — if they drift, one engine accepts a catalog the other rejects.
-- **Declare your dependencies.** `copier` was imported while absent from `pyproject.toml` and `uv.lock`, working only from a stale local `.venv` — every fresh checkout had a CLI that could not start. Verify with `rm -rf .venv && uv sync && uv run python -c "import cli, api"`.
-
-### 4. Terraform Capability Modules (`enterprise-aws-infrastructure`, `iac-modules-repo/`)
+### 3. Terraform Capability Modules (`enterprise-aws-infrastructure`, `iac-modules-repo/`)
 - The modules live in their own repository (ADR 0011), not here. Each is released with its own annotated tag (`<module>-vX.Y.Z`, e.g. `postgres-v2.0.0`). Module git source URLs:
   `git::https://github.com/ok-karthik/enterprise-aws-infrastructure.git//iac-modules-repo/<category>/<module>?ref=<module>-vX.Y.Z`
 - Renovate has one manager entry per module, each with a regex versioning that only accepts its own tag prefix, so a `postgres` pin can never be offered an `eks-v1.2.0` upgrade.
@@ -260,14 +244,14 @@ permission sets) can only match on the group string it receives — see Phase 7.
 
 ## 🚀 Execution & Verification Commands
 
-### Go Scaffolder (`2-idp-scaffolder/golang/`)
+### Go Scaffolder (`2-idp-scaffolder/`)
 ```bash
-CAT=../../1-platform-catalog        # without this the CLI fetches the catalog from GitHub
+CAT=../1-platform-catalog        # without this the CLI fetches the catalog from GitHub
 
 go build ./... && go vet ./... && gofmt -l . && go test ./...
 
-go run . onboard-team --catalog-root $CAT --output-root /tmp/out -t payments
-go run . add-service  --catalog-root $CAT --output-root /tmp/out -t payments -a checkout \
+go run . onboard-tenant --catalog-root $CAT --output-root /tmp/out --tenant-name tenant-a --owner team-a
+go run . add-service  --catalog-root $CAT --output-root /tmp/out --tenant-name tenant-a --app-name app-a \
     --golden-path go-service-postgres --capabilities postgres,s3
 
 # Error paths — every one must exit 1 AND write nothing
@@ -275,16 +259,6 @@ go run . add-service ... --golden-path nope          # unknown golden path
 go run . add-service ... --runtime doesnotexist      # no such runtime directory
 go run . add-service ... --capabilities bogus        # unknown capability
 go run . add-service ...                             # neither --runtime nor --golden-path
-```
-
-### Python Scaffolder (`2-idp-scaffolder/python/`)
-```bash
-uv sync
-uv run python main.py onboard-team --team-name payments
-uv run python main.py add-service --team-name payments --app-name checkout \
-    --golden-path go-service-postgres --capabilities postgres,s3
-
-make run-api        # FastAPI on the same engine; /docs for the OpenAPI UI
 ```
 
 ### Verifying a change did not alter output
@@ -295,22 +269,11 @@ immediately before the failure that matters.
 ```bash
 # Regression check against any commit, without writing into the repo
 git worktree add /tmp/wt <ref>
-(cd /tmp/wt/2-idp-scaffolder/golang && go run . add-service ... --output-root /tmp/base)
+(cd /tmp/wt/2-idp-scaffolder && go run . add-service ... --output-root /tmp/base)
 go run . add-service ... --output-root /tmp/new
 diff -r /tmp/base /tmp/new
 git worktree remove --force /tmp/wt
 ```
-
-### The two-engine acceptance test
-
-The catalog is only a contract if both engines agree. Python has no `--output-root` yet
-(Python TODO Phase 3), so today this needs removing the scratch team from
-`3-tenant-repos/` afterwards.
-
-```bash
-diff -r /tmp/go-out/<tenant> 3-tenant-repos/<tenant>
-```
-
 
 ### Kyverno policies
 
@@ -342,9 +305,9 @@ kyverno apply 4-platform-engineering/2-cluster-services/security-governance/ \
 9. **Taxonomy (Team vs. Tenant):** `{tenant}` is the isolation boundary and the directory name (`3-tenant-repos/<tenant>`): namespace, AppProject, quota, and both repos are named after it. A *team* is the human group that owns a tenant (`--owner`), and appears only in CODEOWNERS and the `platform:<team>:<tier>` identity groups. Phase 13 reversed the earlier rule that used `<team>` as the directory. The fixture makes the difference visible: tenant `tenant-a`, owned by `team-a`.
 
 10. **Data-Driven Scaffolder (Catalog Destinations):** The CLI avoids hardcoded output paths. Instead, a `destinations:` ABI mapping block in `1-platform-catalog/catalog.yaml` defines the precise target directories for team blueprints, ApplicationSets, runtimes, service metadata, delivery values, and capabilities. Every key is the literal source directory inside the catalog, so the renderer derives the source path from the key rather than hardcoding both sides. Both scaffolders substitute `{tenant}`, `{app}`, `{env}` before writing (`{system}` was removed along with the system directory level — see decision 5), and `LoadCatalog` validates that every required key exists so a mismatch fails at load rather than mid-render.
-11. **Plan-then-Write is the intended architecture, NOT the current one.** Today both engines render and write file-by-file. Go buffers each template in memory before writing it, so a *single* template failure leaves no truncated file — but a failure on file 5 of 10 still leaves four on disk. `--dry-run` is declared in `root.go` and **never read**, so passing it performs a full silent write. Neither engine has an in-memory `Plan` map yet. Getting there (`plan_service(cfg) -> dict[str, bytes]`, then `write_plan`) is Phase 3 in the Go TODO and Phase 2 in the Python TODO, and it is the prerequisite for an honest `--dry-run`, the API's plan endpoint, and in-memory golden tests. Do not describe this as done.
+11. **Plan-then-Write is the intended architecture, NOT the current one.** Today the scaffolder renders and writes file-by-file. Go buffers each template in memory before writing it, so a *single* template failure leaves no truncated file — but a failure on file 5 of 10 still leaves four on disk. `--dry-run` is declared in `root.go` and **never read**, so passing it performs a full silent write. It has no in-memory `Plan` map yet. Getting there is Phase 3 in the Go TODO, and it is the prerequisite for an honest `--dry-run`, the API's plan endpoint, and in-memory golden tests. Do not describe this as done.
 12. **Runtimes are declared, and an undeclared directory is deliberately invisible.** `catalog.yaml` carries a `runtimes:` map alongside `capabilities:`, and `validate()` checks it in both useful directions: a golden path may not name a runtime that is not declared, and a declared runtime must have a directory under `per-service/apps/runtimes/`. `Resolve` applies the same check to an explicit `--runtime`, which never passes through golden-path validation. What is **not** checked — on purpose — is the reverse: a directory that exists but is not listed in `runtimes:` is simply not offered, which is what lets a half-built runtime sit in the tree without being scaffoldable. "Supported" is a platform decision, not a consequence of what happens to be on disk. `TestLoadCatalog_UndeclaredRuntimeDirectoryIsIgnored` guards this; do not "fix" it by adding a reverse check or by auto-discovering directories into `c.Runtimes`. Note the asymmetry with capabilities is principled rather than accidental: a capability entry carries `module` + `version` that the template cannot get from a directory name (the module is remote and independently versioned), whereas a runtime directory is local and self-contained. When runtimes acquire real metadata — base image, default port, deprecation status — the natural next step is a co-located `runtime.yaml` per directory (the Backstage model), not more central YAML.
-13. **Generated output is not yet idempotent.** Both engines use truncating writes, so re-running `add-service` overwrites a team's edits to a scaffolded file. Skip-if-exists plus `--force` is planned alongside Plan-then-Write. Copier used to provide `_skip_if_exists` on the Python side; that guarantee was given up when Copier was dropped (Copier renders *to a directory* and cannot return rendered bytes, which is incompatible with Plan-then-Write).
+13. **Generated output is not yet idempotent.** The scaffolder uses truncating writes, so re-running `add-service` overwrites a team's edits to a scaffolded file. Skip-if-exists plus `--force` is planned alongside Plan-then-Write.
 
 ---
 

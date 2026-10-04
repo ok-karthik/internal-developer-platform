@@ -44,7 +44,7 @@ lack.
 `provisioner: terraform` → `per-service/infra/capabilities/<cap>.tf.tmpl`, applied by a
 Terraform run; `provisioner: ack` → `per-service/gitops/capabilities/<cap>.yaml.tmpl`,
 applied by ArgoCD reconciling a Kubernetes-native CRD. The directory a template lives in
-**is** the routing decision — both scaffolder engines look in the directory that matches
+**is** the routing decision — the scaffolder looks in the directory that matches
 a capability's declared provisioner, so there is no file-extension sniffing and no
 destinations key pointing at a directory that doesn't exist.
 

@@ -12,7 +12,7 @@ customers. Four pillars deliver that:
 | Pillar | What it means here |
 |---|---|
 | **UX** — Golden Paths | Curated, secure-by-default runtime + delivery templates a developer picks by name |
-| **Self-service portal** | A CLI (Go, with a Python twin) that scaffolds a service in one command, no platform-team intervention |
+| **Self-service portal** | A Go CLI that scaffolds a service in one command, no platform-team intervention |
 | **Stable API** | Infrastructure is version-pinned Terraform modules and ArgoCD-managed manifests — never hand-edited |
 | **Reconciliation engine** | GitOps: git is the source of truth, ArgoCD makes the cluster match it, always |
 
@@ -25,7 +25,7 @@ flowchart LR
     subgraph IDP ["Internal Developer Platform — Request to Running Service"]
         direction LR
         B1["1-platform-catalog<br/>(golden paths & capabilities)"]
-        B2["2-idp-scaffolder<br/>(Go + Python CLI)"]
+        B2["2-idp-scaffolder<br/>(Go CLI)"]
         B3["3-tenant-repos<br/>(generated team repos)"]
         B4["4-platform-engineering<br/>(cluster, cloud infra, ArgoCD)<br/>☁️ AWS EKS | 🐙 ArgoCD"]
 
@@ -55,7 +55,6 @@ of each build phase, in order.
 - [How Requests Flow Through the Platform](#️-how-requests-flow-through-the-platform)
 - [Multi-Tenancy: Two Layers of Isolation](#-multi-tenancy-two-layers-of-isolation)
 - [Identity & Single Sign-On](#-identity--single-sign-on)
-- [One Catalog, Two Engines](#-one-catalog-two-engines)
 - [Component Matrix](#-component-matrix)
 - [Cloud Portability](#️-cloud-portability)
 - [Operations Guide](#️-operations-guide)
@@ -72,11 +71,9 @@ of each build phase, in order.
 internal-developer-platform/
 ├── 1-platform-catalog/        # WHAT THE PLATFORM OFFERS — golden paths, runtimes,
 │                               #   capabilities, and catalog.yaml (the single source
-│                               #   of truth both scaffolder engines read)
+│                               #   of truth the scaffolder reads)
 │
-├── 2-idp-scaffolder/          # THE SELF-SERVICE CLI — two engines, one contract
-│   ├── golang/                #   Go + Cobra — the definitive engine
-│   └── python/                #   Python + Typer/FastAPI — same two verbs, same output
+├── 2-idp-scaffolder/          # THE SELF-SERVICE CLI — Go + Cobra (ADR 0015)
 │
 ├── 3-tenant-repos/            # THE GENERATED OUTPUT — what the CLI writes. Each tenant is
 │                               #   two directories (workloads-repo/, gitops-repo/), one per
@@ -122,30 +119,23 @@ make setup
 Once the platform is running, generate a new microservice with one command:
 
 ```bash
-cd 2-idp-scaffolder/golang
+cd 2-idp-scaffolder
 
-# Step 1 — once per team: creates the namespace, network policy, RBAC, etc.
-go run . onboard-team --catalog-root ../../1-platform-catalog --team-name payments
+# Step 1 — once per tenant: namespace, network policy, RBAC, etc.
+go run . onboard-tenant --catalog-root ../1-platform-catalog \
+                        --tenant-name tenant-a --owner team-a
 
-# Step 2 — once per service: generates source code + deployment config
-go run . add-service --catalog-root ../../1-platform-catalog \
-                     --team-name payments --app-name checkout-api \
+# Step 2 — once per service: source code + deployment config
+go run . add-service --catalog-root ../1-platform-catalog \
+                     --tenant-name tenant-a --app-name app-a \
                      --golden-path go-service-postgres
 ```
 
 `--golden-path` picks a pre-built combination of language + database + delivery config from
-`catalog.yaml`. The Python engine exposes the identical two commands, plus a REST API:
-
-```bash
-cd 2-idp-scaffolder/python && uv sync
-uv run python main.py onboard-team --team-name payments
-uv run python main.py add-service --team-name payments --app-name checkout-api \
-                      --golden-path go-service-postgres
-make run-api      # FastAPI on the same engine; open /docs for the OpenAPI UI
-```
+`catalog.yaml`. Or run `make demo-onboard-tenant` / `make demo-add-service`.
 
 > **Heads up:** without `--catalog-root`, the CLI fetches the catalog from GitHub instead of
-> your local edits. Neither engine is idempotent yet — re-running `add-service` overwrites
+> your local edits. The CLI is not idempotent yet — re-running `add-service` overwrites
 > hand edits to a previously generated file (see [Known Limitations](#️-known-limitations)).
 
 ### Tear it down
@@ -364,21 +354,9 @@ not five separate systems that can drift apart.
 
 ---
 
-## 🔬 One Catalog, Two Engines
+## 🔬 Keeping the Catalog Honest
 
-Most reference architectures claim their catalog is "the contract" and leave it at that. Here the claim is **falsifiable**.
-
-`1-platform-catalog/catalog.yaml` is consumed by two independent implementations — Go (`text/template`, Cobra) and Python (Jinja2, Typer, pydantic). Run both with the same inputs and diff the trees:
-
-```bash
-diff -r /tmp/go-out/3-tenant-repos/tenant-a 3-tenant-repos/tenant-a
-```
-
-If the output differs, one of two things is true: the engines have drifted, or the catalog is under-specified about something both had to guess. Both are findings worth having. **Today the two trees are byte-identical** — every file, both verbs.
-
-This is also why the templates carry no logic beyond one conditional, why output paths live in `catalog.yaml`'s `destinations:` table rather than in either codebase, and why both engines validate the same required keys at load time. A contract that only one implementation reads is just a config file.
-
-> Two engines is a deliberate teaching choice, not a production recommendation. In a real platform you would ship one and spend the saved effort on Day-2 concerns — `--dry-run`, idempotent regeneration, catalog version pinning. Those are exactly the items in the two `TODO.md` files.
+The catalog is checked when it is loaded: `internal/catalog` fails before writing anything if a required `destinations:` key is missing. The templater has golden-file tests (`internal/templater/testdata/`), and CI scaffolds a real tenant and service on every PR (`smoke-test-go-cli`). A Python twin used to check this by byte-for-byte diff; it was retired in [ADR 0015](docs/adr/0015-go-only-scaffolder.md) because keeping two engines in sync cost more than it caught.
 
 ---
 
@@ -469,9 +447,9 @@ they'd be easy to miss.
   either a real Terraform runner (plan on PR, apply on merge) or moving cheap/recreatable
   capabilities onto a continuously-reconciling controller (which is what the ACK path
   already does for S3 and IAM).
-- **Neither scaffolder engine is idempotent.** Re-running `add-service` overwrites any hand
+- **The scaffolder is not idempotent.** Re-running `add-service` overwrites any hand
   edits made to a previously generated file. A "skip if exists" mode and a working
-  `--dry-run` flag are the next items on both engines' `TODO.md`.
+  `--dry-run` flag are the next items for the scaffolder.
 - **Go runtime has no OTel SDK yet.** The telemetry pipeline is wired (Instrumentation CR ->
   `platform-otlp` OpenTelemetryCollector -> Prometheus OTLP receiver with `service_name` and `namespace`
   labels), but the Go runtime template has no OTel SDK, so `app-a` does not emit metric series
