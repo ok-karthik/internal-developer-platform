@@ -563,3 +563,50 @@ func TestRenderRejectsBadNamesAndWritesNothing(t *testing.T) {
 		})
 	}
 }
+
+// RenderService is called directly (no Resolve), so these prove the renderer protects
+// itself: a bad runtime or capability must fail before the first file is written.
+func TestRenderServiceChecksRuntimeAndCapabilitiesBeforeWriting(t *testing.T) {
+	spec, err := catalog.LoadCatalog(os.DirFS(catalogDir))
+	if err != nil {
+		t.Fatalf("LoadCatalog failed: %v", err)
+	}
+	base := Config{TenantName: "tenant-a", AppName: "app-a", Env: "dev", Runtime: "go"}
+
+	cases := []struct {
+		name string
+		cfg  Config
+		want error
+	}{
+		{"runtime traversal", func() Config { c := base; c.Runtime = "../../gitops"; return c }(), ErrUnknownRuntime},
+		{"unknown capability after a good one", func() Config { c := base; c.Capabilities = []string{"postgres", "bogus"}; return c }(), ErrUnknownCapability},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Count one level above the output dir, because a traversal escapes it.
+			root := t.TempDir()
+			r := &Renderer{CatalogFS: os.DirFS(catalogDir), Spec: spec, OutputDir: filepath.Join(root, "out", "repo")}
+
+			if err := r.RenderService(context.Background(), tc.cfg); !errors.Is(err, tc.want) {
+				t.Fatalf("error = %v, want %v", err, tc.want)
+			}
+
+			files := 0
+			walkErr := filepath.WalkDir(root, func(_ string, d os.DirEntry, err error) error {
+				if err != nil {
+					return err
+				}
+				if !d.IsDir() {
+					files++
+				}
+				return nil
+			})
+			if walkErr != nil {
+				t.Fatalf("WalkDir: %v", walkErr)
+			}
+			if files != 0 {
+				t.Errorf("wrote %d files, want 0", files)
+			}
+		})
+	}
+}

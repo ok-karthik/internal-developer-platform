@@ -209,6 +209,16 @@ func (r *Renderer) RenderService(ctx context.Context, cfg Config) error {
 		return err
 	}
 
+	// Everything is checked before the first file is written, so a failure leaves nothing behind.
+	if _, ok := r.Spec.Runtimes[cfg.Runtime]; !ok {
+		return &ValidationError{Field: "runtime", Value: cfg.Runtime, Err: ErrUnknownRuntime}
+	}
+	for _, capName := range cfg.Capabilities {
+		if _, ok := r.Spec.Capabilities[capName]; !ok {
+			return &ValidationError{Field: "capability", Value: capName, Err: ErrUnknownCapability}
+		}
+	}
+
 	buildingBlocks := []blueprint{
 		{src: path.Join("per-service", "apps", "runtimes", cfg.Runtime), destKey: "per-service/apps/runtimes"},
 		{src: "per-service/apps/service-meta", destKey: "per-service/apps/service-meta"},
