@@ -538,6 +538,7 @@ IAM, load balancers, storage, and cluster authentication are only genuinely test
 ## 📚 Further Reading
 
 - [`PLAN.md`](PLAN.md) — open work only, with links to each plan
+- [`docs/ai-workflow.md`](docs/ai-workflow.md) — how changes are made: AI plan → execute → review, and what the reviews caught
 - [`docs/plans/EXECUTION_LOG.md`](docs/plans/EXECUTION_LOG.md) — what was built, in order
 - [`docs/identity-and-sso.md`](docs/identity-and-sso.md) — the full identity system write-up
 - [`docs/gitops-delivery.md`](docs/gitops-delivery.md) — monorepo-to-polyrepo delivery, explained

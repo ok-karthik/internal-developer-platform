@@ -5,7 +5,8 @@ When a phase is done: move its section there and leave one line in "Recently don
 
 **How work is planned here:** Opus measures and writes a plan in `docs/plans/YYYY-MM-DD-<slug>.md`
 → the `implementer` agent (Sonnet) executes it in a git worktree, one commit per part →
-the `reviewer` agent (Opus) checks it → the owner pushes and merges. A plan lists measured
+the `reviewer` agent (Opus) checks it → the owner pushes and merges. Details, agent files and what the
+reviews caught: [`docs/ai-workflow.md`](docs/ai-workflow.md). A plan lists measured
 facts, exact scope, rules it could break, a verify sequence, and "done means".
 
 ---
@@ -14,7 +15,7 @@ facts, exact scope, rules it could break, a verify sequence, and "done means".
 
 | Phase | What | State | Plan / details |
 |---|---|---|---|
-| **23** | Backstage → `github:actions:dispatch` → `scaffold-service.yaml` → Go CLI → PR | Planned, ready for Sonnet | [`2026-10-04-backstage-dispatch-workflow.md`](docs/plans/2026-10-04-backstage-dispatch-workflow.md) · background: [`docs/backstage/LEARNING.md`](docs/backstage/LEARNING.md) |
+| **23** | Backstage → `github:actions:dispatch` → `scaffold-service.yaml` → Go CLI → PR | Built + reviewed — **PR #41 open**; after merge do the owner steps in the plan | [`2026-10-04-backstage-dispatch-workflow.md`](docs/plans/2026-10-04-backstage-dispatch-workflow.md) · background: [`docs/backstage/LEARNING.md`](docs/backstage/LEARNING.md) |
 | **14** | Prove it runs: recording, fire an alert, walk a runbook | In progress since 2026-09-22 | below · full record in the log, "Phase 14" |
 | **18** | Fleet / Karpenter: pieces that need the foundation repo | Waiting on `enterprise-aws-infrastructure` | below · log, "Phase 18" |
 | **19** | Two small leftovers | Not started | below · log, "Phase 19" |
@@ -82,6 +83,14 @@ Built and verified offline in this repo; none of it has run on a real cluster.
 - Catalog load checks that every runtime has a template folder, but not that every capability has
   its `.tf.tmpl`/`.yaml.tmpl`. A capability declared without one fails half-way through `add-service`,
   after the runtime files are written. Add the same `fs.Stat` check in `internal/catalog`.
+
+- Backstage docs: `docs/backstage/app-config.fragment.yaml` and `README.md` point the catalog at
+  `3-tenant-repos/*/apps/*/catalog-info.yaml`; the real path is `.../workloads-repo/services/<app>/`.
+  README also cites a "PLAN.md Phase 8.0" that no longer exists.
+- Backstage template: add `returnWorkflowRunDetails: true` so the output links to the exact run
+  (supported by the installed scaffolder-backend-module-github 0.9.7). Good `dev-portal` exercise.
+- AI workflow ideas (see `docs/ai-workflow.md` §6): a read-only `triage` agent for Phase 14's SLO
+  alerts; a small Go MCP server exposing `add-service` / `onboard-tenant` to agents.
 
 ## Recently done
 
