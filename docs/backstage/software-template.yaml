@@ -1,74 +1,69 @@
-# Backstage Software Template — approach (b) from README.md in this
-# directory: Backstage shells out to the EXISTING Go CLI rather than
-# reimplementing scaffolding logic in TypeScript. This is a real,
-# schema-valid Backstage template (apiVersion scaffolder.backstage.io/v1beta3)
-# — but idp:run-cli is a PLACEHOLDER custom action, not a plugin that ships
-# with any Backstage instance out of the box. Wiring it needs a real backend
-# to register the action against, which is the "no running app in this repo"
-# scope call documented in README.md.
+# Backstage Software Template. Backstage does no scaffolding itself: its only step asks
+# GitHub Actions to run .github/workflows/scaffold-service.yaml, which runs the Go CLI and
+# opens a PR. See docs/backstage/LEARNING.md and ADR 0016.
 apiVersion: scaffolder.backstage.io/v1beta3
 kind: Template
 metadata:
   name: idp-add-service
   title: Add a new service (golden path)
-  description: >
-    Runs the same 2-idp-scaffolder add-service command the CLI
-    exposes, so the portal and the terminal produce byte-identical output —
-    Backstage is a presentation layer over the CLI's domain logic, never a
-    second implementation of it (see PLAN.md Phase 8.0).
-  tags:
-    - idp
-    - golden-path
+  description: Scaffolds a service into an existing tenant and opens a pull request.
+  tags: [idp, golden-path]
 spec:
   owner: platform-team
   type: service
-
   parameters:
-    - title: Service identity
-      required: [teamName, appName, goldenPath]
+    - title: Service
+      required: [tenantName, appName, goldenPath]
       properties:
-        teamName:
-          title: Team
+        tenantName:
+          title: Tenant
           type: string
-          description: Must match an existing 3-tenant-repos/<team>/ — onboard-team is a separate template, not this one.
+          default: tenant-a
+          pattern: '^[a-z]([-a-z0-9]{0,38}[a-z0-9])?$'
+          description: Must already be onboarded (3-tenant-repos/<tenant>/).
         appName:
           title: App name
           type: string
+          pattern: '^[a-z]([-a-z0-9]{0,38}[a-z0-9])?$'
+          description: Lowercase letters, digits and dashes.
         goldenPath:
           title: Golden path
           type: string
+          default: go-service-postgres
           enum: [go-service-postgres, python-worker-s3]
-          description: "Mirrors 1-platform-catalog/catalog.yaml's golden_paths list — kept in sync by hand until Backstage reads the catalog directly (documented follow-up, not built)."
-
+          description: Kept in sync with 1-platform-catalog/catalog.yaml by hand.
+    - title: Optional
+      properties:
+        capabilities:
+          title: Extra capabilities
+          type: array
+          uniqueItems: true
+          items: { type: string, enum: [postgres, s3, iam] }
+          ui:widget: checkboxes
+        system:
+          title: Backstage system
+          type: string
+          pattern: '^([a-z]([-a-z0-9]{0,38}[a-z0-9])?)?$'
   steps:
-    - id: run-cli
-      name: Run the IDP scaffolder CLI
-      # Placeholder custom action. What it would actually do once a real
-      # Backstage backend exists to register it against: run the CLI binary
-      # inside a short-lived container with the platform's own git write
-      # credentials mounted (never the developer's), invoking exactly:
-      #   add-service --team-name ${{ parameters.teamName }}
-      #               --app-name  ${{ parameters.appName }}
-      #               --golden-path ${{ parameters.goldenPath }}
-      # then committing and opening a PR against 3-tenant-repos/. See
-      # PLAN.md Phase 8.0's "what (c) actually costs" section for the real
-      # concerns a production version of this action has to handle: git
-      # write credential scoping per team (tied to the caller's Phase 7
-      # group claim, or this is a confused-deputy), returning 202+job-id
-      # rather than blocking on the commit+push, and idempotency against a
-      # retried request.
-      action: idp:run-cli
+    - id: dispatch
+      name: Ask GitHub Actions to scaffold the service
+      action: github:actions:dispatch
       input:
-        command: add-service
-        args:
-          - "--team-name"
-          - "${{ parameters.teamName }}"
-          - "--app-name"
-          - "${{ parameters.appName }}"
-          - "--golden-path"
-          - "${{ parameters.goldenPath }}"
-
+        repoUrl: github.com?owner=ok-karthik&repo=internal-developer-platform
+        workflowId: scaffold-service.yaml
+        branchOrTagName: main
+        workflowInputs:
+          tenant_name: ${{ parameters.tenantName }}
+          app_name: ${{ parameters.appName }}
+          golden_path: ${{ parameters.goldenPath }}
+          capabilities: ${{ (parameters.capabilities or []) | join(',') }}
+          system: ${{ parameters.system or '' }}
+          requested_by: ${{ user.entity.metadata.name or 'guest' }}
   output:
     links:
-      - title: View the opened PR
-        url: "${{ steps['run-cli'].output.pullRequestUrl }}"
+      - title: Workflow runs (watch it here)
+        icon: github
+        url: https://github.com/ok-karthik/internal-developer-platform/actions/workflows/scaffold-service.yaml
+      - title: Pull requests for this service
+        icon: github
+        url: https://github.com/ok-karthik/internal-developer-platform/pulls?q=is%3Apr+head%3Ascaffold%2F${{ parameters.tenantName }}-${{ parameters.appName }}
