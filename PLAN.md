@@ -15,8 +15,8 @@ facts, exact scope, rules it could break, a verify sequence, and "done means".
 
 | Phase | What | State | Plan / details |
 |---|---|---|---|
-| **23** | Backstage → `github:actions:dispatch` → `scaffold-service.yaml` → Go CLI → PR | Built + reviewed — **PR #41 open**; after merge do the owner steps in the plan | [`2026-10-04-backstage-dispatch-workflow.md`](docs/plans/2026-10-04-backstage-dispatch-workflow.md) · background: [`docs/backstage/LEARNING.md`](docs/backstage/LEARNING.md) |
-| **14** | Prove it runs: recording, fire an alert, walk a runbook | In progress since 2026-09-22 | below · full record in the log, "Phase 14" |
+| **23** | Backstage → `github:actions:dispatch` → `scaffold-service.yaml` → Go CLI → PR | **Done 2026-10-05** — PR #41 merged; first real run made PR #42 (app-b). Left: try Create in Backstage | [`2026-10-04-backstage-dispatch-workflow.md`](docs/plans/2026-10-04-backstage-dispatch-workflow.md) · background: [`docs/backstage/LEARNING.md`](docs/backstage/LEARNING.md) |
+| **14** | Prove it runs: recording, fire an alert, walk a runbook | In progress since 2026-09-22 — **hands-on guide ready, owner runs it** | [`2026-10-05-phase-14-prove-it-runs.md`](docs/plans/2026-10-05-phase-14-prove-it-runs.md) · log, "Phase 14" |
 | **18** | Fleet / Karpenter: pieces that need the foundation repo | Waiting on `enterprise-aws-infrastructure` | below · log, "Phase 18" |
 | **19** | Two small leftovers | Not started | below · log, "Phase 19" |
 
