@@ -1,22 +1,8 @@
 # Backstage (Phase 8) — scoped deliberately
 
-**7 of 577 postings, 1.2%.** Per `PLAN.md`'s Interlude, Backstage is demoted below Phases
-4-6 on keyword grounds. What survives here is the design decision and the config
-artifacts that follow from it — not a running Backstage instance.
-
-## Why nothing here is a running app
-
-Scaffolding an actual Backstage instance means creating a second, separate application: a
-TypeScript monorepo (`npx @backstage/create-app`), its own `node_modules`, its own backend
-process, its own auth wiring — a different category of work from everything else in this
-repo, which is Kubernetes manifests, Terraform, and a Go CLI. `PLAN.md` itself
-timeboxes this to two days and says explicitly: *"steps 1-2 deliver most of the demo value
-in a few hours, and step 3 [wrapping the scaffolder] is where the schedule goes to die...
-if you hit the box, ship what works."* Given the phase's own 1.2% weight against Phases
-4-7 (all shipped, all keyword-load-bearing), spending the multi-day budget an actually
-running Backstage instance needs was the wrong trade here. What ships instead is the part
-that is genuinely reusable the day someone *does* run `npx @backstage/create-app`: the
-architectural decision, the Software Template, and the config fragment.
+The Backstage app lives in its own repo (`backstage/dev-portal`). Its deployment will live under
+`4-platform-engineering/2-cluster-services/` later. This folder holds what this repo owns: the Software
+Template, a config fragment, and the workflow Backstage calls.
 
 ## Does Backstage replace the CLI? No — it becomes a client of it.
 
@@ -28,27 +14,44 @@ control — see `PLAN.md` Phase 8.0 for the full argument, including why a CLI a
 can run and read is a *better* artefact for a job search than a UI wrapping someone else's
 framework.
 
-Three ways to connect them, and the one actually used here:
+Four ways to connect them, and the one actually used here:
 
 | | Approach | Cost | This repo |
 |---|---|---|---|
-| (a) | Reimplement scaffolding as Backstage TS actions | high | **Rejected** — throws away the Go work |
-| **(b)** | Backstage shells out to the CLI binary in its own container | ~0 | **`software-template.yaml` below** |
-| (c) | CLI logic behind HTTP; Backstage calls it | 2-3 days | Documented as the next step, not built |
+| (a) | Reimplement scaffolding as Backstage TypeScript actions | high | **Rejected** — throws away the Go work |
+| (b) | Custom action (`idp:run-cli`) runs the CLI inside Backstage | medium | **Replaced** — needs TypeScript, Go in the Backstage image, and push credentials in Backstage |
+| (c) | CLI logic behind an HTTP API; Backstage calls it | 2-3 days | Not built (ADR 0015) |
+| **(d)** | **`github:actions:dispatch` → `scaffold-service.yaml` → PR** | low | **Used** (ADR 0016) |
 
-## What is actually here
+## How the pieces connect
 
-- **`software-template.yaml`** — a real Backstage Software Template using the built-in
-  `fetch:template` and `publish:github` actions plus a placeholder custom action
-  (`idp:run-cli`) that shells to `2-idp-scaffolder`'s `add-service` command inside
-  its own container — approach (b). The custom action itself is a few lines of TypeScript
-  once a real Backstage backend exists to host it; it is not written here because there is
-  no backend to host it in, and an action file with no plugin around it would be inert.
+```
+Developer fills the Backstage form (tenant, app, golden path, capabilities, system)
+        │  step: github:actions:dispatch   (built-in Backstage action, no TypeScript)
+        ▼
+GitHub Actions: .github/workflows/scaffold-service.yaml   (workflow_dispatch)
+        │  1. validate inputs          3. go run . add-service --output-root ../3-tenant-repos
+        │  2. tenant exists, app new   4. commit on branch scaffold/<tenant>-<app>, open a PR
+        ▼
+Pull request with the new service under 3-tenant-repos/<tenant>/...
+        │  human review + merge
+        ▼
+tenant-repos-ci-cd.yaml (already exists) builds the image and renders manifests → ArgoCD syncs
+```
+
+The workflow writes exactly what `make demo-add-service` writes today — `workloads-repo/services/<app>/`,
+`workloads-repo/infra/services/<app>/<env>/` and `gitops-repo/services/<app>/<env>/` — but on a new
+branch, delivered as a PR instead of a local change. It never pushes to `main`.
+
+## What is here
+
+- **`software-template.yaml`** — the Backstage form. Its one step dispatches the workflow.
 - **`app-config.fragment.yaml`** — the catalog `locations` entry that would make
   `add-service`'s already-emitted `catalog-info.yaml` (`3-tenant-repos/*/apps/*/catalog-info.yaml`)
   visible to Backstage with zero new code, plus the OIDC `auth` block pointing at
-  Keycloak's `backstage` client (Phase 7.1) — merge this into a real `app-config.yaml` once
-  one exists.
+  Keycloak's `backstage` client (Phase 7.1) — merge this into a real `app-config.yaml`.
+- **`LEARNING.md`** — plain-language guide to how Backstage works.
+- **`.github/workflows/scaffold-service.yaml`** — the workflow that runs the CLI and opens the PR.
 
 ## The design rule this protects
 
