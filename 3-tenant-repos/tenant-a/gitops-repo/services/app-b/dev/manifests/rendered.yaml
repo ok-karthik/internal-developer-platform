@@ -1,0 +1,168 @@
+---
+# Source: service/templates/serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: app-b
+  labels:
+    helm.sh/chart: service-2.1.0
+    app.kubernetes.io/name: app-b
+    app.kubernetes.io/instance: app-b
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    team: tenant-a
+automountServiceAccountToken: 
+
+---
+# Source: service/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: app-b
+  labels:
+    helm.sh/chart: service-2.1.0
+    app.kubernetes.io/name: app-b
+    app.kubernetes.io/instance: app-b
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    team: tenant-a
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8080
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: app-b
+    app.kubernetes.io/instance: app-b
+
+---
+# Source: service/templates/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app-b
+  labels:
+    helm.sh/chart: service-2.1.0
+    app.kubernetes.io/name: app-b
+    app.kubernetes.io/instance: app-b
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    team: tenant-a
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: app-b
+      app.kubernetes.io/instance: app-b
+  template:
+    metadata:
+      annotations:
+        instrumentation.opentelemetry.io/inject-sdk: app-b-autoinstrumentation
+      labels:
+        helm.sh/chart: service-2.1.0
+        app.kubernetes.io/name: app-b
+        app.kubernetes.io/instance: app-b
+        app.kubernetes.io/version: "1.0.0"
+        app.kubernetes.io/managed-by: Helm
+        team: tenant-a
+    spec:
+      serviceAccountName: app-b
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        # app.name, not .Chart.Name — the chart is generically named "service", so
+        # .Chart.Name would label every container in the fleet "service".
+        - name: app-b
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+              - ALL
+            readOnlyRootFilesystem: true
+          image: "ghcr.io/ok-karthik/internal-developer-platform/tenant-a/app-b:latest"
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          resources:
+            limits:
+              cpu: 400m
+              memory: 512Mi
+            requests:
+              cpu: 100m
+              memory: 128Mi
+
+---
+# Source: service/templates/ingress.yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: app-b
+  labels:
+    helm.sh/chart: service-2.1.0
+    app.kubernetes.io/name: app-b
+    app.kubernetes.io/instance: app-b
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    team: tenant-a
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: "app-b-dev.local"
+      http:
+        paths:
+          - path: /
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: app-b
+                port:
+                  number: 8080
+
+---
+# Source: service/templates/instrumentation.yaml
+apiVersion: opentelemetry.io/v1alpha1
+kind: Instrumentation
+metadata:
+  name: app-b-autoinstrumentation
+  labels:
+    helm.sh/chart: service-2.1.0
+    app.kubernetes.io/name: app-b
+    app.kubernetes.io/instance: app-b
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    team: tenant-a
+spec:
+  exporter:
+    # Send telemetry to the platform OTLP collector (ADR 0014)
+    endpoint: http://platform-otlp-collector.monitoring.svc.cluster.local:4317
+  propagators:
+    - tracecontext
+    - baggage
+    - b3
+  sampler:
+    type: parentbased_always_on
+  python:
+    image: ghcr.io/open-telemetry/opentelemetry-operator/autoinstrumentation-python:latest
+    env:
+      - name: OTEL_PYTHON_DISABLED_INSTRUMENTATIONS
+        value: "system_metrics"
+      - name: OTEL_LOGS_EXPORTER
+        value: "none"
+      - name: OTEL_EXPORTER_OTLP_ENDPOINT
+        value: "http://platform-otlp-collector.monitoring.svc.cluster.local:4318"
+      - name: OTEL_SEMCONV_STABILITY_OPT_IN
+        value: "http"
+  java:
+    image: ghcr.io/open-telemetry/opentelemetry-operator/autoinstrumentation-java:latest
+    env:
+      - name: OTEL_EXPORTER_OTLP_ENDPOINT
+        value: "http://platform-otlp-collector.monitoring.svc.cluster.local:4318"
+  nodejs:
+    image: ghcr.io/open-telemetry/opentelemetry-operator/autoinstrumentation-nodejs:latest
