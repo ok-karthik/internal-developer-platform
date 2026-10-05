@@ -1,0 +1,56 @@
+# Per-environment values for app-b (tenant-a).
+#
+# This file is the team's deployment API. It is the ONLY delivery artefact a team
+# edits, and the only one CI reads: CI renders the platform chart against exactly
+# this file, so `git diff` on it fully describes what will change in the cluster.
+# Promotion to prod is a PR copying this file into the prod/ folder.
+
+# Identity ------------------------------------------------------------------
+# nameOverride makes rendered resources come out as "app-b" rather than
+# "app-b-service" (the platform chart is generically named "service").
+nameOverride: "app-b"
+
+image:
+  repository: "ghcr.io/ok-karthik/internal-developer-platform/tenant-a/app-b"
+  # CI renders whatever tag is pinned here — it never injects one. That keeps the
+  # rendered manifests a pure function of (chart, this file), which is what makes
+  # the git history an honest record of what is deployed. Swap for an immutable
+  # digest or a bot-updated tag when you want real image promotion.
+  tag: "latest"
+
+replicaCount: 1
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    # cpu limit stays at 4x request, same multiplier as memory (512Mi/128Mi), to match
+    # the tenant LimitRange's maxLimitRequestRatio.cpu: "4"
+    # (per-tenant/gitops/platform/tenancy/namespace.yaml.tmpl). 500m was 5x and the
+    # ReplicaSet controller rejected every pod with "cpu max limit to request ratio per
+    # Container is 4, but provided ratio is 5.000000" — found running a real service
+    # end to end for the first time (PLAN.md Phase 14), not caught before because
+    # `make setup` had never gotten this far.
+    cpu: 400m
+    memory: 512Mi
+
+# Observability -------------------------------------------------------------
+# Opts these pods into the OpenTelemetry Instrumentation resource the chart ships.
+podAnnotations:
+  instrumentation.opentelemetry.io/inject-sdk: "app-b-autoinstrumentation"
+
+podLabels:
+  team: "tenant-a"
+
+# Networking ----------------------------------------------------------------
+# NOTE: the "-dev" suffix is hardcoded because Config has no Env field yet — the
+# scaffolder writes only dev/ today. Once Env exists this becomes app-b-{env}.
+ingress:
+  enabled: true
+  className: "traefik"
+  hosts:
+    - host: app-b-dev.local
+      paths:
+        - path: /
+          pathType: ImplementationSpecific

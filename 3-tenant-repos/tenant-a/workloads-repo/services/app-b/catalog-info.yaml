@@ -1,0 +1,27 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: app-b
+  description: app-b — go service for tenant tenant-a, delivered by GitOps
+  tags:
+    - go
+    - postgres
+  links:
+    - url: https://github.com/ok-karthik/internal-developer-platform/tree/main/3-tenant-repos/tenant-a/workloads-repo/services/app-b
+      title: Source
+      icon: github
+    - url: https://github.com/ok-karthik/internal-developer-platform/tree/main/3-tenant-repos/tenant-a/gitops-repo/services/app-b
+      title: GitOps config (all environments)
+      icon: github
+    - url: https://grafana.localhost
+      title: Grafana (local)
+      icon: dashboard
+  annotations:
+    github.com/project-slug: ok-karthik/internal-developer-platform
+    backstage.io/source-location: url:https://github.com/ok-karthik/internal-developer-platform/tree/main/3-tenant-repos/tenant-a/workloads-repo/services/app-b/
+spec:
+  type: service
+  lifecycle: production
+  owner: team-tenant-a
+  # System is a Backstage RELATION, not a location — it groups services without
+  # dictating a directory level. Omitted when --system is not supplied.
