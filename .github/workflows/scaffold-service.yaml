@@ -48,6 +48,11 @@ jobs:
           [[ -d "3-tenant-repos/$TENANT" ]] || { echo "::error::tenant '$TENANT' is not onboarded (no 3-tenant-repos/$TENANT)"; exit 1; }
           [[ ! -e "3-tenant-repos/$TENANT/workloads-repo/services/$APP" ]] \
             || { echo "::error::service '$APP' already exists in tenant '$TENANT'"; exit 1; }
+          # A branch left by an earlier run (open or closed PR) would make `git push` fail later
+          # with a confusing "rejected"; say what is wrong up front instead.
+          if git ls-remote --exit-code --heads origin "refs/heads/scaffold/$TENANT-$APP" >/dev/null; then
+            echo "::error::branch scaffold/$TENANT-$APP already exists on GitHub from an earlier run. Merge or delete it, then run again."; exit 1
+          fi
 
       - uses: actions/setup-go@v7
         with:
