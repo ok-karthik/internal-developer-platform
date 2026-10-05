@@ -1,0 +1,85 @@
+name: Scaffold a service (Backstage)
+
+# Started by Backstage's github:actions:dispatch step (docs/backstage/software-template.yaml)
+# or by hand: gh workflow run scaffold-service.yaml -f tenant_name=tenant-a -f app_name=app-b ...
+# Runs the same Go CLI as `make demo-add-service` and delivers the result as a pull request.
+on:
+  workflow_dispatch:
+    inputs:
+      tenant_name:  { description: "Existing tenant (3-tenant-repos/<tenant>)", required: true,  type: string }
+      app_name:     { description: "New service name",                          required: true,  type: string }
+      golden_path:  { description: "Golden path from catalog.yaml",             required: true,  type: choice,
+                      options: [go-service-postgres, python-worker-s3] }
+      capabilities: { description: "Extra capabilities, comma-separated (optional)", required: false, type: string, default: "" }
+      system:       { description: "Backstage system (optional)",               required: false, type: string, default: "" }
+      requested_by: { description: "Backstage user who asked (for the PR body)", required: false, type: string, default: "unknown" }
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: scaffold-${{ inputs.tenant_name }}-${{ inputs.app_name }}
+  cancel-in-progress: false
+
+jobs:
+  scaffold:
+    runs-on: ubuntu-latest
+    env:
+      TENANT: ${{ inputs.tenant_name }}
+      APP: ${{ inputs.app_name }}
+      GOLDEN_PATH: ${{ inputs.golden_path }}
+      CAPABILITIES: ${{ inputs.capabilities }}
+      SYSTEM: ${{ inputs.system }}
+      REQUESTED_BY: ${{ inputs.requested_by }}
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Validate inputs
+        run: |
+          set -euo pipefail
+          name_re='^[a-z]([-a-z0-9]{0,38}[a-z0-9])?$'   # same as nameRule in 2-idp-scaffolder/internal/templater/names.go
+          [[ "$TENANT" =~ $name_re ]] || { echo "::error::tenant_name '$TENANT' must match $name_re"; exit 1; }
+          [[ "$APP"    =~ $name_re ]] || { echo "::error::app_name '$APP' must match $name_re"; exit 1; }
+          [[ -z "$SYSTEM" || "$SYSTEM" =~ $name_re ]] || { echo "::error::system '$SYSTEM' must match $name_re"; exit 1; }
+          [[ -z "$CAPABILITIES" || "$CAPABILITIES" =~ ^(postgres|s3|iam)(,(postgres|s3|iam))*$ ]] \
+            || { echo "::error::capabilities '$CAPABILITIES' must be a comma list of postgres,s3,iam"; exit 1; }
+          [[ -d "3-tenant-repos/$TENANT" ]] || { echo "::error::tenant '$TENANT' is not onboarded (no 3-tenant-repos/$TENANT)"; exit 1; }
+          [[ ! -e "3-tenant-repos/$TENANT/workloads-repo/services/$APP" ]] \
+            || { echo "::error::service '$APP' already exists in tenant '$TENANT'"; exit 1; }
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.26'
+          cache-dependency-path: 2-idp-scaffolder/go.sum
+
+      - name: Run the scaffolder
+        working-directory: 2-idp-scaffolder
+        run: |
+          set -euo pipefail
+          args=(add-service --catalog-root ../1-platform-catalog --output-root ../3-tenant-repos
+                --tenant-name "$TENANT" --app-name "$APP" --golden-path "$GOLDEN_PATH")
+          [[ -n "$CAPABILITIES" ]] && args+=(--capabilities "$CAPABILITIES")
+          [[ -n "$SYSTEM" ]] && args+=(--system "$SYSTEM")
+          go run . "${args[@]}"
+          test -f "../3-tenant-repos/$TENANT/workloads-repo/services/$APP/catalog-info.yaml"
+
+      - name: Open a pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          branch="scaffold/$TENANT-$APP"
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git switch -c "$branch"
+          git add "3-tenant-repos/$TENANT"
+          git commit -m "feat($TENANT): scaffold $APP ($GOLDEN_PATH)"
+          git push -u origin "$branch"
+          gh pr create --base main --head "$branch" \
+            --title "feat($TENANT): scaffold $APP" \
+            --body "Scaffolded by \`scaffold-service.yaml\` for **$REQUESTED_BY** (golden path \`$GOLDEN_PATH\`, capabilities \`${CAPABILITIES:-none}\`, system \`${SYSTEM:-none}\`).
+
+          CI does not start by itself on PRs opened by GitHub Actions. To run \`ci.yaml\`, close and reopen this PR. After merge, \`tenant-repos-ci-cd.yaml\` builds the image and renders manifests."
+          echo "### PR opened for $TENANT/$APP" >> "$GITHUB_STEP_SUMMARY"
