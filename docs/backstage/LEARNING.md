@@ -108,13 +108,14 @@ Why it fits here:
    not wait or report the result (open issues [#29727](https://github.com/backstage/backstage/issues/29727),
    [#33104](https://github.com/backstage/backstage/issues/33104)). The template's output links
    point to the run and the PR.
-2. **CI does not start on a PR that GitHub Actions opened.** GitHub blocks it so workflows
-   can't trigger each other in a loop. Close and reopen the PR to run `ci.yaml`, or later use a
-   GitHub App token.
-3. **The repo setting "Allow GitHub Actions to create and approve pull requests" is off.**
-   Turn it on (Settings → Actions → General) or the PR step fails.
-4. **The Go CLI does not check names.** `--app-name ../../x` would write outside the tenant.
-   The workflow validates inputs first; moving that check into the CLI is a follow-up.
+2. **CI waits for your approval on a PR that GitHub Actions opened.** GitHub creates the `ci.yaml`
+   run but holds it ("1 workflow awaiting approval") so a bot can't run workflows unchecked.
+   Click **Approve workflows to run** on the PR. A GitHub App token would make it start on its own.
+3. **The repo setting "Allow GitHub Actions to create and approve pull requests" must be on**
+   (Settings → Actions → General), or the PR step fails. It was turned on 2026-10-05.
+4. **Names are checked twice.** The workflow checks them before using them in paths and branch
+   names, and the Go CLI checks them again before writing (Phase 24/24b): `--app-name ../../x`
+   is rejected and nothing is written.
 5. **Never paste `${{ inputs.x }}` inside a `run:` script.** Pass it through `env:` and use
    `"$X"`. Otherwise someone can type shell code into the Backstage form (script injection).
 

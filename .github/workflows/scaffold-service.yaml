@@ -86,5 +86,5 @@ jobs:
             --title "feat($TENANT): scaffold $APP" \
             --body "Scaffolded by \`scaffold-service.yaml\` for **$REQUESTED_BY** (golden path \`$GOLDEN_PATH\`, capabilities \`${CAPABILITIES:-none}\`, system \`${SYSTEM:-none}\`).
 
-          CI does not start by itself on PRs opened by GitHub Actions. To run \`ci.yaml\`, close and reopen this PR. After merge, \`tenant-repos-ci-cd.yaml\` builds the image and renders manifests."
+          GitHub holds \`ci.yaml\` on PRs opened by GitHub Actions until a maintainer clicks **Approve workflows to run** below. After merge, \`tenant-repos-ci-cd.yaml\` builds the image and renders manifests."
           echo "### PR opened for $TENANT/$APP" >> "$GITHUB_STEP_SUMMARY"

@@ -20,7 +20,9 @@ Use (d). The Backstage template has one step: dispatch `.github/workflows/scaffo
 
 - No TypeScript and no push credentials in Backstage. Backstage only needs a token that can start workflows (Actions: read and write).
 - Backstage reports "started", not "succeeded" (backstage/backstage issues #29727, #33104). The template shows links to the workflow runs and to the PR search so the user can follow the result.
-- A PR opened with `GITHUB_TOKEN` does not trigger `pull_request` workflows, so `ci.yaml` does not run on it by itself. Close and reopen the PR, or later use a GitHub App token.
+- On a PR opened with `GITHUB_TOKEN`, GitHub creates the `ci.yaml` run but holds it as "awaiting approval"
+  (`action_required`) until a maintainer clicks **Approve workflows to run** (observed 2026-10-05 on the
+  first real run, PR #42). A GitHub App token would make CI start on its own.
 - The repo setting "Allow GitHub Actions to create and approve pull requests" must be on, or the PR step fails.
 - Names are checked twice: by the workflow before it uses them in paths and branch names, and by the CLI (Phase 24, `nameRule`). Both use one identical rule: `^[a-z]([-a-z0-9]{0,38}[a-z0-9])?$`.
 - The golden-path list in the template and the workflow is copied by hand from `catalog.yaml`.
